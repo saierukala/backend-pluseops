@@ -1,0 +1,11 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// Domain models begin in Phase 02. Keeping the datasource here makes the
+// database contract explicit without prematurely creating later-phase tables.
