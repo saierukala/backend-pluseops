@@ -46,6 +46,14 @@ export async function disconnectRedis() {
   redis = undefined;
   if (!client || client.status === 'end') return;
 
+  // A lazily created client may never have opened a stream (for example, a
+  // readiness check while Redis is unavailable). `quit` is invalid in that
+  // state, but disconnecting it is safe and releases its resources.
+  if (client.status === 'wait') {
+    client.disconnect();
+    return;
+  }
+
   try {
     await client.quit();
   } catch (error) {

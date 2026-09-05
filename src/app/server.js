@@ -11,7 +11,7 @@ let shuttingDown = false;
 
 async function start() {
   const dependencies = [
-    { name: 'MySQL', connect: connectDatabase },
+    { name: 'PostgreSQL', connect: connectDatabase },
     { name: 'Redis', connect: connectRedis }
   ];
   const results = await Promise.allSettled(dependencies.map(({ connect }) => connect()));

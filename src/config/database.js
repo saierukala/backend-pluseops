@@ -24,7 +24,7 @@ export async function connectDatabase() {
 
   await getPrismaClient().$connect();
   databaseReady = true;
-  logger.info('MySQL connection established');
+  logger.info('PostgreSQL connection established');
   return true;
 }
 
@@ -35,7 +35,7 @@ export async function databaseHealthCheck() {
     return true;
   } catch (error) {
     databaseReady = false;
-    logger.warn({ err: error }, 'MySQL health check failed');
+    logger.warn({ err: error }, 'PostgreSQL health check failed');
     return false;
   }
 }

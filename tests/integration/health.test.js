@@ -1,7 +1,12 @@
 import request from 'supertest';
 import { createApp } from '../../src/app/app.js';
+import { disconnectRedis } from '../../src/config/redis.js';
 
 const app = createApp();
+
+afterAll(async () => {
+  await disconnectRedis();
+});
 
 describe('health endpoints', () => {
   it('returns a liveness response and a request ID', async () => {
