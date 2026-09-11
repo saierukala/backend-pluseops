@@ -14,17 +14,144 @@ enum TenantStatus {
   CANCELLED
 }
 
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+  DRAFT
+  ARCHIVED
+}
+
+enum VariantStatus {
+  ACTIVE
+  INACTIVE
+  DRAFT
+}
+
+enum AttributeDataType {
+  TEXT
+  NUMBER
+  BOOLEAN
+  OPTION
+}
+
+enum InventoryMovementType {
+  ADJUSTMENT
+  TRANSFER
+  ORDER_RESERVATION
+  ORDER_RELEASE
+  ORDER_FULFILLMENT
+  RETURN
+  DAMAGED
+  LOST
+  COUNT
+}
+
+enum OrderStatus {
+  DRAFT
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+  CANCELLED
+}
+
+enum PaymentTransactionType {
+  CHARGE
+  REFUND
+  CAPTURE
+  VOID
+}
+
+enum RefundStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+}
+
+enum NotificationChannel {
+  IN_APP
+  EMAIL
+  SMS
+  PUSH
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  EXPORT
+  IMPORT
+}
+
 model Tenant {
   id        String   @id @default(uuid())
   name      String
   slug      String   @unique
   status    TenantStatus @default(TRIAL)
   plan      String   @default("free")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
 
-  settings TenantSettings?
-  domains  TenantDomain[]
+  settings              TenantSettings?
+  domains               TenantDomain[]
+  users                 User[]
+  roles                 Role[]
+  permissions           Permission[]
+  userRoles             UserRole[]
+  rolePermissions       RolePermission[]
+  products              Product[]
+  categories            Category[]
+  productCategories     ProductCategory[]
+  productVariants       ProductVariant[]
+  productVariantAttributes ProductVariantAttribute[]
+  productImages         ProductImage[]
+  attributeDefinitions  AttributeDefinition[]
+  attributeValues       AttributeValue[]
+  warehouses            Warehouse[]
+  inventory             Inventory[]
+  inventoryMovements    InventoryMovement[]
+  warehouseInventory    WarehouseInventory[]
+  customers             Customer[]
+  orders                Order[]
+  orderItems            OrderItem[]
+  orderStatusHistory    OrderStatusHistory[]
+  payments              Payment[]
+  paymentTransactions   PaymentTransaction[]
+  refunds               Refund[]
+  notifications         Notification[]
+  notificationPreferences NotificationPreference[]
+  notificationTemplates NotificationTemplate[]
+  auditLogs             AuditLog[]
+  activityLogs          ActivityLog[]
 
   @@map("tenants")
 }
@@ -34,8 +161,8 @@ model TenantSettings {
   tenantId  String   @unique @map("tenant_id")
   tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   metadata  Json     @default("{}")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
 
   @@map("tenant_settings")
 }
@@ -47,9 +174,609 @@ model TenantDomain {
   domain    String
   verified  Boolean  @default(false)
   primary   Boolean  @default(false)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
 
   @@unique([tenantId, domain])
   @@map("tenant_domains")
+}
+
+model User {
+  id            String     @id @default(uuid())
+  tenantId      String     @map("tenant_id")
+  tenant        Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email         String
+  passwordHash  String     @map("password_hash")
+  firstName     String     @map("first_name")
+  lastName      String     @map("last_name")
+  status        UserStatus @default(ACTIVE)
+  lastLoginAt   DateTime?  @db.Timestamptz(6) @map("last_login_at")
+  createdAt     DateTime   @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt     DateTime   @db.Timestamptz(6) @updatedAt @map("updated_at")
+  deletedAt     DateTime?  @db.Timestamptz(6) @map("deleted_at")
+
+  userRoles     UserRole[]
+  auditLogs     AuditLog[]
+  activityLogs  ActivityLog[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  isSystem    Boolean  @default(false) @map("is_system")
+  createdAt   DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt   DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  userRoles        UserRole[]
+  rolePermissions  RolePermission[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId])
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  resource    String
+  action      String
+  createdAt   DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt   DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  rolePermissions RolePermission[]
+
+  @@unique([tenantId, resource, action])
+  @@index([tenantId])
+  @@map("permissions")
+}
+
+model UserRole {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId    String   @map("role_id")
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@unique([tenantId, userId, roleId])
+  @@index([tenantId, userId])
+  @@index([tenantId, roleId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  roleId        String   @map("role_id")
+  role          Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId  String   @map("permission_id")
+  permission    Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@unique([tenantId, roleId, permissionId])
+  @@index([tenantId, roleId])
+  @@index([tenantId, permissionId])
+  @@map("role_permissions")
+}
+
+model Category {
+  id          String     @id @default(uuid())
+  tenantId    String     @map("tenant_id")
+  tenant      Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parentId    String?    @map("parent_id")
+  parent      Category?  @relation("CategoryHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children    Category[] @relation("CategoryHierarchy")
+  name        String
+  slug        String
+  description String?
+  sortOrder   Int        @default(0) @map("sort_order")
+  isActive    Boolean    @default(true) @map("is_active")
+  createdAt   DateTime   @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt   DateTime   @db.Timestamptz(6) @updatedAt @map("updated_at")
+  deletedAt   DateTime?  @db.Timestamptz(6) @map("deleted_at")
+
+  productCategories ProductCategory[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, isActive])
+  @@index([tenantId, parentId])
+  @@map("categories")
+}
+
+model Product {
+  id            String        @id @default(uuid())
+  tenantId      String        @map("tenant_id")
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  description   String?
+  brand         String?
+  status        ProductStatus @default(DRAFT)
+  basePrice     Decimal?      @db.Decimal(12, 2) @map("base_price")
+  createdAt     DateTime      @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt     DateTime      @db.Timestamptz(6) @updatedAt @map("updated_at")
+  deletedAt     DateTime?     @db.Timestamptz(6) @map("deleted_at")
+
+  categories       ProductCategory[]
+  variants         ProductVariant[]
+  images           ProductImage[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@map("products")
+}
+
+model ProductCategory {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productId   String   @map("product_id")
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  categoryId  String   @map("category_id")
+  category    Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  isPrimary   Boolean  @default(false) @map("is_primary")
+  createdAt   DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@unique([tenantId, productId, categoryId])
+  @@index([tenantId, productId])
+  @@index([tenantId, categoryId])
+  @@map("product_categories")
+}
+
+model ProductVariant {
+  id          String        @id @default(uuid())
+  tenantId    String        @map("tenant_id")
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productId   String        @map("product_id")
+  product     Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku         String
+  barcode     String?
+  price       Decimal       @db.Decimal(12, 2)
+  costPrice   Decimal?      @db.Decimal(12, 2) @map("cost_price")
+  status      VariantStatus @default(DRAFT)
+  createdAt   DateTime      @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt   DateTime      @db.Timestamptz(6) @updatedAt @map("updated_at")
+  deletedAt   DateTime?     @db.Timestamptz(6) @map("deleted_at")
+
+  attributes        ProductVariantAttribute[]
+  images            ProductImage[]
+  inventory         Inventory[]
+  warehouseInventory WarehouseInventory[]
+  orderItems        OrderItem[]
+  inventoryMovements InventoryMovement[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId, productId])
+  @@index([tenantId, barcode])
+  @@index([tenantId, status])
+  @@map("product_variants")
+}
+
+model ProductVariantAttribute {
+  id                     String   @id @default(uuid())
+  tenantId               String   @map("tenant_id")
+  tenant                 Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  variantId              String   @map("variant_id")
+  variant                ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  attributeDefinitionId  String   @map("attribute_definition_id")
+  attributeDefinition    AttributeDefinition @relation(fields: [attributeDefinitionId], references: [id], onDelete: Cascade)
+  value                  String
+  createdAt              DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt              DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  @@index([tenantId, variantId])
+  @@index([tenantId, attributeDefinitionId, value])
+  @@map("product_variant_attributes")
+}
+
+model ProductImage {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productId   String   @map("product_id")
+  product     Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  variantId   String?  @map("variant_id")
+  variant     ProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  storageKey  String   @map("storage_key")
+  url         String?
+  altText     String?  @map("alt_text")
+  sortOrder   Int      @default(0) @map("sort_order")
+  isPrimary   Boolean  @default(false) @map("is_primary")
+  createdAt   DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt   DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  @@index([tenantId, productId])
+  @@index([tenantId, variantId])
+  @@map("product_images")
+}
+
+model AttributeDefinition {
+  id          String              @id @default(uuid())
+  tenantId    String              @map("tenant_id")
+  tenant      Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  code        String
+  dataType    AttributeDataType   @map("data_type")
+  isRequired  Boolean             @default(false) @map("is_required")
+  createdAt   DateTime            @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt   DateTime            @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  values              AttributeValue[]
+  variantAttributes   ProductVariantAttribute[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("attribute_definitions")
+}
+
+model AttributeValue {
+  id                     String   @id @default(uuid())
+  tenantId               String   @map("tenant_id")
+  tenant                 Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  attributeDefinitionId  String   @map("attribute_definition_id")
+  attributeDefinition    AttributeDefinition @relation(fields: [attributeDefinitionId], references: [id], onDelete: Cascade)
+  value                  String
+  displayName            String   @map("display_name")
+  sortOrder              Int      @default(0) @map("sort_order")
+  isActive               Boolean  @default(true) @map("is_active")
+  createdAt              DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt              DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  @@unique([tenantId, attributeDefinitionId, value])
+  @@index([tenantId, attributeDefinitionId])
+  @@map("attribute_values")
+}
+
+model Warehouse {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  code        String
+  address     String?
+  city        String?
+  state       String?
+  country     String?
+  postalCode  String?  @map("postal_code")
+  isActive    Boolean  @default(true) @map("is_active")
+  isDefault   Boolean  @default(false) @map("is_default")
+  createdAt   DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt   DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
+  deletedAt   DateTime? @db.Timestamptz(6) @map("deleted_at")
+
+  inventory         Inventory[]
+  warehouseInventory WarehouseInventory[]
+  inventoryMovements InventoryMovement[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive])
+  @@map("warehouses")
+}
+
+model Inventory {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productVariantId  String   @map("product_variant_id")
+  productVariant    ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+  warehouseId       String   @map("warehouse_id")
+  warehouse         Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  quantity          Int      @default(0)
+  reservedQuantity  Int      @default(0) @map("reserved_quantity")
+  createdAt         DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt         DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  movements         InventoryMovement[] @relation("InventoryMovements")
+
+  @@unique([tenantId, productVariantId, warehouseId])
+  @@index([tenantId, productVariantId])
+  @@index([tenantId, warehouseId])
+  @@map("inventory")
+}
+
+model InventoryMovement {
+  id                String               @id @default(uuid())
+  tenantId          String               @map("tenant_id")
+  tenant            Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productVariantId  String               @map("product_variant_id")
+  productVariant    ProductVariant       @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+  warehouseId       String               @map("warehouse_id")
+  warehouse         Warehouse            @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  inventory         Inventory?           @relation("InventoryMovements", fields: [tenantId, productVariantId, warehouseId], references: [tenantId, productVariantId, warehouseId])
+  type              InventoryMovementType
+  quantityBefore    Int                  @map("quantity_before")
+  quantityChanged   Int                  @map("quantity_changed")
+  quantityAfter     Int                  @map("quantity_after")
+  reason            String?
+  referenceType     String?              @map("reference_type")
+  referenceId       String?              @map("reference_id")
+  createdBy         String?              @map("created_by")
+  createdAt         DateTime             @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@index([tenantId, productVariantId, createdAt])
+  @@index([tenantId, warehouseId, createdAt])
+  @@index([tenantId, type, createdAt])
+  @@map("inventory_movements")
+}
+
+model WarehouseInventory {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouseId       String   @map("warehouse_id")
+  warehouse         Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  productVariantId  String   @map("product_variant_id")
+  productVariant    ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+  quantity          Int      @default(0)
+  reservedQuantity  Int      @default(0) @map("reserved_quantity")
+  createdAt         DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt         DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  @@unique([tenantId, warehouseId, productVariantId])
+  @@index([tenantId, warehouseId])
+  @@index([tenantId, productVariantId])
+  @@map("warehouse_inventory")
+}
+
+model Customer {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  email         String
+  firstName     String   @map("first_name")
+  lastName      String   @map("last_name")
+  phone         String?
+  metadata      Json     @default("{}")
+  createdAt     DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt     DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
+  deletedAt     DateTime? @db.Timestamptz(6) @map("deleted_at")
+
+  orders        Order[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId, createdAt])
+  @@map("customers")
+}
+
+model Order {
+  id              String       @id @default(uuid())
+  tenantId        String       @map("tenant_id")
+  tenant          Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId      String       @map("customer_id")
+  customer        Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  status          OrderStatus  @default(DRAFT)
+  subtotal        Decimal      @db.Decimal(12, 2)
+  discountTotal   Decimal      @default(0) @db.Decimal(12, 2) @map("discount_total")
+  taxTotal        Decimal      @default(0) @db.Decimal(12, 2) @map("tax_total")
+  shippingTotal   Decimal      @default(0) @db.Decimal(12, 2) @map("shipping_total")
+  total           Decimal      @db.Decimal(12, 2)
+  currency        String       @default("USD")
+  metadata        Json         @default("{}")
+  createdAt       DateTime     @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt       DateTime     @db.Timestamptz(6) @updatedAt @map("updated_at")
+  deletedAt       DateTime?    @db.Timestamptz(6) @map("deleted_at")
+
+  items           OrderItem[]
+  statusHistory   OrderStatusHistory[]
+  payments        Payment[]
+
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, customerId])
+  @@map("orders")
+}
+
+model OrderItem {
+  id                      String   @id @default(uuid())
+  tenantId                String   @map("tenant_id")
+  tenant                  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orderId                 String   @map("order_id")
+  order                   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productVariantId        String   @map("product_variant_id")
+  productVariant          ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Restrict)
+  productNameSnapshot     String   @map("product_name_snapshot")
+  variantNameSnapshot     String   @map("variant_name_snapshot")
+  attributeSnapshot       Json     @default("{}") @map("attribute_snapshot")
+  skuSnapshot             String   @map("sku_snapshot")
+  unitPrice               Decimal  @db.Decimal(12, 2) @map("unit_price")
+  quantity                Int
+  discount                Decimal  @default(0) @db.Decimal(12, 2)
+  tax                     Decimal  @default(0) @db.Decimal(12, 2)
+  lineTotal               Decimal  @db.Decimal(12, 2) @map("line_total")
+  createdAt               DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@index([tenantId, productVariantId])
+  @@index([tenantId, orderId])
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id          String       @id @default(uuid())
+  tenantId    String       @map("tenant_id")
+  tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orderId     String       @map("order_id")
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStatus  OrderStatus? @map("from_status")
+  toStatus    OrderStatus  @map("to_status")
+  reason      String?
+  createdBy   String?      @map("created_by")
+  createdAt   DateTime     @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@index([tenantId, orderId])
+  @@index([tenantId, createdAt])
+  @@map("order_status_history")
+}
+
+model Payment {
+  id              String         @id @default(uuid())
+  tenantId        String         @map("tenant_id")
+  tenant          Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  orderId         String         @map("order_id")
+  order           Order          @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  amount          Decimal        @db.Decimal(12, 2)
+  currency        String         @default("USD")
+  status          PaymentStatus  @default(PENDING)
+  provider        String?
+  providerPaymentId String?      @map("provider_payment_id")
+  metadata        Json           @default("{}")
+  createdAt       DateTime       @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt       DateTime       @db.Timestamptz(6) @updatedAt @map("updated_at")
+  deletedAt       DateTime?      @db.Timestamptz(6) @map("deleted_at")
+
+  transactions    PaymentTransaction[]
+  refunds         Refund[]
+
+  @@index([tenantId, orderId])
+  @@index([tenantId, status])
+  @@index([tenantId, providerPaymentId])
+  @@map("payments")
+}
+
+model PaymentTransaction {
+  id                String                  @id @default(uuid())
+  tenantId          String                  @map("tenant_id")
+  tenant            Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  paymentId         String                  @map("payment_id")
+  payment           Payment                 @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  type              PaymentTransactionType
+  amount            Decimal                 @db.Decimal(12, 2)
+  currency          String                  @default("USD")
+  status            PaymentStatus
+  providerTransactionId String?             @map("provider_transaction_id")
+  metadata          Json                    @default("{}")
+  createdAt         DateTime                @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@index([tenantId, paymentId])
+  @@index([tenantId, providerTransactionId])
+  @@map("payment_transactions")
+}
+
+model Refund {
+  id                String        @id @default(uuid())
+  tenantId          String        @map("tenant_id")
+  tenant            Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  paymentId         String        @map("payment_id")
+  payment           Payment       @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  amount            Decimal       @db.Decimal(12, 2)
+  currency          String        @default("USD")
+  status            RefundStatus  @default(PENDING)
+  reason            String?
+  providerRefundId  String?       @map("provider_refund_id")
+  metadata          Json          @default("{}")
+  createdAt         DateTime      @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt         DateTime      @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  @@index([tenantId, paymentId])
+  @@index([tenantId, status])
+  @@index([tenantId, providerRefundId])
+  @@map("refunds")
+}
+
+model Notification {
+  id              String              @id @default(uuid())
+  tenantId        String              @map("tenant_id")
+  tenant          Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId          String?             @map("user_id")
+  type            NotificationType
+  title           String
+  message         String
+  channel         NotificationChannel
+  referenceType   String?             @map("reference_type")
+  referenceId     String?             @map("reference_id")
+  isRead          Boolean             @default(false) @map("is_read")
+  readAt          DateTime?           @db.Timestamptz(6) @map("read_at")
+  metadata        Json                @default("{}")
+  createdAt       DateTime            @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@index([tenantId, userId, isRead])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, referenceType, referenceId])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId        String   @map("user_id")
+  channel       NotificationChannel
+  isEnabled     Boolean  @default(true) @map("is_enabled")
+  createdAt     DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt     DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  @@unique([tenantId, userId, channel])
+  @@index([tenantId, userId])
+  @@map("notification_preferences")
+}
+
+model NotificationTemplate {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name          String
+  channel       NotificationChannel
+  subject       String?
+  body          String
+  variables     Json     @default("{}")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt     DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  @@unique([tenantId, name, channel])
+  @@index([tenantId, isActive])
+  @@map("notification_templates")
+}
+
+model AuditLog {
+  id            String       @id @default(uuid())
+  tenantId      String       @map("tenant_id")
+  tenant        Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId        String?      @map("user_id")
+  user          User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action        AuditAction
+  resource      String
+  resourceId    String?      @map("resource_id")
+  oldValue      Json?        @map("old_value")
+  newValue      Json?        @map("new_value")
+  ipAddress     String?      @map("ip_address")
+  userAgent     String?      @map("user_agent")
+  createdAt     DateTime     @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@index([tenantId, userId, createdAt])
+  @@index([tenantId, resource, resourceId])
+  @@index([tenantId, action, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("audit_logs")
+}
+
+model ActivityLog {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId      String?  @map("user_id")
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action      String
+  description String?
+  metadata    Json     @default("{}")
+  ipAddress   String?  @map("ip_address")
+  userAgent   String?  @map("user_agent")
+  createdAt   DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@index([tenantId, userId, createdAt])
+  @@index([tenantId, action, createdAt])
+  @@index([tenantId, createdAt])
+  @@map("activity_logs")
 }

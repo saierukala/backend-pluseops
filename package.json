@@ -10,7 +10,8 @@
     "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watch",
     "lint": "eslint .",
     "prisma:generate": "prisma generate",
-    "prisma:validate": "prisma validate"
+    "prisma:validate": "prisma validate",
+    "db:seed": "node prisma/seed.js"
   },
   "engines": {
     "node": ">=22"
