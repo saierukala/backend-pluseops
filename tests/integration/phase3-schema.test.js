@@ -817,7 +817,7 @@ describe('Phase 3 schema integration tests', () => {
       // Note: Prisma/PostgreSQL doesn't support composite foreign keys with tenant_id
       // Cross-tenant protection must be enforced at the application/service layer
       // This test documents the current behavior
-      
+
       const tenantA = await prisma.tenant.create({ data: { name: 'Tenant A', slug: 'tenant-a-x' } });
       const tenantB = await prisma.tenant.create({ data: { name: 'Tenant B', slug: 'tenant-b-x' } });
 
