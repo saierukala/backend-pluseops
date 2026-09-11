@@ -2,7 +2,7 @@
 
 A production-minded, multi-tenant backend for PulseOps, built with Node.js, Express, PostgreSQL, Prisma, and Redis. The project follows a modular-monolith architecture and is being delivered incrementally so that every foundation layer is tested before business modules are introduced.
 
-**Current status:** Phase 01 — Project Foundation is complete and verified. Phase 02 will introduce the multi-tenant foundation.
+**Current status:** Phase 03 — Database Schema & Migrations is **COMPLETE and VERIFIED**.
 
 The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_Backend_Codex_Master_Roadmap.md`](docs/PulseOps_Backend_Codex_Master_Roadmap.md).
 
@@ -16,6 +16,9 @@ The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_
 - Helmet, CORS allow-list, HPP, compression, JSON size limits, and rate limiting
 - Graceful shutdown for HTTP, Prisma, and Redis clients
 - Jest/Supertest integration coverage for health and error behavior
+- **Multi-tenant foundation: Tenant, TenantSettings, TenantDomain with CRUD APIs**
+- **Core relational schema: 31 Phase 03 models with tenant isolation, Decimal money, TIMESTAMPTZ(6)**
+- **Minimal idempotent seed for foundational roles/permissions**
 
 ## Prerequisites
 
@@ -39,13 +42,25 @@ The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_
 
 3. Update `DATABASE_URL` and `REDIS_URL` in `.env` for your local services.
 
-4. Generate Prisma Client after the database model is introduced (Phase 02/03):
+4. Generate Prisma Client:
 
    ```bash
    npm run prisma:generate
    ```
 
-5. Start the API:
+5. Run database migrations:
+
+   ```bash
+   npx prisma migrate deploy
+   ```
+
+6. (Optional) Seed foundational roles/permissions:
+
+   ```bash
+   npm run db:seed
+   ```
+
+7. Start the API:
 
    ```bash
    npm run dev
@@ -75,6 +90,10 @@ Never commit `.env`. Use a secret manager or deployment-specific environment var
 | GET | `/health` | Liveness probe. Works without PostgreSQL or Redis. |
 | GET | `/health/db` | PostgreSQL readiness probe. Returns `503` until connected. |
 | GET | `/health/redis` | Redis readiness probe. Returns `503` until connected. |
+| POST | `/api/v1/tenants` | Create a tenant |
+| GET | `/api/v1/tenants/:id` | Get tenant by ID |
+| PATCH | `/api/v1/tenants/:id` | Update tenant |
+| DELETE | `/api/v1/tenants/:id` | Delete tenant |
 
 The same health endpoints are also exposed under `/api/v1/health`, although infrastructure probes should use the root `/health` routes.
 
@@ -88,7 +107,20 @@ npm start
 npm test
 npm run lint
 npm run prisma:validate
+npm run prisma:generate
+npx prisma migrate status
+npm run db:seed
 ```
+
+## Verification
+
+Latest verification results (all passing):
+
+- **Tests:** 56/56 passing (integration: health, tenants, request boundaries, Phase 03 schema)
+- **Lint:** ESLint 0 errors
+- **Prisma validate:** ✅ Valid
+- **Prisma generate:** ✅ Success
+- **Migration status:** Database schema up to date (3 migrations applied)
 
 ## Operational notes
 
@@ -96,10 +128,39 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 
 ## Current scope
 
-- Phase 01 provides operational infrastructure only; tenant models, authentication, roles, permissions, and business APIs begin in later phases.
+- Phase 01 provides operational infrastructure only.
+- Phase 02 provides tenant management and the tenant context foundation.
+- Phase 03 provides the complete core relational schema (31 models) with tenant isolation, proper indexes, constraints, Decimal money, and TIMESTAMPTZ(6) timestamps.
+- Authentication, RBAC, User management, Product management, Inventory, Orders, Payments, Notifications, WebSockets, Redis caching, BullMQ, External integrations, Analytics, Swagger/OpenAPI, Docker/CI/CD are **NOT implemented yet**.
 - PostgreSQL and Redis connectivity are verified locally. The health endpoints distinguish liveness from dependency readiness.
 - Docker and deployment configuration are intentionally deferred until their dedicated delivery phase.
 
 ## Phase status
 
-Phase 01 is complete. The next roadmap increment is **Phase 02: Multi-Tenant Foundation**.
+| Phase | Description | Status |
+| --- | --- | --- |
+| Phase 01 | Project Foundation | ✅ Complete |
+| Phase 02 | Multi-Tenant Foundation | ✅ Complete |
+| Phase 03 | Database Schema & Migrations | ✅ Complete |
+| Phase 04 | Authentication | ⏳ Not started |
+| Phase 05 | RBAC | ⏳ Not started |
+| Phase 06 | User Management | ⏳ Not started |
+| Phase 07 | Product Management | ⏳ Not started |
+| Phase 08 | Inventory | ⏳ Not started |
+| Phase 09 | Orders | ⏳ Not started |
+| Phase 10 | Payments | ⏳ Not started |
+| Phase 11 | Audit | ⏳ Not started |
+| Phase 12 | Notifications | ⏳ Not started |
+| Phase 13 | WebSockets | ⏳ Not started |
+| Phase 14 | Redis Caching | ⏳ Not started |
+| Phase 15 | BullMQ | ⏳ Not started |
+| Phase 16 | External Integrations | ⏳ Not started |
+| Phase 17 | API Orchestration | ⏳ Not started |
+| Phase 18 | Analytics | ⏳ Not started |
+| Phase 19 | Performance | ⏳ Not started |
+| Phase 20 | Security Hardening | ⏳ Not started |
+| Phase 21 | Complete Testing | ⏳ Not started |
+| Phase 22 | Swagger/OpenAPI | ⏳ Not started |
+| Phase 23 | Docker/CI/CD/Deployment | ⏳ Not started |
+
+**Phase 04 is the NEXT authorized development phase, but has NOT started.**
