@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 let prisma;
 let databaseReady = false;
 
-function getPrismaClient() {
+export function getPrismaClient() {
   if (!prisma) {
     const { PrismaClient } = require('@prisma/client');
     prisma = new PrismaClient({

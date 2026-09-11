@@ -7,5 +7,49 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Domain models begin in Phase 02. Keeping the datasource here makes the
-// database contract explicit without prematurely creating later-phase tables.
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+  TRIAL
+  CANCELLED
+}
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  status    TenantStatus @default(TRIAL)
+  plan      String   @default("free")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  settings TenantSettings?
+  domains  TenantDomain[]
+
+  @@map("tenants")
+}
+
+model TenantSettings {
+  id        String   @id @default(uuid())
+  tenantId  String   @unique @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  metadata  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("tenant_settings")
+}
+
+model TenantDomain {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  domain    String
+  verified  Boolean  @default(false)
+  primary   Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, domain])
+  @@map("tenant_domains")
+}
