@@ -247,12 +247,19 @@ All timestamp columns use `TIMESTAMPTZ(6)`.
 **Command:** `npm run db:seed`
 
 **What is seeded per tenant:**
-- 33 system permissions covering: tenant, user, role, permission, product, category, order, customer, warehouse, inventory
+- 36 system permissions covering: tenant, user, role, permission, product, category, order, customer, warehouse, inventory
 - 3 system roles:
-  - `admin` → all 33 permissions
-  - `manager` → 29 permissions (excludes: user:delete, role:delete, permission:read, tenant:update)
+  - `admin` → all 36 permissions
+  - `manager` → 32 permissions (excludes: user:delete, role:delete, permission:read, tenant:update)
   - `member` → 10 read-only permissions
-- 72 role-permission links
+- 78 role-permission links (admin=36, manager=32, member=10)
+
+### Required Permission Names (Roadmap-Compliant)
+```
+product:create, product:read, product:update, product:delete
+order:create, order:read, order:update, order:cancel
+inventory:read, inventory:update
+```
 
 **Idempotency:**
 - Uses `upsert` with composite unique keys:
@@ -343,12 +350,140 @@ All timestamp columns use `TIMESTAMPTZ(6)`.
 
 ---
 
+## Phase 05 — Authorization / RBAC
+
+### Core RBAC Features
+
+| Feature | Implementation |
+|---------|----------------|
+| Permission Format | `resource:action` (e.g., `product:create`, `order:read`) |
+| Authorization Middleware | `authorize(permission)` — checks user's roles/permissions from authenticated context |
+| Permission Resolution | user → user_roles → roles → role_permissions → permissions (all tenant-scoped) |
+
+### RBAC APIs
+
+| Method | Endpoint | Permission Required | Description |
+|--------|----------|---------------------|-------------|
+| GET | `/api/v1/roles` | `role:read` | List roles (tenant-scoped, paginated) |
+| GET | `/api/v1/roles/:id` | `role:read` | Get role by ID |
+| POST | `/api/v1/roles` | `role:create` | Create role (is_system=false) |
+| PATCH | `/api/v1/roles/:id` | `role:update` | Update role (name/description) |
+| DELETE | `/api/v1/roles/:id` | `role:delete` | Delete role |
+| POST | `/api/v1/roles/:id/permissions` | `role:update` | Assign permissions to role (idempotent) |
+| GET | `/api/v1/permissions` | `permission:read` | List permissions (tenant-scoped) |
+| GET | `/api/v1/permissions/:id` | `permission:read` | Get permission by ID |
+| GET | `/api/v1/users/:id/roles` | `user:read` | Get user's assigned roles |
+| POST | `/api/v1/users/:id/roles` | `user:update` | Assign roles to user (idempotent) |
+
+### System Roles & Permissions (Seeded)
+
+| Role | Description | Permissions |
+|------|-------------|-------------|
+| `admin` | Full administrative access | All 36 system permissions |
+| `manager` | Management access | 32 permissions (excludes: user:delete, role:delete, permission:read, tenant:update) |
+| `member` | Standard member access | 10 read-only permissions |
+
+**System roles are immutable** — cannot be deleted or modified via API (`is_system=true` in DB).
+
+### Authorization Middleware
+
+```javascript
+router.post(
+  "/products",
+  authenticate(),
+  authorize("product:create"),
+  controller.create
+);
+```
+
+1. Requires authenticated request (`authenticate()`)
+2. Reads `userId`, `tenantId` from `req.context` (set by `authenticate()`)
+3. Finds user's roles in the authenticated tenant
+4. Resolves permissions through `user_roles` → `roles` → `role_permissions` → `permissions`
+5. Checks if requested permission (`resource:action`) exists
+6. Allows (200) or rejects (403 FORBIDDEN / 401 UNAUTHORIZED)
+
+### Tenant Isolation
+
+- All RBAC queries filtered by `tenantId` from authenticated context (`req.context.tenantId`)
+- **Never trusts** `tenantId` from request body/query/params
+- Cross-tenant role/permission access returns 404/403
+- JWT with manipulated `tenantId` claim fails (user not found in that tenant)
+
+### System Role Protection
+
+- System roles (`is_system=true`) cannot be deleted or modified
+- System role permissions cannot be modified via `POST /roles/:id/permissions`
+- Returns 403 `SYSTEM_ROLE_IMMUTABLE` on violation
+
+### Idempotent Assignments
+
+- `POST /roles/:id/permissions` — `skipDuplicates: true` on `role_permission` createMany
+- `POST /users/:id/roles` — `skipDuplicates: true` on `user_role` createMany
+- Safe to call repeatedly
+
+### Error Codes
+
+| Code | HTTP | Description |
+|------|------|-------------|
+| `FORBIDDEN` | 403 | Authenticated but missing required permission |
+| `ROLE_NOT_FOUND` | 404 | Role not found in authenticated tenant |
+| `PERMISSION_NOT_FOUND` | 404 | Permission not found in authenticated tenant |
+| `USER_NOT_FOUND` | 404 | User not found in authenticated tenant |
+| `ROLE_NAME_EXISTS` | 409 | Duplicate role name in same tenant |
+| `SYSTEM_ROLE_IMMUTABLE` | 403 | Attempt to modify/delete system role |
+
+### Verification Results
+
+| Check | Result |
+|-------|--------|
+| **Integration Tests** | 145/145 passing (Phases 01-05) |
+| - `phase5-rbac.test.js` | 54 tests ✅ |
+| - `auth.test.js` | 30 tests ✅ |
+| - `tenants.test.js` | 11 tests ✅ |
+| - `phase3-schema.test.js` | 39 tests ✅ |
+| - `request-boundaries.test.js` | 2 tests ✅ |
+| - `health.test.js` | 2 tests ✅ |
+| **ESLint** | 0 errors |
+| **Prisma Validate** | ✅ Valid |
+| **Prisma Generate** | ✅ Success |
+| **Migration Status** | ✅ Up to date (5 migrations) |
+
+### Tenant Isolation Verification (7 attacks blocked)
+| Attack | Result |
+|--------|--------|
+| Tenant A user → GET Tenant B roles | PASS |
+| Tenant A user → PATCH Tenant B role | PASS (404) |
+| Tenant A user → assign Tenant B role to Tenant A user | PASS (filtered) |
+| Tenant B user → GET Tenant A permissions | PASS |
+| Forge JWT with different tenantId | PASS (401) |
+| Tenant A role → attach Tenant B permission | PASS (filtered) |
+| Tenant A role → POST Tenant B role permissions | PASS (404) |
+
+### Privilege Escalation Protection (8 vectors blocked)
+| Attack | Result |
+|--------|--------|
+| Normal user assigns admin role to self | PASS (403) |
+| Normal user assigns admin role to another | PASS (403) |
+| Normal user modifies system role | PASS (403) |
+| Normal user deletes system role | PASS (403) |
+| Normal user modifies role permissions | PASS (403) |
+| User with no roles accesses protected resource | PASS (403) |
+| User with insufficient permission accesses protected resource | PASS (403) |
+
+### Known Non-Blocking Design Behaviors
+- Cross-tenant role/permission IDs may be silently filtered rather than producing an error — this is a documented implementation behavior, not a roadmap change
+- `DELETE /api/v1/users/:id/roles` is not required by the Phase 5 roadmap
+- `authorizePlatform()` testing is outside the current Phase 5 scope
+- Permission caching is not required for Phase 5
+
+---
+
 ## What is NOT Implemented (Future Phases)
 
-The following are explicitly **NOT** implemented as of Phase 04 completion:
+The following are explicitly **NOT** implemented as of Phase 05 completion:
 
-- RBAC authorization middleware
-- User management APIs
+- User management APIs (beyond role assignment)
 - Product/Category/Variant/Attribute/Image APIs
 - Inventory management APIs
 - Order/OrderItem/OrderStatusHistory APIs

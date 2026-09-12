@@ -10,10 +10,10 @@ export class AuthRepository {
     return this.prisma.user.findFirst({
       where: {
         email,
-        tenantId,
+        memberships: { some: { tenantId, status: 'ACTIVE' } },
       },
       include: {
-        tenant: true,
+        memberships: { where: { tenantId, status: 'ACTIVE' }, include: { tenant: true } },
       },
     });
   }
@@ -35,9 +35,9 @@ export class AuthRepository {
 
   async findUserByIdAndTenant(id, tenantId) {
     return this.prisma.user.findFirst({
-      where: { id, tenantId },
+      where: { id, memberships: { some: { tenantId, status: 'ACTIVE' } } },
       include: {
-        tenant: true,
+        memberships: { where: { tenantId, status: 'ACTIVE' }, include: { tenant: true } },
       },
     });
   }
@@ -50,9 +50,10 @@ export class AuthRepository {
         passwordHash: data.passwordHash,
         firstName: data.firstName,
         lastName: data.lastName,
+        memberships: { create: { tenantId: data.tenantId } },
       },
       include: {
-        tenant: true,
+        memberships: { include: { tenant: true } },
       },
     });
   }

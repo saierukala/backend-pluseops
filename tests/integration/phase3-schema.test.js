@@ -62,7 +62,7 @@ describe('Phase 3 schema integration tests', () => {
       ).rejects.toThrow();
     });
 
-    it('allows same email in different tenants', async () => {
+    it('requires globally unique user email addresses', async () => {
       const otherTenant = await prisma.tenant.create({
         data: { name: 'Other Tenant', slug: 'other-tenant' },
       });
@@ -87,7 +87,7 @@ describe('Phase 3 schema integration tests', () => {
             lastName: 'User',
           },
         })
-      ).resolves.toBeDefined();
+      ).rejects.toThrow();
 
       await prisma.tenant.delete({ where: { id: otherTenant.id } });
     });

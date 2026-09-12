@@ -54,7 +54,7 @@ export class AuthService {
       lastName,
     });
 
-    await this.sendEmailVerification(user.id, user.tenantId);
+    await this.sendEmailVerification(user.id, tenantId);
 
     return this.toSafeUser(user);
   }
@@ -78,7 +78,7 @@ export class AuthService {
     }
 
     // Validate tenant is active
-    if (user.tenant.status !== 'ACTIVE' && user.tenant.status !== 'TRIAL') {
+    if (!this.hasActiveTenant(user, tenantId)) {
       throw new AppError('Tenant is not active', {
         statusCode: 403,
         code: 'TENANT_INACTIVE',
@@ -151,7 +151,7 @@ export class AuthService {
     }
 
     // Validate tenant is active
-    if (user.tenant.status !== 'ACTIVE' && user.tenant.status !== 'TRIAL') {
+    if (!this.hasActiveTenant(user, storedToken.tenantId)) {
       throw new AppError('Tenant is not active', {
         statusCode: 403,
         code: 'TENANT_INACTIVE',
@@ -183,7 +183,7 @@ export class AuthService {
       // Create the new refresh token
       await tx.refreshToken.create({
         data: {
-          tenantId: user.tenantId,
+          tenantId: storedToken.tenantId,
           userId: user.id,
           tokenHash: newTokenHash,
           expiresAt: new Date(Date.now() + parseExpiry('7d')),
@@ -329,7 +329,7 @@ export class AuthService {
         code: 'ACCOUNT_INACTIVE',
       });
     }
-    if (user.tenant.status !== 'ACTIVE' && user.tenant.status !== 'TRIAL') {
+    if (!this.hasActiveTenant(user, tenantId)) {
       throw new AppError('Tenant is not active', {
         statusCode: 403,
         code: 'TENANT_INACTIVE',
@@ -338,22 +338,22 @@ export class AuthService {
     return this.toSafeUser(user);
   }
 
-  generateAccessToken(user, sessionId) {
+  generateAccessToken(user, sessionId, tenantId = user.memberships?.[0]?.tenantId) {
     return signAccessToken({
       sub: user.id,
-      tenantId: user.tenantId,
+      tenantId,
       sessionId,
       email: user.email,
     });
   }
 
-  async generateRefreshToken(user, _sessionId) {
+  async generateRefreshToken(user, _sessionId, tenantId = user.memberships?.[0]?.tenantId) {
     const rawToken = AuthRepository.generateSecureToken();
     const tokenHash = AuthRepository.hashToken(rawToken);
     const expiresAt = new Date(Date.now() + parseExpiry('7d'));
 
     await this.repository.createRefreshToken({
-      tenantId: user.tenantId,
+      tenantId,
       userId: user.id,
       tokenHash,
       expiresAt,
@@ -382,7 +382,7 @@ export class AuthService {
   toSafeUser(user) {
     return {
       id: user.id,
-      tenantId: user.tenantId,
+      tenantId: user.memberships?.[0]?.tenantId ?? user.tenantId,
       email: user.email,
       firstName: user.firstName,
       lastName: user.lastName,
@@ -392,5 +392,10 @@ export class AuthService {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
+  }
+
+  hasActiveTenant(user, tenantId) {
+    const tenant = user.memberships?.find((membership) => membership.tenantId === tenantId)?.tenant;
+    return Boolean(tenant && (tenant.status === 'ACTIVE' || tenant.status === 'TRIAL'));
   }
 }

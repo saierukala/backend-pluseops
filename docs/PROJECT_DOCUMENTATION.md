@@ -1,6 +1,6 @@
 # Project Documentation
 
-Technical architecture and implementation state as of Phase 04 completion.
+Technical architecture and implementation state as of Phase 05 completion.
 
 ---
 
@@ -30,23 +30,42 @@ src/
 └── modules/
     ├── health/         # Health check endpoints
     │   ├── health.controller.js
-│   └── health.routes.js
+    │   └── health.routes.js
     ├── tenants/        # Tenant CRUD
     │   ├── tenants.controller.js
-│   ├── tenants.service.js
-│   ├── tenants.repository.js
-│   ├── tenants.validation.js
-│   └── tenants.routes.js
-└── auth/               # Authentication
-    ├── auth.controller.js
-    ├── auth.service.js
-    ├── auth.repository.js
-    ├── auth.validation.js
-    ├── auth.routes.js
-    ├── auth.middleware.js
-    ├── jwt.util.js
-    ├── password.util.js
-    └── token-expiry.util.js
+    │   ├── tenants.service.js
+    │   ├── tenants.repository.js
+    │   ├── tenants.validation.js
+    │   └── tenants.routes.js
+    ├── auth/           # Authentication
+    │   ├── auth.controller.js
+    │   ├── auth.service.js
+    │   ├── auth.repository.js
+    │   ├── auth.validation.js
+    │   ├── auth.routes.js
+    │   ├── auth.middleware.js
+    │   ├── authorization.middleware.js
+    │   ├── jwt.util.js
+    │   ├── password.util.js
+    │   └── token-expiry.util.js
+    ├── roles/          # Role-based access control
+    │   ├── roles.controller.js
+    │   ├── roles.service.js
+    │   ├── roles.repository.js
+    │   ├── roles.validation.js
+    │   └── roles.routes.js
+    ├── permissions/    # Permission management
+    │   ├── permissions.controller.js
+    │   ├── permissions.service.js
+    │   ├── permissions.repository.js
+    │   ├── permissions.validation.js
+    │   └── permissions.routes.js
+    └── users/          # User role assignment
+        ├── users.controller.js
+        ├── users.service.js
+        ├── users.repository.js
+        ├── users.validation.js
+        └── users.routes.js
 ```
 
 ### Layered Module Pattern
@@ -75,6 +94,7 @@ Route → Controller → Service → Repository → Database
 - Phase 04 implements full tenant resolution from authenticated JWT context
 - `authenticate()` middleware validates JWT, resolves user, verifies user/tenant active status, establishes `req.context.tenantId`
 - `TenantService.canPerformOperations(tenant)` enforces `ACTIVE`/`TRIAL` status for operations
+- Phase 05 adds `authorize(permission)` middleware: reads `userId`/`tenantId` from `req.context`, resolves user's roles in the authenticated tenant, checks if the requested `resource:action` permission exists through `user_roles` → `roles` → `role_permissions` → `permissions`, all tenant-scoped
 
 ### Important
 - **Authentication IS implemented** — JWT access tokens, refresh tokens, rotation, revocation
@@ -123,10 +143,13 @@ Route → Controller → Service → Repository → Database
 20250911_phase_03_fix_timestamptz        # Correction: 89 timestamp columns to TIMESTAMPTZ(6)
         ↓
 20250911_phase_04_authentication         # Phase 04: refresh_tokens, password_reset_tokens, email_verification_tokens, User.emailVerified
+        ↓
+20260912_phase_05_platform_rbac_foundation # Phase 05: tenant_memberships, platform_roles, platform_permissions, platform_user_roles, platform_role_permissions, Role, Permission, UserRole, RolePermission
 ```
 
 - Phase 03 migration does **not** recreate Phase 02 tables
 - Phase 04 migration adds 4 tables WITHOUT recreating Phase 02/03 tables
+- Phase 05 migration adds 9 tables (tenant_memberships + platform* + RBAC tables) WITHOUT recreating Phase 01-04 tables
 - All migrations applied, `npx prisma migrate status` reports "Database schema is up to date!"
 - No `prisma migrate reset` or destructive operations used
 
@@ -146,9 +169,11 @@ npm run db:seed
 1. Finds all non-CANCELLED tenants
 2. If none exist, creates a default "Development" tenant (slug: `development`, status: `ACTIVE`)
 3. For each tenant, upserts:
-   - 33 system permissions (resource:action format)
+   - 36 system permissions (resource:action format)
    - 3 roles: `admin`, `manager`, `member`
-   - Role-permission links (72 total)
+   - Role-permission links (admin=36, manager=32, member=10 = 78 total)
+   - Platform permissions: `platform:tenant:create`, `platform:tenant:read`, `platform:tenant:update`, `platform:tenant:suspend`, `platform:billing:read`, `platform:billing:update`
+   - Platform role: `platform_admin` with all platform permissions
 
 ### Idempotency
 - Uses `upsert` with composite unique constraints
@@ -159,6 +184,15 @@ npm run db:seed
 - **Minimal foundational RBAC data only**
 - No fake products, orders, customers, inventory, payments
 - No authentication implementation
+
+### Required Permission Names (Roadmap-Compliant)
+```
+product:create, product:read, product:update, product:delete
+order:create, order:read, order:update, order:cancel
+inventory:read, inventory:update
+```
+
+Plus additional permissions: tenant, user, role, permission, category, customer, warehouse.
 
 ---
 
@@ -226,9 +260,11 @@ npm run db:seed
 1. Finds all non-CANCELLED tenants
 2. If none exist, creates a default "Development" tenant (slug: `development`, status: `ACTIVE`)
 3. For each tenant, upserts:
-   - 33 system permissions (resource:action format)
+   - 36 system permissions (resource:action format)
    - 3 roles: `admin`, `manager`, `member`
-   - Role-permission links (72 total)
+   - Role-permission links (admin=36, manager=32, member=10 = 78 total)
+   - Platform permissions: `platform:tenant:create`, `platform:tenant:read`, `platform:tenant:update`, `platform:tenant:suspend`, `platform:billing:read`, `platform:billing:update`
+   - Platform role: `platform_admin` with all platform permissions
 
 ### Idempotency
 - Uses `upsert` with composite unique constraints
@@ -240,6 +276,15 @@ npm run db:seed
 - No fake products, orders, customers, inventory, payments
 - No authentication implementation
 
+### Required Permission Names (Roadmap-Compliant)
+```
+product:create, product:read, product:update, product:delete
+order:create, order:read, order:update, order:cancel
+inventory:read, inventory:update
+```
+
+Plus additional permissions: tenant, user, role, permission, category, customer, warehouse.
+
 ---
 
 ## Testing
@@ -248,16 +293,17 @@ npm run db:seed
 
 | Check | Result |
 |-------|--------|
-| **Integration Tests** | 86/86 passing |
+| **Integration Tests** | 145/145 passing |
 | - `auth.test.js` | 30 tests ✅ |
 | - `tenants.test.js` | 11 tests ✅ |
 | - `phase3-schema.test.js` | 39 tests ✅ |
 | - `request-boundaries.test.js` | 2 tests ✅ |
 | - `health.test.js` | 2 tests ✅ |
+| - `phase5-rbac.test.js` | 54 tests ✅ |
 | **ESLint** | 0 errors |
 | **Prisma Validate** | ✅ Valid |
 | **Prisma Generate** | ✅ Success |
-| **Migration Status** | ✅ Up to date (4 migrations) |
+| **Migration Status** | ✅ Up to date (5 migrations) |
 
 ### Test Coverage Highlights
 - Health endpoints: liveness, DB readiness, Redis readiness
@@ -265,6 +311,7 @@ npm run db:seed
 - Phase 03 schema: all 31 models create/read, unique constraints per tenant, cross-tenant isolation, Decimal types, TIMESTAMPTZ, soft delete, relationships
 - Request boundaries: JSON size limit, malformed JSON, rate limit headers
 - Phase 04 auth: 30 tests covering register, login, refresh, logout, forgot/reset password, verify email, me, cross-tenant isolation
+- Phase 05 RBAC: 54 tests covering authorization middleware, role APIs, permission APIs, role-permission assignment, user-role assignment, tenant isolation, system role protection, multiple roles combining permissions, regression tests for Phases 01-04
 
 ---
 
@@ -320,7 +367,6 @@ npm run db:seed
 - **Email Verification** — secure tokens, 24h expiry, single-use
 
 ### NOT Implemented (Future Phases)
-- RBAC Authorization Middleware
 - CSRF Protection
 - Secure Cookies
 - File Upload Validation
@@ -365,7 +411,7 @@ The following items were identified during the Phase 03 human verification audit
 | Multi-Tenant Foundation (Phase 02) | ✅ Complete & Verified |
 | Database Schema & Migrations (Phase 03) | ✅ Complete & Verified |
 | Authentication (Phase 04) | ✅ Complete & Verified |
-| RBAC (Phase 05) | ⏳ Not Started |
+| Authorization / RBAC (Phase 05) | ✅ Complete & Verified |
 | User Management (Phase 06) | ⏳ Not Started |
 | Product Management (Phase 07) | ⏳ Not Started |
 | Inventory (Phase 08) | ⏳ Not Started |
@@ -387,6 +433,19 @@ The following items were identified during the Phase 03 human verification audit
 
 ---
 
-## Phase 04 Status: ✅ COMPLETE AND VERIFIED
+## Phase 05 Status: ✅ COMPLETE AND VERIFIED
 
-All 86 tests pass, lint clean, Prisma validation passes, migrations up to date, no regressions.
+All 145 tests pass, lint clean, Prisma validation passes, migrations up to date, no regressions.
+
+Phase 05 implemented and verified:
+- Role-based and permission-based authorization middleware (`authorize(permission)`)
+- Role APIs: CRUD with tenant isolation, system role protection
+- Permission APIs: list/get with tenant isolation
+- Role-Permission assignment (idempotent, cross-tenant safe)
+- User-Role assignment (idempotent, cross-tenant safe)
+- System role protection (`is_system` flag)
+- Tenant isolation enforcement at all levels
+- Multiple roles combining permissions correctly
+- All Phase 01-04 regression tests pass
+
+145 tests pass, lint clean, Prisma validation passes, migrations up to date, no regressions.

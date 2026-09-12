@@ -541,24 +541,302 @@ All authentication endpoints are under `/api/v1/auth` and use the standard respo
 
 ---
 
+## RBAC Authorization APIs
+
+### Authorization Middleware
+
+All RBAC endpoints require authentication via the `authenticate()` middleware, followed by the `authorize(permission)` middleware that checks the authenticated user's permissions.
+
+**Permission Format:** `resource:action` (e.g., `product:create`, `order:read`)
+
+**Error Codes:**
+| Status | Code | Description |
+|--------|------|-------------|
+| 401 | UNAUTHORIZED | Missing or invalid access token |
+| 403 | FORBIDDEN | Authenticated but missing required permission |
+
+---
+
+### Role APIs
+
+All role endpoints are under `/api/v1/roles` and require authentication + appropriate permission.
+
+#### GET /api/v1/roles
+**List roles (tenant-scoped, paginated).**
+
+**Headers:** `Authorization: Bearer <access_token>`
+**Permission:** `role:read`
+**Query Parameters:**
+- `page` (integer, default: 1)
+- `limit` (integer, default: 50, max: 100)
+
+**Success Response 200:**
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "tenantId": "uuid",
+      "name": "admin",
+      "description": "Full administrative access",
+      "isSystem": true,
+      "permissions": [...],
+      "userCount": 5,
+      "createdAt": "2025-09-11T12:00:00.000000Z",
+      "updatedAt": "2025-09-11T12:00:00.000000Z"
+    }
+  ],
+  "meta": { "page": 1, "limit": 50, "total": 3, "totalPages": 1 },
+  "message": "Roles retrieved successfully"
+}
+```
+
+---
+
+#### GET /api/v1/roles/:id
+**Retrieve a role by ID (tenant-scoped).**
+
+**Permission:** `role:read`
+**Path Parameters:** `id` (UUID)
+
+**Success Response 200:** Returns role object with permissions and userCount.
+
+**Error Responses:**
+| Status | Code | Message |
+|--------|------|---------|
+| 400 | ZodError | Invalid UUID format |
+| 404 | ROLE_NOT_FOUND | Role not found |
+
+---
+
+#### POST /api/v1/roles
+**Create a new role.**
+
+**Permission:** `role:create`
+
+**Request Body:**
+```json
+{
+  "name": "string (1-100 chars, required, regex ^[a-z0-9_-]+$)",
+  "description": "string (optional, max 500 chars)"
+}
+```
+
+**Validation:**
+- `name`: required, 1-100 chars, lowercase alphanumeric + underscore + hyphen, unique per tenant
+- `description`: optional, max 500 chars
+
+**Success Response 201:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "tenantId": "uuid",
+    "name": "custom_role",
+    "description": "Custom role description",
+    "isSystem": false,
+    "permissions": [],
+    "userCount": 0,
+    "createdAt": "2025-09-11T12:00:00.000000Z",
+    "updatedAt": "2025-09-11T12:00:00.000000Z"
+  },
+  "message": "Role created successfully"
+}
+```
+
+**Error Responses:**
+| Status | Code | Message |
+|--------|------|---------|
+| 400 | ZodError | Validation failed |
+| 409 | ROLE_NAME_EXISTS | Role with this name already exists |
+| 403 | FORBIDDEN | Missing role:create permission |
+
+---
+
+#### PATCH /api/v1/roles/:id
+**Update a role.**
+
+**Permission:** `role:update`
+
+**Path Parameters:** `id` (UUID)
+
+**Request Body (at least one field required):**
+```json
+{
+  "name": "string (1-100 chars, regex ^[a-z0-9_-]+$)",
+  "description": "string (max 500 chars)"
+}
+```
+
+**Constraints:**
+- Cannot modify system roles (`is_system=true`) — returns 403 `SYSTEM_ROLE_IMMUTABLE`
+- Cannot change name to existing role name in same tenant
+
+**Error Responses:**
+| Status | Code | Message |
+|--------|------|---------|
+| 400 | ZodError | Validation failed, empty body |
+| 403 | SYSTEM_ROLE_IMMUTABLE | Cannot modify system role |
+| 404 | ROLE_NOT_FOUND | Role not found in tenant |
+| 409 | ROLE_NAME_EXISTS | Role name already exists |
+
+---
+
+#### DELETE /api/v1/roles/:id
+**Delete a role.**
+
+**Permission:** `role:delete`
+
+**Path Parameters:** `id` (UUID)
+
+**Constraints:**
+- Cannot delete system roles — returns 403 `SYSTEM_ROLE_IMMUTABLE`
+
+**Success Response 200:**
+```json
+{ "success": true, "data": { "success": true, "message": "Role deleted successfully" }, "message": "Role deleted successfully" }
+```
+
+**Error Responses:**
+| Status | Code | Message |
+|--------|------|---------|
+| 400 | ZodError | Invalid UUID format |
+| 403 | SYSTEM_ROLE_IMMUTABLE | Cannot delete system role |
+| 404 | ROLE_NOT_FOUND | Role not found in tenant |
+
+---
+
+#### POST /api/v1/roles/:id/permissions
+**Assign permissions to a role (idempotent).**
+
+**Permission:** `role:update`
+
+**Path Parameters:** `id` (UUID)
+
+**Request Body:**
+```json
+{
+  "permissionIds": ["uuid", "uuid"]
+}
+```
+
+**Behavior:**
+- Validates all permission IDs exist in the authenticated tenant
+- Filters out invalid/cross-tenant permissions
+- Idempotent: duplicate assignments are skipped (`skipDuplicates: true`)
+- Cannot modify system role permissions — returns 403 `SYSTEM_ROLE_IMMUTABLE`
+
+**Success Response 200:** Returns array of assigned permissions with details.
+
+**Error Responses:**
+| Status | Code | Message |
+|--------|------|---------|
+| 400 | ZodError | Validation failed |
+| 403 | SYSTEM_ROLE_IMMUTABLE | Cannot modify system role |
+| 404 | ROLE_NOT_FOUND | Role not found in tenant |
+
+---
+
+### Permission APIs
+
+All permission endpoints are under `/api/v1/permissions` and require authentication.
+
+#### GET /api/v1/permissions
+**List permissions (tenant-scoped).**
+
+**Permission:** `permission:read`
+
+**Success Response 200:** Returns array of permission objects.
+
+**Error Responses:**
+| Status | Code | Message |
+|--------|------|---------|
+| 403 | FORBIDDEN | Missing permission:read permission |
+
+---
+
+#### GET /api/v1/permissions/:id
+**Get permission by ID.**
+
+**Permission:** `permission:read`
+
+**Path Parameters:** `id` (UUID)
+
+**Error Responses:**
+| Status | Code | Message |
+|--------|------|---------|
+| 404 | PERMISSION_NOT_FOUND | Permission not found |
+
+---
+
+### User Role Assignment APIs
+
+#### GET /api/v1/users/:id/roles
+**Get roles assigned to a user.**
+
+**Permission:** `user:read`
+
+**Path Parameters:** `id` (UUID) — target user ID
+
+**Error Responses:**
+| Status | Code | Message |
+|--------|------|---------|
+| 404 | USER_NOT_FOUND | User not found in tenant |
+| 403 | FORBIDDEN | Missing user:read permission |
+
+---
+
+#### POST /api/v1/users/:id/roles
+**Assign roles to a user (idempotent).**
+
+**Permission:** `user:update`
+
+**Path Parameters:** `id` (UUID) — target user ID
+
+**Request Body:**
+```json
+{
+  "roleIds": ["uuid", "uuid"]
+}
+```
+
+**Behavior:**
+- Validates all role IDs exist in the authenticated tenant
+- Filters out invalid/cross-tenant roles
+- Idempotent: duplicate assignments skipped
+- Cannot assign cross-tenant roles
+
+**Success Response 200:** Returns array of assigned roles with details.
+
+**Error Responses:**
+| Status | Code | Message |
+|--------|------|---------|
+| 400 | ZodError | Validation failed |
+| 403 | FORBIDDEN | Missing user:update permission |
+| 404 | USER_NOT_FOUND | User not found in tenant |
+
+---
+
 ## APIs NOT Implemented
 
-The following API groups are **NOT implemented** in the repository as of Phase 04 completion:
+The following API groups are **NOT implemented** in the repository as of Phase 05 completion:
 
 | Category | Status |
 |----------|--------|
-| RBAC Authorization (`/api/v1/roles`, `/api/v1/permissions`, `/api/v1/users/:id/roles`) | ⏳ Not started |
-| User Management (`/api/v1/users`) | ⏳ Not started |
-| Product Management (`/api/v1/products`, `/api/v1/categories`, `/api/v1/attributes`) | ⏳ Not started |
-| Inventory (`/api/v1/inventory`) | ⏳ Not started |
-| Orders (`/api/v1/orders`) | ⏳ Not started |
-| Payments (`/api/v1/payments`) | ⏳ Not started |
-| Notifications (`/api/v1/notifications`, `/api/v1/notification-preferences`) | ⏳ Not started |
-| WebSockets / Real-Time | ⏳ Not started |
-| Redis Caching APIs | ⏳ Not started |
-| BullMQ / Job APIs | ⏳ Not started |
-| External Integrations | ⏳ Not started |
-| Analytics / Reporting | ⏳ Not started |
-| Swagger / OpenAPI | ⏳ Not started |
+| User Management (`/api/v1/users` CRUD, search, filtering) | ⏳ Not started (Phase 06) |
+| Product Management (`/api/v1/products`, `/api/v1/categories`, `/api/v1/attributes`) | ⏳ Not started (Phase 07) |
+| Inventory (`/api/v1/inventory`) | ⏳ Not started (Phase 08) |
+| Orders (`/api/v1/orders`) | ⏳ Not started (Phase 09) |
+| Payments (`/api/v1/payments`) | ⏳ Not started (Phase 10) |
+| Notifications (`/api/v1/notifications`, `/api/v1/notification-preferences`) | ⏳ Not started (Phase 12) |
+| WebSockets / Real-Time | ⏳ Not started (Phase 13) |
+| Redis Caching APIs | ⏳ Not started (Phase 14) |
+| BullMQ / Job APIs | ⏳ Not started (Phase 15) |
+| External Integrations | ⏳ Not started (Phase 16) |
+| Analytics / Reporting | ⏳ Not started (Phase 18) |
+| Swagger / OpenAPI | ⏳ Not started (Phase 22) |
+| Docker / CI/CD / Deployment | ⏳ Not started (Phase 23) |
 
-Only the Health APIs, Tenant APIs, and Authentication APIs listed above are implemented and tested.
+Only the Health APIs, Tenant APIs, Authentication APIs, and RBAC Authorization APIs listed above are implemented and tested.

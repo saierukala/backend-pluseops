@@ -36,7 +36,8 @@ export function authenticate() {
       }
 
       // Validate tenant is active
-      if (user.tenant.status !== 'ACTIVE' && user.tenant.status !== 'TRIAL') {
+      const tenant = user.memberships[0]?.tenant;
+      if (!tenant || (tenant.status !== 'ACTIVE' && tenant.status !== 'TRIAL')) {
         throw new AppError('Tenant is not active', {
           statusCode: 403,
           code: 'TENANT_INACTIVE',
@@ -85,8 +86,9 @@ export function optionalAuthenticate() {
       if (decoded.sub && decoded.tenantId && decoded.sessionId) {
         const repo = new AuthRepository();
         const user = await repo.findUserByIdAndTenant(decoded.sub, decoded.tenantId);
-        if (user && user.status === 'ACTIVE' && 
-            (user.tenant.status === 'ACTIVE' || user.tenant.status === 'TRIAL')) {
+        const tenant = user?.memberships[0]?.tenant;
+        if (user && user.status === 'ACTIVE' && tenant &&
+            (tenant.status === 'ACTIVE' || tenant.status === 'TRIAL')) {
           req.context = req.context || {};
           req.context.userId = decoded.sub;
           req.context.tenantId = decoded.tenantId;

@@ -2,7 +2,7 @@
 
 A production-minded, multi-tenant backend for PulseOps, built with Node.js, Express, PostgreSQL, Prisma, and Redis. The project follows a modular-monolith architecture and is being delivered incrementally so that every foundation layer is tested before business modules are introduced.
 
-**Current status:** Phase 04 — Authentication is **COMPLETE and VERIFIED**.
+**Current status:** Phase 05 — Authorization / RBAC is **COMPLETE and VERIFIED**.
 
 The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_Backend_Codex_Master_Roadmap.md`](docs/PulseOps_Backend_Codex_Master_Roadmap.md).
 
@@ -20,6 +20,7 @@ The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_
 - **Core relational schema: 31 Phase 03 models with tenant isolation, Decimal money, TIMESTAMPTZ(6)**
 - **Minimal idempotent seed for foundational roles/permissions**
 - **Authentication: JWT (HS256), refresh token rotation, password reset, email verification**
+- **Authorization / RBAC: role-based and permission-based access control with tenant isolation**
 
 ## Prerequisites
 
@@ -103,6 +104,16 @@ Never commit `.env`. Use a secret manager or deployment-specific environment var
 | POST | `/api/v1/auth/reset-password` | Reset password |
 | POST | `/api/v1/auth/verify-email` | Verify email |
 | GET | `/api/v1/auth/me` | Get current user profile |
+| GET | `/api/v1/roles` | List roles (tenant-scoped) |
+| GET | `/api/v1/roles/:id` | Get role by ID |
+| POST | `/api/v1/roles` | Create role |
+| PATCH | `/api/v1/roles/:id` | Update role |
+| DELETE | `/api/v1/roles/:id` | Delete role |
+| POST | `/api/v1/roles/:id/permissions` | Assign permissions to role |
+| GET | `/api/v1/permissions` | List permissions (tenant-scoped) |
+| GET | `/api/v1/permissions/:id` | Get permission by ID |
+| GET | `/api/v1/users/:id/roles` | Get user roles |
+| POST | `/api/v1/users/:id/roles` | Assign roles to user |
 
 The same health endpoints are also exposed under `/api/v1/health`, although infrastructure probes should use the root `/health` routes.
 
@@ -125,11 +136,11 @@ npm run db:seed
 
 Latest verification results (all passing):
 
-- **Tests:** 86/86 passing (integration: health, tenants, request boundaries, Phase 03 schema, Phase 04 auth)
+- **Tests:** 145/145 passing (integration: health, tenants, request boundaries, Phase 03 schema, Phase 04 auth, Phase 05 RBAC)
 - **Lint:** ESLint 0 errors
 - **Prisma validate:** ✅ Valid
 - **Prisma generate:** ✅ Success
-- **Migration status:** Database schema up to date (4 migrations applied)
+- **Migration status:** Database schema up to date (5 migrations applied)
 
 ## Operational notes
 
@@ -140,7 +151,9 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 - Phase 01 provides operational infrastructure only.
 - Phase 02 provides tenant management and the tenant context foundation.
 - Phase 03 provides the complete core relational schema (31 models) with tenant isolation, proper indexes, constraints, Decimal money, and TIMESTAMPTZ(6) timestamps.
-- Authentication, RBAC, User management, Product management, Inventory, Orders, Payments, Notifications, WebSockets, Redis caching, BullMQ, External integrations, Analytics, Swagger/OpenAPI, Docker/CI/CD are **NOT implemented yet**.
+- Phase 04 provides authentication (JWT, refresh tokens, password reset, email verification).
+- Phase 05 provides role-based and permission-based authorization (RBAC) with tenant isolation.
+- User management, Product management, Inventory, Orders, Payments, Notifications, WebSockets, Redis caching, BullMQ, External integrations, Analytics, Swagger/OpenAPI, Docker/CI/CD are **NOT implemented yet**.
 - PostgreSQL and Redis connectivity are verified locally. The health endpoints distinguish liveness from dependency readiness.
 - Docker and deployment configuration are intentionally deferred until their dedicated delivery phase.
 
@@ -152,7 +165,7 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 | Phase 02 | Multi-Tenant Foundation | ✅ Complete |
 | Phase 03 | Database Schema & Migrations | ✅ Complete |
 | Phase 04 | Authentication | ✅ Complete |
-| Phase 05 | RBAC | ⏳ Not started |
+| Phase 05 | Authorization / RBAC | ✅ Complete |
 | Phase 06 | User Management | ⏳ Not started |
 | Phase 07 | Product Management | ⏳ Not started |
 | Phase 08 | Inventory | ⏳ Not started |
@@ -172,4 +185,4 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 | Phase 22 | Swagger/OpenAPI | ⏳ Not started |
 | Phase 23 | Docker/CI/CD/Deployment | ⏳ Not started |
 
-**Phase 05 is the NEXT authorized development phase, but has NOT started.**
+**Phase 05 is COMPLETE and VERIFIED. Phase 06 is the NEXT authorized development phase.**

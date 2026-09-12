@@ -25,7 +25,7 @@ const SYSTEM_PERMISSIONS = [
   { resource: 'order', action: 'create', name: 'order:create' },
   { resource: 'order', action: 'read', name: 'order:read' },
   { resource: 'order', action: 'update', name: 'order:update' },
-  { resource: 'order', action: 'delete', name: 'order:delete' },
+  { resource: 'order', action: 'cancel', name: 'order:cancel' },
   { resource: 'customer', action: 'create', name: 'customer:create' },
   { resource: 'customer', action: 'read', name: 'customer:read' },
   { resource: 'customer', action: 'update', name: 'customer:update' },
@@ -35,13 +35,22 @@ const SYSTEM_PERMISSIONS = [
   { resource: 'warehouse', action: 'update', name: 'warehouse:update' },
   { resource: 'warehouse', action: 'delete', name: 'warehouse:delete' },
   { resource: 'inventory', action: 'read', name: 'inventory:read' },
-  { resource: 'inventory', action: 'adjust', name: 'inventory:adjust' },
+  { resource: 'inventory', action: 'update', name: 'inventory:update' },
 ];
 
 const SYSTEM_ROLES = [
   { name: 'admin', description: 'Full administrative access' },
   { name: 'manager', description: 'Management access to most resources' },
   { name: 'member', description: 'Standard member access' },
+];
+
+const PLATFORM_PERMISSIONS = [
+  { resource: 'platform:tenant', action: 'create', name: 'platform:tenant:create' },
+  { resource: 'platform:tenant', action: 'read', name: 'platform:tenant:read' },
+  { resource: 'platform:tenant', action: 'update', name: 'platform:tenant:update' },
+  { resource: 'platform:tenant', action: 'suspend', name: 'platform:tenant:suspend' },
+  { resource: 'platform:billing', action: 'read', name: 'platform:billing:read' },
+  { resource: 'platform:billing', action: 'update', name: 'platform:billing:update' },
 ];
 
 async function seedTenant(tenantId) {
@@ -155,6 +164,23 @@ async function seedTenant(tenantId) {
 }
 
 async function main() {
+  const platformRole = await prisma.platformRole.upsert({
+    where: { name: 'platform_admin' },
+    update: { description: 'PulseOps platform administration', isSystem: true },
+    create: { name: 'platform_admin', description: 'PulseOps platform administration', isSystem: true },
+  });
+  for (const permission of PLATFORM_PERMISSIONS) {
+    const stored = await prisma.platformPermission.upsert({
+      where: { resource_action: { resource: permission.resource, action: permission.action } },
+      update: { name: permission.name },
+      create: permission,
+    });
+    await prisma.platformRolePermission.upsert({
+      where: { roleId_permissionId: { roleId: platformRole.id, permissionId: stored.id } },
+      update: {},
+      create: { roleId: platformRole.id, permissionId: stored.id },
+    });
+  }
   // Get all existing tenants
   const tenants = await prisma.tenant.findMany({
     where: { status: { not: 'CANCELLED' } },

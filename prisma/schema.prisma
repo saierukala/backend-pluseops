@@ -20,6 +20,12 @@ enum UserStatus {
   SUSPENDED
 }
 
+enum TenantMembershipStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
 enum ProductStatus {
   ACTIVE
   INACTIVE
@@ -130,6 +136,7 @@ model Tenant {
   settings              TenantSettings?
   domains               TenantDomain[]
   users                 User[]
+  memberships           TenantMembership[]
   roles                 Role[]
   permissions           Permission[]
   userRoles             UserRole[]
@@ -211,11 +218,32 @@ model User {
   refreshTokens       RefreshToken[]
   passwordResetTokens PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
+  memberships         TenantMembership[]
+  platformUserRoles   PlatformUserRole[]
 
   @@unique([tenantId, email])
+  @@unique([email])
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@map("users")
+}
+
+model TenantMembership {
+  id        String                 @id @default(uuid())
+  tenantId  String                 @map("tenant_id")
+  tenant    Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String                 @map("user_id")
+  user      User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId    String?                @map("role_id")
+  role      Role?                  @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  status    TenantMembershipStatus @default(ACTIVE)
+  createdAt DateTime               @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt DateTime               @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  @@unique([tenantId, userId])
+  @@index([userId, status])
+  @@index([tenantId, status])
+  @@map("tenant_memberships")
 }
 
 model RefreshToken {
@@ -277,11 +305,65 @@ model Role {
   updatedAt   DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
 
   userRoles        UserRole[]
+  memberships      TenantMembership[]
   rolePermissions  RolePermission[]
 
   @@unique([tenantId, name])
   @@index([tenantId])
   @@map("roles")
+}
+
+model PlatformRole {
+  id          String                   @id @default(uuid())
+  name        String                   @unique
+  description String?
+  isSystem    Boolean                  @default(false) @map("is_system")
+  createdAt   DateTime                 @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt   DateTime                 @db.Timestamptz(6) @updatedAt @map("updated_at")
+  userRoles   PlatformUserRole[]
+  permissions PlatformRolePermission[]
+
+  @@map("platform_roles")
+}
+
+model PlatformPermission {
+  id          String                   @id @default(uuid())
+  name        String                   @unique
+  resource    String
+  action      String
+  description String?
+  createdAt   DateTime                 @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt   DateTime                 @db.Timestamptz(6) @updatedAt @map("updated_at")
+  rolePermissions PlatformRolePermission[]
+
+  @@unique([resource, action])
+  @@map("platform_permissions")
+}
+
+model PlatformUserRole {
+  id        String       @id @default(uuid())
+  userId    String       @map("user_id")
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roleId    String       @map("role_id")
+  role      PlatformRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@unique([userId, roleId])
+  @@index([userId])
+  @@map("platform_user_roles")
+}
+
+model PlatformRolePermission {
+  id           String             @id @default(uuid())
+  roleId       String             @map("role_id")
+  role         PlatformRole       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permissionId String             @map("permission_id")
+  permission   PlatformPermission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  createdAt    DateTime           @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@unique([roleId, permissionId])
+  @@index([permissionId])
+  @@map("platform_role_permissions")
 }
 
 model Permission {
