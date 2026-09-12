@@ -1,6 +1,6 @@
 # API Documentation
 
-This document describes **only APIs that actually exist in the repository** as of Phase 03 completion.
+This document describes **only APIs that actually exist in the repository** as of Phase 04 completion.
 
 ---
 
@@ -229,13 +229,324 @@ Request IDs are generated automatically or accepted via `X-Request-Id` header.
 
 ---
 
+## Authentication APIs
+
+All authentication endpoints are under `/api/v1/auth` and use the standard response format.
+
+### POST /api/v1/auth/register
+**Register a new user.**
+
+**Request Body:**
+```json
+{
+  "email": "string (valid email, required)",
+  "password": "string (min 8, max 128, requires uppercase, lowercase, number, special char)",
+  "firstName": "string (1-100 chars, required)",
+  "lastName": "string (1-100 chars, required)",
+  "tenantId": "string (UUID, required)"
+}
+```
+
+**Validation:**
+- `email`: valid email format
+- `password`: min 8, max 128 chars, must contain uppercase, lowercase, number, special char
+- `firstName`, `lastName`: required, 1-100 chars
+- `tenantId`: required, valid UUID, tenant must exist and be ACTIVE or TRIAL
+
+**Success Response 201:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "tenantId": "uuid",
+    "email": "user@example.com",
+    "firstName": "John",
+    "lastName": "Doe",
+    "status": "ACTIVE",
+    "emailVerified": false,
+    "createdAt": "2025-09-11T12:00:00.000000Z",
+    "updatedAt": "2025-09-11T12:00:00.000000Z"
+  },
+  "message": "Registration successful. Please verify your email."
+}
+```
+
+**Error Responses:**
+
+| Status | Code | Message |
+|--------|------|---------|
+| 400 | ZodError | Validation failed |
+| 400 | TENANT_REQUIRED | Tenant ID is required for registration |
+| 404 | TENANT_NOT_FOUND | Tenant not found |
+| 403 | TENANT_INACTIVE | Tenant is not active |
+| 409 | USER_ALREADY_EXISTS | User with this email already exists in this tenant |
+
+---
+
+### POST /api/v1/auth/login
+**Authenticate a user and obtain access/refresh tokens.**
+
+**Request Body:**
+```json
+{
+  "email": "string (valid email, required)",
+  "password": "string (required)",
+  "tenantId": "string (UUID, required)"
+}
+```
+
+**Validation:**
+- `email`: valid email format
+- `password`: required
+- `tenantId`: required, valid UUID, tenant must exist and be ACTIVE or TRIAL
+
+**Success Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refreshToken": "a1b2c3d4e5f6...",
+    "sessionId": "uuid",
+    "user": {
+      "id": "uuid",
+      "tenantId": "uuid",
+      "email": "user@example.com",
+      "firstName": "John",
+      "lastName": "Doe",
+      "status": "ACTIVE",
+      "emailVerified": false,
+      "lastLoginAt": "2025-09-11T12:00:00.000000Z",
+      "createdAt": "2025-09-11T12:00:00.000000Z",
+      "updatedAt": "2025-09-11T12:00:00.000000Z"
+    },
+    "sessionId": "uuid"
+  },
+  "message": "Login successful"
+}
+```
+
+**Error Responses:**
+
+| Status | Code | Message |
+|--------|------|---------|
+| 400 | ZodError | Validation failed |
+| 400 | TENANT_REQUIRED | Tenant ID is required for login |
+| 401 | INVALID_CREDENTIALS | Invalid credentials |
+| 403 | ACCOUNT_INACTIVE | Account is not active |
+| 403 | TENANT_INACTIVE | Tenant is not active |
+
+---
+
+### POST /api/v1/auth/refresh
+**Rotate refresh token and obtain new access/refresh token pair.**
+
+**Request Body:**
+```json
+{
+  "refreshToken": "string (required)"
+}
+```
+
+**Success Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refreshToken": "new_refresh_token_value",
+    "sessionId": "uuid",
+    "user": {
+      "id": "uuid",
+      "tenantId": "uuid",
+      "email": "user@example.com",
+      "firstName": "John",
+      "lastName": "Doe",
+      "status": "ACTIVE",
+      "emailVerified": false,
+      "lastLoginAt": "2025-09-11T12:00:00.000000Z",
+      "createdAt": "2025-09-11T12:00:00.000000Z",
+      "updatedAt": "2025-09-11T12:00:00.000000Z"
+    },
+    "sessionId": "uuid"
+  },
+  "message": "Token refreshed successfully"
+}
+```
+
+**Error Responses:**
+
+| Status | Code | Message |
+|--------|------|---------|
+| 400 | ZodError | Validation failed |
+| 401 | INVALID_REFRESH_TOKEN | Invalid refresh token |
+| 401 | REFRESH_TOKEN_EXPIRED | Refresh token has expired |
+| 401 | REFRESH_TOKEN_REVOKED | Refresh token has been revoked |
+
+---
+
+### POST /api/v1/auth/logout
+**Revoke refresh token (logout).**
+
+**Request Body:**
+```json
+{
+  "refreshToken": "string (optional)"
+}
+```
+
+**Success Response 200:**
+```json
+{
+  "success": true,
+  "data": { "success": true, "message": "Logout successful" },
+  "message": "Logout successful"
+}
+```
+
+---
+
+### POST /api/v1/auth/forgot-password
+**Request password reset token (account enumeration safe).**
+
+**Request Body:**
+```json
+{
+  "email": "string (valid email, required)",
+  "tenantId": "string (UUID, required)"
+}
+```
+
+**Success Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "success": true,
+    "message": "If the email exists, a reset link has been sent",
+    "devToken": "raw_reset_token_for_development_only"
+  },
+  "message": "If the email exists, a reset link has been sent"
+}
+```
+
+**Error Responses:**
+
+| Status | Code | Message |
+|--------|------|---------|
+| 400 | ZodError | Validation failed |
+| 400 | TENANT_REQUIRED | Tenant ID is required |
+
+---
+
+### POST /api/v1/auth/reset-password
+**Reset password using reset token.**
+
+**Request Body:**
+```json
+{
+  "token": "string (required)",
+  "password": "string (min 8, max 128, requires uppercase, lowercase, number, special char)"
+}
+```
+
+**Success Response 200:**
+```json
+{
+  "success": true,
+  "data": { "success": true, "message": "Password has been reset successfully" },
+  "message": "Password has been reset successfully"
+}
+```
+
+**Error Responses:**
+
+| Status | Code | Message |
+|--------|------|---------|
+| 400 | ZodError | Validation failed |
+| 400 | INVALID_RESET_TOKEN | Invalid or expired reset token |
+| 400 | RESET_TOKEN_EXPIRED | Reset token has expired |
+| 400 | RESET_TOKEN_USED | Reset token has already been used |
+
+---
+
+### POST /api/v1/auth/verify-email
+**Verify user's email address.**
+
+**Request Body:**
+```json
+{
+  "token": "string (required)"
+}
+```
+
+**Success Response 200:**
+```json
+{
+  "success": true,
+  "data": { "success": true, "message": "Email verified successfully" },
+  "message": "Email verified successfully"
+}
+```
+
+**Error Responses:**
+
+| Status | Code | Message |
+|--------|------|---------|
+| 400 | ZodError | Validation failed |
+| 400 | INVALID_VERIFICATION_TOKEN | Invalid or expired verification token |
+| 400 | VERIFICATION_TOKEN_EXPIRED | Verification token has expired |
+| 400 | VERIFICATION_TOKEN_USED | Verification token has already been used |
+
+---
+
+### GET /api/v1/auth/me
+**Get authenticated user profile.**
+
+**Headers:**
+- `Authorization: Bearer <access_token>`
+
+**Success Response 200:**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "tenantId": "uuid",
+    "email": "user@example.com",
+    "firstName": "John",
+    "lastName": "Doe",
+    "status": "ACTIVE",
+    "emailVerified": false,
+    "lastLoginAt": "2025-09-11T12:00:00.000000Z",
+    "createdAt": "2025-09-11T12:00:00.000000Z",
+    "updatedAt": "2025-09-11T12:00:00.000000Z"
+  },
+  "message": "User retrieved successfully"
+}
+```
+
+**Error Responses:**
+
+| Status | Code | Message |
+|--------|------|---------|
+| 401 | UNAUTHORIZED | Authentication required |
+| 401 | INVALID_TOKEN | Invalid access token |
+| 401 | TOKEN_EXPIRED | Access token has expired |
+| 401 | INVALID_TOKEN_CLAIMS | Invalid token claims |
+| 401 | USER_NOT_FOUND | User not found or inactive |
+| 403 | ACCOUNT_INACTIVE | Account is not active |
+| 403 | TENANT_INACTIVE | Tenant is not active |
+
+---
+
 ## APIs NOT Implemented
 
-The following API groups are **NOT implemented** in the repository as of Phase 03 completion:
+The following API groups are **NOT implemented** in the repository as of Phase 04 completion:
 
 | Category | Status |
 |----------|--------|
-| Authentication (`/api/v1/auth/*`) | ⏳ Not started |
 | RBAC Authorization (`/api/v1/roles`, `/api/v1/permissions`, `/api/v1/users/:id/roles`) | ⏳ Not started |
 | User Management (`/api/v1/users`) | ⏳ Not started |
 | Product Management (`/api/v1/products`, `/api/v1/categories`, `/api/v1/attributes`) | ⏳ Not started |
@@ -250,4 +561,4 @@ The following API groups are **NOT implemented** in the repository as of Phase 0
 | Analytics / Reporting | ⏳ Not started |
 | Swagger / OpenAPI | ⏳ Not started |
 
-Only the Health APIs and Tenant APIs listed above are implemented and tested.
+Only the Health APIs, Tenant APIs, and Authentication APIs listed above are implemented and tested.

@@ -270,11 +270,83 @@ All timestamp columns use `TIMESTAMPTZ(6)`.
 
 ---
 
+## Phase 04 — Authentication
+
+### Core Authentication Features
+
+| Feature | Implementation |
+|---------|----------------|
+| User Registration | `POST /api/v1/auth/register` — validates tenant, hashes password (Argon2id), creates user, initiates email verification |
+| User Login | `POST /api/v1/auth/login` — validates tenant/credentials, issues access JWT + refresh token |
+| Access Token | JWT (HS256), 15 min expiry, claims: `sub`, `tenantId`, `sessionId`, `email` |
+| Refresh Token | 7-day expiry, SHA-256 hash stored in DB, rotation on each use |
+| Refresh Rotation | Transaction-safe (Prisma `$transaction`): revoke old + create new atomically |
+| Refresh Revocation | `revoked_at` timestamp, checked on each use |
+| Refresh Reuse Detection | Revoked token reuse triggers revocation of ALL user tokens |
+| Logout | `POST /api/v1/auth/logout` — revokes provided refresh token |
+| Password Hashing | Argon2id (memoryCost=19456, timeCost=2, parallelism=1) |
+| Forgot Password | `POST /api/v1/auth/forgot-password` — generates secure reset token (1h expiry), account enumeration safe |
+| Reset Password | `POST /api/v1/auth/reset-password` — validates token, hashes new password, revokes all refresh tokens |
+| Email Verification | `POST /api/v1/auth/verify-email` — 24h expiry, single-use, sets `emailVerified=true` |
+| Current User | `GET /api/v1/auth/me` — requires valid Bearer JWT, returns safe user profile |
+
+### JWT Design
+- **Algorithm:** HS256 (HMAC SHA-256)
+- **Access Token:** 15 min expiry, claims: `sub`, `tenantId`, `sessionId`, `email`
+- **Refresh Token:** 7 days, stored as SHA-256 hash in DB, rotated on each use
+- **Secrets:** `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` (min 32 chars, required in production)
+- **Claims:** `iss: pulseops`, `aud: pulseops-api`
+
+### Refresh Token Security
+- **Never stored plaintext** — only SHA-256 hash in DB
+- **Expiration enforced** — 7 days, checked on each refresh
+- **Revocation enforced** — `revoked_at` timestamp, checked on each use
+- **Rotation** — old token revoked, new token issued on each refresh
+- **Reuse detection** — revoked token reuse triggers revocation of ALL user tokens
+- **Transaction-safe rotation** — revoke old + create new in single Prisma `$transaction`
+- **Tenant-scoped** — tokens include `tenant_id`, cannot cross tenant boundaries
+
+### Password Security
+- **Argon2id** — memoryCost=19456, timeCost=2, parallelism=1
+- Min 8 chars, requires uppercase, lowercase, number, special char
+- Never logged or returned in responses
+
+### Password Reset
+- Secure token (32 bytes crypto.randomBytes, SHA-256 hash stored)
+- 1-hour expiry, enforced
+- Single-use (`used_at` timestamp)
+- Revokes all refresh tokens on successful reset
+- Account enumeration protection (always returns success message)
+
+### Email Verification
+- Secure token (32 bytes, SHA-256 hash stored)
+- 24-hour expiry, single-use
+- Sets `emailVerified=true` on user
+- Dev token logged to console (no email provider in Phase 04)
+
+### Auth Middleware
+`authenticate()` middleware:
+1. Extracts Bearer token from Authorization header
+2. Verifies JWT signature, expiry, issuer, audience
+3. Validates required claims: `sub`, `tenantId`, `sessionId`
+4. Finds user by ID + tenantId from token
+5. Verifies user exists, is ACTIVE, and tenant is ACTIVE/TRIAL
+6. Sets `req.context` with `userId`, `tenantId`, `sessionId`, `email`
+
+### Cross-Tenant Isolation
+- All auth records scoped by `tenant_id`
+- Login/register require explicit `tenantId`
+- JWT contains `tenantId` claim
+- `/auth/me` validates tenant context
+- Cross-tenant token reuse prevented at application layer
+- Refresh tokens bound to originating tenant via stored `tenant_id`
+
+---
+
 ## What is NOT Implemented (Future Phases)
 
-The following are explicitly **NOT** implemented as of Phase 03 completion:
+The following are explicitly **NOT** implemented as of Phase 04 completion:
 
-- Authentication (login, register, JWT, refresh tokens, password reset, email verification)
 - RBAC authorization middleware
 - User management APIs
 - Product/Category/Variant/Attribute/Image APIs

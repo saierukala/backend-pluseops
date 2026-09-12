@@ -16,6 +16,8 @@ loadProjectEnvFile();
 
 const booleanFromString = z.enum(['true', 'false']).transform((value) => value === 'true');
 
+const isTestEnv = process.env.NODE_ENV === 'test';
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
@@ -28,7 +30,13 @@ const envSchema = z.object({
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
   TRUST_PROXY: booleanFromString.default(false),
-  FAIL_ON_DEPENDENCY_ERROR: booleanFromString.optional()
+  FAIL_ON_DEPENDENCY_ERROR: booleanFromString.optional(),
+  JWT_ACCESS_SECRET: isTestEnv ? z.string().optional() : z.string().min(32),
+  JWT_REFRESH_SECRET: isTestEnv ? z.string().optional() : z.string().min(32),
+  JWT_ACCESS_EXPIRY: z.string().default('15m'),
+  JWT_REFRESH_EXPIRY: z.string().default('7d'),
+  PASSWORD_RESET_EXPIRY: z.string().default('1h'),
+  EMAIL_VERIFICATION_EXPIRY: z.string().default('24h'),
 });
 
 const parsed = envSchema.safeParse(process.env);

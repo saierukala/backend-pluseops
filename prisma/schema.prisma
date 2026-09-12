@@ -112,6 +112,12 @@ enum AuditAction {
   IMPORT
 }
 
+enum TokenType {
+  REFRESH
+  PASSWORD_RESET
+  EMAIL_VERIFICATION
+}
+
 model Tenant {
   id        String   @id @default(uuid())
   name      String
@@ -152,6 +158,9 @@ model Tenant {
   notificationTemplates NotificationTemplate[]
   auditLogs             AuditLog[]
   activityLogs          ActivityLog[]
+  refreshTokens         RefreshToken[]
+  passwordResetTokens   PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
 
   @@map("tenants")
 }
@@ -190,19 +199,71 @@ model User {
   firstName     String     @map("first_name")
   lastName      String     @map("last_name")
   status        UserStatus @default(ACTIVE)
+  emailVerified Boolean    @default(false) @map("email_verified")
   lastLoginAt   DateTime?  @db.Timestamptz(6) @map("last_login_at")
   createdAt     DateTime   @db.Timestamptz(6) @default(now()) @map("created_at")
   updatedAt     DateTime   @db.Timestamptz(6) @updatedAt @map("updated_at")
   deletedAt     DateTime?  @db.Timestamptz(6) @map("deleted_at")
 
-  userRoles     UserRole[]
-  auditLogs     AuditLog[]
-  activityLogs  ActivityLog[]
+  userRoles           UserRole[]
+  auditLogs           AuditLog[]
+  activityLogs        ActivityLog[]
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
 
   @@unique([tenantId, email])
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @map("token_hash")
+  expiresAt DateTime @db.Timestamptz(6) @map("expires_at")
+  revokedAt DateTime? @db.Timestamptz(6) @map("revoked_at")
+  createdAt DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@index([tenantId, userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @map("token_hash")
+  expiresAt DateTime @db.Timestamptz(6) @map("expires_at")
+  usedAt    DateTime? @db.Timestamptz(6) @map("used_at")
+  createdAt DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@index([tenantId, userId])
+  @@index([tokenHash])
+  @@map("password_reset_tokens")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String   @map("token_hash")
+  expiresAt DateTime @db.Timestamptz(6) @map("expires_at")
+  usedAt    DateTime? @db.Timestamptz(6) @map("used_at")
+  createdAt DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@index([tenantId, userId])
+  @@index([tokenHash])
+  @@map("email_verification_tokens")
 }
 
 model Role {

@@ -2,7 +2,7 @@
 
 A production-minded, multi-tenant backend for PulseOps, built with Node.js, Express, PostgreSQL, Prisma, and Redis. The project follows a modular-monolith architecture and is being delivered incrementally so that every foundation layer is tested before business modules are introduced.
 
-**Current status:** Phase 03 — Database Schema & Migrations is **COMPLETE and VERIFIED**.
+**Current status:** Phase 04 — Authentication is **COMPLETE and VERIFIED**.
 
 The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_Backend_Codex_Master_Roadmap.md`](docs/PulseOps_Backend_Codex_Master_Roadmap.md).
 
@@ -19,6 +19,7 @@ The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_
 - **Multi-tenant foundation: Tenant, TenantSettings, TenantDomain with CRUD APIs**
 - **Core relational schema: 31 Phase 03 models with tenant isolation, Decimal money, TIMESTAMPTZ(6)**
 - **Minimal idempotent seed for foundational roles/permissions**
+- **Authentication: JWT (HS256), refresh token rotation, password reset, email verification**
 
 ## Prerequisites
 
@@ -94,6 +95,14 @@ Never commit `.env`. Use a secret manager or deployment-specific environment var
 | GET | `/api/v1/tenants/:id` | Get tenant by ID |
 | PATCH | `/api/v1/tenants/:id` | Update tenant |
 | DELETE | `/api/v1/tenants/:id` | Delete tenant |
+| POST | `/api/v1/auth/register` | Register a user |
+| POST | `/api/v1/auth/login` | Login user |
+| POST | `/api/v1/auth/refresh` | Refresh access token |
+| POST | `/api/v1/auth/logout` | Logout (revoke refresh token) |
+| POST | `/api/v1/auth/forgot-password` | Request password reset |
+| POST | `/api/v1/auth/reset-password` | Reset password |
+| POST | `/api/v1/auth/verify-email` | Verify email |
+| GET | `/api/v1/auth/me` | Get current user profile |
 
 The same health endpoints are also exposed under `/api/v1/health`, although infrastructure probes should use the root `/health` routes.
 
@@ -116,11 +125,11 @@ npm run db:seed
 
 Latest verification results (all passing):
 
-- **Tests:** 56/56 passing (integration: health, tenants, request boundaries, Phase 03 schema)
+- **Tests:** 86/86 passing (integration: health, tenants, request boundaries, Phase 03 schema, Phase 04 auth)
 - **Lint:** ESLint 0 errors
 - **Prisma validate:** ✅ Valid
 - **Prisma generate:** ✅ Success
-- **Migration status:** Database schema up to date (3 migrations applied)
+- **Migration status:** Database schema up to date (4 migrations applied)
 
 ## Operational notes
 
@@ -142,7 +151,7 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 | Phase 01 | Project Foundation | ✅ Complete |
 | Phase 02 | Multi-Tenant Foundation | ✅ Complete |
 | Phase 03 | Database Schema & Migrations | ✅ Complete |
-| Phase 04 | Authentication | ⏳ Not started |
+| Phase 04 | Authentication | ✅ Complete |
 | Phase 05 | RBAC | ⏳ Not started |
 | Phase 06 | User Management | ⏳ Not started |
 | Phase 07 | Product Management | ⏳ Not started |
@@ -163,4 +172,4 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 | Phase 22 | Swagger/OpenAPI | ⏳ Not started |
 | Phase 23 | Docker/CI/CD/Deployment | ⏳ Not started |
 
-**Phase 04 is the NEXT authorized development phase, but has NOT started.**
+**Phase 05 is the NEXT authorized development phase, but has NOT started.**
