@@ -589,13 +589,38 @@ users/
 
 ---
 
+## Phase 07 — Product Management (COMPLETE & VERIFIED — 78/78, 267/267)
+
+### Product Catalog (Business-Agnostic)
+- **Product CRUD:** `POST/GET /api/v1/products`, `GET/PATCH/DELETE /api/v1/products/:id` — name, description, brand, status (ACTIVE/INACTIVE/DRAFT/ARCHIVED), basePrice Decimal, tenant-scoped
+- **Category CRUD:** `POST/GET /api/v1/categories`, `PATCH/DELETE /api/v1/categories/:id` — name, slug unique per tenant, description, parentId hierarchy, sortOrder, isActive, cycle detection (400), hasChildren guard (400)
+- **Category Hierarchy:** parent/children via `parentId`, tenant-scoped, verified via integration tests
+- **Product/Category Relationships:** `POST /api/v1/products/:productId/categories` (set with isPrimary), `GET /api/v1/products/:productId/categories`, junction `product_categories` tenant-scoped
+- **Product Variants (Sellable Unit):** `POST/GET /api/v1/products/:productId/variants`, `GET/PATCH/DELETE /api/v1/products/:productId/variants/:variantId` — SKU unique per tenant (409), barcode unique per tenant (409, nullable), price/costPrice Decimal, status, productId ownership check, tenant isolation
+- **Variant Attributes:** `PUT /api/v1/products/:productId/variants/:variantId/attributes` (replace, validates attribute exists in tenant 404, value type 400), `GET /api/v1/products/:productId/variants/:variantId/attributes`
+- **Tenant-Scoped SKUs/Barcodes:** SKU `@@unique([tenantId, sku])`, barcode `@@index([tenantId, barcode])`, cross-tenant same SKU allowed (201), same-tenant duplicate 409, lookup via `GET /api/v1/products?sku=X`/`?barcode=Y` tenant-scoped (returns 0 for other tenant)
+- **Flexible Attributes:** business-agnostic generic model, examples clothing/electronics/cosmetics via attributes, not columns; `AttributeDefinition` code `^[a-z0-9_-]+$` unique per tenant, `dataType` TEXT/NUMBER/BOOLEAN/OPTION, `isRequired`, `description` (Phase 07 TEXT nullable, migration `20260913_phase_07_attribute_description`), `AttributeValue` unique on `(tenantId, attributeDefinitionId, value)`
+- **Attribute CRUD:** `POST/GET /api/v1/attributes`, `PATCH/DELETE /api/v1/attributes/:id` (409 duplicate code, 400 in-use guards)
+- **Attribute Values:** `POST/GET /api/v1/attributes/:attributeId/values`, `PATCH/DELETE /api/v1/attributes/:attributeId/values/:valueId`
+- **Product Images CRUD (Local StorageService):** `POST /api/v1/products/:productId/images` (multer 10MB, JPEG/PNG/WebP/GIF, server key `tenants/{tenantId}/products/{productId}/{sanitizedFilename}`), `GET /api/v1/products/:productId/images`, `GET /api/v1/products/:productId/images/:imageId`, `PATCH /api/v1/products/:productId/images/:imageId` (product:update, only altText/sortOrder/isPrimary, storageKey/tenantId ignored, tenant+product ownership 404), `DELETE /api/v1/products/:productId/images/:imageId` (product:delete, DB + local storage object removed, traversal protected, cross-tenant 404, unauthorized 403)
+- **Variant Images:** `POST /api/v1/products/:productId/variants/:variantId/images` (validates variant belongs to product, key `tenants/{t}/products/{p}/variants/{v}/{file}`), `GET /api/v1/products/:productId/variants/:variantId/images`
+- **Local StorageService:** `StorageService → LocalStorageProvider` (`./storage` basePath, `getFullPath` traversal check, `sanitizeFilename`, `validateImageFile`), S3 deferred to Phase 16 per roadmap, bytes on filesystem, PostgreSQL stores `storage_key` + metadata
+- **Tenant-Scoped Storage Keys:** server-generated, `tenants/{tenantId}/products/{productId}/` and `tenants/{tenantId}/products/{productId}/variants/{variantId}/`, client cannot supply arbitrary path, filename sanitized, verified via integration tests
+- **Product Filtering:** pagination (`page`/`limit`), search (name/description/brand), sorting, category filtering, status filtering, price filtering (`minPrice`/`maxPrice` gte/lte), variant filtering, SKU filtering (`?sku=` contains), barcode filtering (`?barcode=` contains), attribute filtering (`?attribute[code]=value` tenant-scoped AND), variant `AND` composition verified
+- **Pagination:** standard meta `page,limit,total,totalPages` on all lists
+- **RBAC Authorization:** `product:create/read/update/delete`, `category:create/read/update/delete`, `attribute:create/read/update/delete` via `authorize()` after `authenticate()` + tenant context; `PATCH image → product:update`, `DELETE image → product:delete`; 401 if unauthenticated, 403 if missing permission
+- **Tenant Isolation:** every op `where:{tenantId}` from `req.context.tenantId`, cross-tenant 404 (`PRODUCT_NOT_FOUND` etc.), `productId` ownership for images/variants, JWT manipulated tenantId → 401, storage keys tenant-scoped, SKU/barcode isolation verified (tenant A lookup B SKU/barcode → 0, same SKU cross-tenant allowed, retrieve/update/delete cross-tenant variant → 404)
+- **Validation:** Zod on all inputs (slug `^[a-z0-9-]+$`, code `^[a-z0-9_-]+$`, price Decimal regex, enum status, description max, etc.), image 10MB + mime, attribute code/values, product/variant, etc.
+- **Integration/API Testing:** 78 Phase 7 tests (267 full), covering CRUD, validation, duplicates 409, search/filtering (sku/barcode/attribute), pagination, `productId` ownership, auth 401, RBAC 403, tenant isolation 404, manipulated JWT, image PATCH/DELETE (200, 404 cross-tenant, 403 unauthorized, 401 unauth, wrong productId 404, storageKey unchanged, DB+storage consistency, tenant-scoped keys), variant image, storage isolation
+- **Database:** only change `attribute_definitions.description` nullable TEXT, migration `20260913_phase_07_attribute_description` (`ADD COLUMN IF NOT EXISTS`), 6 migrations up to date, `prisma validate` valid
+
+---
+
 ## What is NOT Implemented (Future Phases)
 
-The following are explicitly **NOT** implemented as of Phase 06 completion:
+The following are explicitly **NOT** implemented as of Phase 07 completion (Product Management COMPLETE):
 
-- Product/Category/Variant/Attribute/Image APIs
-- Product/Category/Variant/Attribute/Image APIs
-- Inventory management APIs
+- Inventory management APIs (Phase 08 NEXT)
 - Order/OrderItem/OrderStatusHistory APIs
 - Payment/Transaction/Refund APIs
 - Notification/Preference/Template APIs

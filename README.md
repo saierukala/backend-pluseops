@@ -2,7 +2,7 @@
 
 A production-minded, multi-tenant backend for PulseOps, built with Node.js, Express, PostgreSQL, Prisma, and Redis. The project follows a modular-monolith architecture and is being delivered incrementally so that every foundation layer is tested before business modules are introduced.
 
-**Current status:** Phase 06 — User Management is **COMPLETE and VERIFIED**.
+**Current status:** Phase 07 — Product Management is **COMPLETE and VERIFIED**.
 
 The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_Backend_Codex_Master_Roadmap.md`](docs/PulseOps_Backend_Codex_Master_Roadmap.md).
 
@@ -22,6 +22,7 @@ The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_
 - **Authentication: JWT (HS256), refresh token rotation, password reset, email verification**
 - **Authorization / RBAC: role-based and permission-based access control with tenant isolation**
 - **User Management: tenant-scoped user CRUD with pagination, search, filter, sort, status/role filtering**
+- **Product Management: business-agnostic product catalog — categories, category hierarchy, products, product/category relationships, product variants (tenant-scoped SKUs/barcodes), flexible attributes/values, variant attribute assignment, product & variant images via local StorageService with tenant-scoped keys, product filtering (search, category, status, price, SKU/barcode, attribute), pagination, RBAC, tenant isolation, validation, 78 integration tests**
 
 ## Prerequisites
 
@@ -119,6 +120,38 @@ Never commit `.env`. Use a secret manager or deployment-specific environment var
 | GET | `/api/v1/permissions/:id` | Get permission by ID |
 | GET | `/api/v1/users/:id/roles` | Get user roles |
 | POST | `/api/v1/users/:id/roles` | Assign roles to user |
+| POST | `/api/v1/categories` | Create category |
+| GET | `/api/v1/categories` | List categories (paginated) |
+| PATCH | `/api/v1/categories/:id` | Update category |
+| DELETE | `/api/v1/categories/:id` | Delete category |
+| POST | `/api/v1/products` | Create product |
+| GET | `/api/v1/products` | List products (paginated, search, filters) |
+| GET | `/api/v1/products/:id` | Get product by ID |
+| PATCH | `/api/v1/products/:id` | Update product |
+| DELETE | `/api/v1/products/:id` | Delete product |
+| POST | `/api/v1/products/:productId/categories` | Set product categories |
+| GET | `/api/v1/products/:productId/categories` | Get product categories |
+| POST | `/api/v1/products/:productId/variants` | Create variant (SKU/barcode tenant-scoped) |
+| GET | `/api/v1/products/:productId/variants` | List variants |
+| GET | `/api/v1/products/:productId/variants/:variantId` | Get variant |
+| PATCH | `/api/v1/products/:productId/variants/:variantId` | Update variant |
+| DELETE | `/api/v1/products/:productId/variants/:variantId` | Delete variant |
+| PUT | `/api/v1/products/:productId/variants/:variantId/attributes` | Assign variant attributes |
+| GET | `/api/v1/products/:productId/variants/:variantId/attributes` | List variant attributes |
+| POST | `/api/v1/products/:productId/images` | Upload product image (local StorageService) |
+| GET | `/api/v1/products/:productId/images` | List product images |
+| PATCH | `/api/v1/products/:productId/images/:imageId` | Update product image metadata |
+| DELETE | `/api/v1/products/:productId/images/:imageId` | Delete product image (DB + storage) |
+| POST | `/api/v1/products/:productId/variants/:variantId/images` | Upload variant image |
+| GET | `/api/v1/products/:productId/variants/:variantId/images` | List variant images |
+| POST | `/api/v1/attributes` | Create attribute definition |
+| GET | `/api/v1/attributes` | List attributes |
+| PATCH | `/api/v1/attributes/:id` | Update attribute |
+| DELETE | `/api/v1/attributes/:id` | Delete attribute |
+| POST | `/api/v1/attributes/:attributeId/values` | Create attribute value |
+| GET | `/api/v1/attributes/:attributeId/values` | List attribute values |
+| PATCH | `/api/v1/attributes/:attributeId/values/:valueId` | Update attribute value |
+| DELETE | `/api/v1/attributes/:attributeId/values/:valueId` | Delete attribute value |
 
 The same health endpoints are also exposed under `/api/v1/health`, although infrastructure probes should use the root `/health` routes.
 
@@ -139,13 +172,18 @@ npm run db:seed
 
 ## Verification
 
-Latest verification results (all passing):
+Latest verification results (all passing, Phase 07 independently verified and APPROVED):
 
-- **Tests:** 189/189 passing (integration: health, tenants, request boundaries, Phase 03 schema, Phase 04 auth, Phase 05 RBAC, Phase 06 users)
-- **Lint:** ESLint 0 errors
+- **Full test suite:** 267 passed, 0 failed (8 suites)
+- **Phase 7:** 78 passed, 0 failed (product management: categories, products, variants, attributes, images, filtering, RBAC, tenant isolation, storage)
+- **Lint:** ESLint 0 errors, 0 warnings
 - **Prisma validate:** ✅ Valid
 - **Prisma generate:** ✅ Success
-- **Migration status:** Database schema up to date (5 migrations applied)
+- **Migration status:** Database schema up to date (6 migrations applied)
+- **Phase 7 migration:** `20260913_phase_07_attribute_description` (`attribute_definitions.description`)
+- **Storage:** Local StorageService (`tenants/{tenantId}/products/{productId}/{filename}`), S3 deferred to Phase 16
+- **Regression:** Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS
+- **Image PATCH/DELETE:** PATCH authorized owner → 200, DELETE authorized owner → 200 (DB + storage removed), cross-tenant PATCH/DELETE → 404, unauthorized PATCH/DELETE → 403, unauthenticated → 401
 
 ## Operational notes
 
@@ -159,7 +197,9 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 - Phase 04 provides authentication (JWT, refresh tokens, password reset, email verification).
 - Phase 05 provides role-based and permission-based authorization (RBAC) with tenant isolation.
 - Phase 06 provides tenant-scoped user management (CRUD, pagination, search, filter, sort, tenant isolation).
-- User management, Product management, Inventory, Orders, Payments, Notifications, WebSockets, Redis caching, BullMQ, External integrations, Analytics, Swagger/OpenAPI, Docker/CI/CD are **NOT implemented yet**.
+- Phase 07 provides business-agnostic product management (categories, hierarchy, products, product/category relationships, variants with tenant-scoped SKUs/barcodes, flexible attributes/values, variant attributes, product & variant images via local StorageService with tenant-scoped keys, filtering/search/pagination, RBAC, tenant isolation).
+- Inventory, Orders, Payments, Notifications, WebSockets, Redis caching, BullMQ, External integrations, Analytics, Swagger/OpenAPI, Docker/CI/CD are **NOT implemented yet**.
+- Phase 7 uses local storage only; S3-compatible storage remains a future Phase 16 concern via StorageService abstraction; storage keys are server-generated and tenant-scoped.
 - PostgreSQL and Redis connectivity are verified locally. The health endpoints distinguish liveness from dependency readiness.
 - Docker and deployment configuration are intentionally deferred until their dedicated delivery phase.
 
@@ -173,8 +213,8 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 | Phase 04 | Authentication | ✅ Complete |
 | Phase 05 | Authorization / RBAC | ✅ Complete |
 | Phase 06 | User Management | ✅ Complete |
-| Phase 07 | Product Management | ⏳ Not started |
-| Phase 08 | Inventory | ⏳ Not started |
+| Phase 07 | Product Management | ✅ Complete |
+| Phase 08 | Inventory | ⏳ Not started (NEXT) |
 | Phase 09 | Orders | ⏳ Not started |
 | Phase 10 | Payments | ⏳ Not started |
 | Phase 11 | Audit | ⏳ Not started |
@@ -191,4 +231,4 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 | Phase 22 | Swagger/OpenAPI | ⏳ Not started |
 | Phase 23 | Docker/CI/CD/Deployment | ⏳ Not started |
 
-**Phase 06 is COMPLETE and VERIFIED. Phase 07 is the NEXT authorized development phase.**
+**Phase 07 is COMPLETE and VERIFIED (78/78 Phase 7 tests, 267/267 full suite). Phase 08 is the NEXT authorized development phase.**

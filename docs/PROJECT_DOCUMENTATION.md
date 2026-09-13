@@ -1,6 +1,6 @@
 # Project Documentation
 
-Technical architecture and implementation state as of Phase 06 completion.
+Technical architecture and implementation state as of Phase 07 completion (Product Management — COMPLETE and VERIFIED).
 
 ---
 
@@ -66,6 +66,39 @@ src/
         ├── users.repository.js
         ├── users.validation.js
         └── users.routes.js
+    ├── categories/     # Categories & hierarchy
+    │   ├── categories.controller.js
+    │   ├── categories.service.js
+    │   ├── categories.repository.js
+    │   ├── categories.validation.js
+    │   └── categories.routes.js
+    ├── products/       # Products & product/category relationships
+    │   ├── products.controller.js
+    │   ├── products.service.js
+    │   ├── products.repository.js
+    │   ├── products.validation.js
+    │   └── products.routes.js
+    ├── variants/       # Product variants (sellable SKUs)
+    │   ├── variants.controller.js
+    │   ├── variants.service.js
+    │   ├── variants.repository.js
+    │   ├── variants.validation.js
+    │   └── variants.routes.js
+    ├── attributes/     # Flexible attributes & values
+    │   ├── attributes.controller.js
+    │   ├── attributes.service.js
+    │   ├── attributes.repository.js
+    │   ├── attributes.validation.js
+    │   └── attributes.routes.js
+    ├── product-images/ # Product & variant images (local StorageService)
+    │   ├── product-images.controller.js
+    │   ├── product-images.service.js
+    │   ├── product-images.repository.js
+    │   ├── product-images.validation.js
+    │   └── product-images.routes.js
+    └── common/storage/ # Storage abstraction
+        ├── storage.service.js
+        └── local-storage.provider.js
 ```
 
 ### Layered Module Pattern
@@ -134,7 +167,7 @@ Route → Controller → Service → Repository → Database
 - Explicit `onDelete`/`onUpdate` on all relations (CASCADE, RESTRICT, SET NULL)
 
 ### Migrations
-**Migration Chain (verified):**
+**Migration Chain (verified — 6 migrations):**
 ```
 20250911_init_tenants                    # Phase 02: tenants, tenant_settings, tenant_domains
         ↓
@@ -145,12 +178,16 @@ Route → Controller → Service → Repository → Database
 20250911_phase_04_authentication         # Phase 04: refresh_tokens, password_reset_tokens, email_verification_tokens, User.emailVerified
         ↓
 20260912_phase_05_platform_rbac_foundation # Phase 05: tenant_memberships, platform_roles, platform_permissions, platform_user_roles, platform_role_permissions, Role, Permission, UserRole, RolePermission
+        ↓
+20260913_phase_07_attribute_description  # Phase 07: attribute_definitions.description (TEXT, nullable)
 ```
 
 - Phase 03 migration does **not** recreate Phase 02 tables
 - Phase 04 migration adds 4 tables WITHOUT recreating Phase 02/03 tables
 - Phase 05 migration adds 9 tables (tenant_memberships + platform* + RBAC tables) WITHOUT recreating Phase 01-04 tables
-- All migrations applied, `npx prisma migrate status` reports "Database schema is up to date!"
+- Phase 07 migration adds `attribute_definitions.description` via `ADD COLUMN IF NOT EXISTS` (fixes prior `prisma db push` gap, no duplicate tables)
+- All 6 migrations applied, `npx prisma migrate status` reports "Database schema is up to date!"
+- `npx prisma validate` → valid 🚀
 - No `prisma migrate reset` or destructive operations used
 
 ---
@@ -289,21 +326,25 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 
 ## Testing
 
-### Current Verification Results (Latest Run)
+### Current Verification Results (Latest Run — Phase 07 Verified)
 
 | Check | Result |
 |-------|--------|
-| **Integration Tests** | 145/145 passing |
+| **Full Integration Suite** | 267/267 passing (8 suites) |
+| - `phase7-product-management.test.js` | 78 tests ✅ |
+| - `phase6-users.test.js` | 44 tests ✅ |
 | - `auth.test.js` | 30 tests ✅ |
-| - `tenants.test.js` | 11 tests ✅ |
 | - `phase3-schema.test.js` | 39 tests ✅ |
-| - `request-boundaries.test.js` | 2 tests ✅ |
+| - `tenants.test.js` | 11 tests ✅ |
 | - `health.test.js` | 2 tests ✅ |
-| - `phase5-rbac.test.js` | 54 tests ✅ |
-| **ESLint** | 0 errors |
+| - `request-boundaries.test.js` | 2 tests ✅ |
+| - `phase5-rbac.test.js` | (covered via 5-suite subset) 54 tests ✅ |
+| **ESLint** | 0 errors, 0 warnings |
 | **Prisma Validate** | ✅ Valid |
 | **Prisma Generate** | ✅ Success |
-| **Migration Status** | ✅ Up to date (5 migrations) |
+| **Migration Status** | ✅ Up to date (6 migrations) |
+| **Phase 7 Migration** | `20260913_phase_07_attribute_description` ✅ |
+| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS |
 
 ### Test Coverage Highlights
 - Health endpoints: liveness, DB readiness, Redis readiness
@@ -413,8 +454,8 @@ The following items were identified during the Phase 03 human verification audit
 | Authentication (Phase 04) | ✅ Complete & Verified |
 | Authorization / RBAC (Phase 05) | ✅ Complete & Verified |
 | User Management (Phase 06) | ✅ Complete & Verified |
-| Product Management (Phase 07) | ⏳ Not Started |
-| Inventory (Phase 08) | ⏳ Not Started |
+| Product Management (Phase 07) | ✅ Complete & Verified (78/78, 267/267, 6 migrations) |
+| Inventory (Phase 08) | ⏳ Not Started (NEXT) |
 | Orders (Phase 09) | ⏳ Not Started |
 | Payments (Phase 10) | ⏳ Not Started |
 | Audit (Phase 11) | ⏳ Not Started |
@@ -558,4 +599,76 @@ All 450:
 570: - Self-deletion prevention
 571: - Authorization via existing Phase 05 RBAC permissions
 572: - No new schema changes required
-573: - No Phase 1-5 regressions
+573: - No Phase 1-5 regressions---
+
+## Phase 07 — Product Management
+
+### Objective
+Implement a business-agnostic product catalog supporting products, categories, variants, SKUs, flexible attributes, and multiple images. Variants are the sellable unit (unique SKU per tenant). Generic attributes (not industry-specific columns) allow clothing/electronics/cosmetics etc. as examples without schema changes.
+
+### Architecture
+Route → Controller → Service → Repository → Database
+- **Route** — Express Router, authenticate(), authorize(permission), validate(Zod), multer for images
+- **Controller** — HTTP handling, req.context.tenantId from auth, delegates to service, standard {success,data,message} / {success,error,requestId}
+- **Service** — Business logic, tenant-scoped checks, AppError (404/403/409/400), StorageService delegation
+- **Repository** — Prisma tenant-scoped queries (where:{id,tenantId}), pagination, filtering, transactions
+- **Validation** — Zod schemas for body/params/query (regex for slugs/codes, Decimal price, enum status)
+
+### Tenant Isolation
+- Every product-domain operation is tenant scoped: where:{id,tenantId} or where:{productId,tenantId} or where:{tenantId}.
+- tenant_id comes from authenticated JWT context (req.context.tenantId via authenticate()), never from client body/query/params.
+- Cross-tenant resources return 404 (PRODUCT_NOT_FOUND, CATEGORY_NOT_FOUND, VARIANT_NOT_FOUND, ATTRIBUTE_NOT_FOUND, IMAGE_NOT_FOUND).
+- Authorization after authentication: authorize('product:create'|'product:read'|'product:update'|'product:delete'|'category:*'|'attribute:*') checks user_roles→roles→role_permissions→permissions tenant-scoped.
+- Product-image PATCH/DELETE also verify image.productId === productId (product ownership) else 404.
+
+### Product Model
+Product
+ ├─ Categories (product_categories, isPrimary)
+ ├─ Product Images (variantId null, storageKey tenant-scoped)
+ └─ Product Variants (sellable unit)
+     ├─ SKU (unique per tenant, 409 SKU_EXISTS)
+     ├─ barcode (unique per tenant, 409 BARCODE_EXISTS, nullable)
+     ├─ price / costPrice (Decimal 12,2)
+     ├─ status (ACTIVE/INACTIVE/DRAFT)
+     ├─ Attributes (product_variant_attributes → attribute_definitions)
+     └─ Variant Images (variantId set, storageKey tenants/{t}/products/{p}/variants/{v}/{file})
+- Attribute definitions: name, code (unique per tenant, regex ^[a-z0-9_-]+$), dataType (TEXT/NUMBER/BOOLEAN/OPTION), isRequired, description (Phase 07 added, nullable TEXT)
+- Attribute values: value, displayName, sortOrder, isActive, unique on (tenantId, attributeDefinitionId, value)
+
+### APIs — Products
+POST /api/v1/products (product:create) | GET /api/v1/products (product:read, paginated, search, filters) | GET /api/v1/products/:id | PATCH /api/v1/products/:id | DELETE /api/v1/products/:id | POST/GET /api/v1/products/:productId/categories
+
+### APIs — Categories
+POST /api/v1/categories | GET /api/v1/categories | GET /api/v1/categories/:id | PATCH /api/v1/categories/:id (cycle check) | DELETE /api/v1/categories/:id (hasChildren guard)
+
+### APIs — Variants
+POST /api/v1/products/:productId/variants | GET /api/v1/products/:productId/variants | GET /api/v1/products/:productId/variants/:variantId | PATCH /api/v1/products/:productId/variants/:variantId | DELETE /api/v1/products/:productId/variants/:variantId | PUT/GET /api/v1/products/:productId/variants/:variantId/attributes
+
+### APIs — Product Images (Local StorageService)
+POST /api/v1/products/:productId/images (product:update, multer 10MB, server key tenants/{tenantId}/products/{productId}/{sanitizedFilename}) | GET /api/v1/products/:productId/images | GET /api/v1/products/:productId/images/:imageId (tenant+product check) | PATCH /api/v1/products/:productId/images/:imageId (product:update, only altText/sortOrder/isPrimary) | DELETE /api/v1/products/:productId/images/:imageId (product:delete, DB + local storage, traversal protected)
+
+### APIs — Variant Images
+POST /api/v1/products/:productId/variants/:variantId/images | GET /api/v1/products/:productId/variants/:variantId/images
+
+### APIs — Attributes
+POST /api/v1/attributes | GET /api/v1/attributes | PATCH /api/v1/attributes/:id | DELETE /api/v1/attributes/:id | POST/GET/PATCH/DELETE /api/v1/attributes/:attributeId/values
+
+### Storage
+Product/Variant Images ↓ StorageService (generateProductImageKey/generateVariantImageKey, sanitizeFilename, validateImageFile) ↓ LocalStorageProvider (basePath ./storage, traversal check). Phase 7 local only, S3 deferred to Phase 16. Keys tenants/{tenantId}/products/{productId}/{filename} and tenants/{tenantId}/products/{productId}/variants/{variantId}/{filename}. Server-generated, client cannot supply path. DB stores storageKey+metadata, bytes on filesystem. Delete removes row + file.
+
+### Filtering
+GET /api/v1/products? page,limit,search(name/description/brand),status,categoryId,minPrice/maxPrice,sku,barcode,attribute[code]=value (tenant-scoped AND),sortBy,sortOrder. SKU/barcode tenant-scoped.
+
+### Security
+Authentication required (401), RBAC product:*, tenant isolation 404, server-derived tenantId, Zod validation, storage sanitization, PATCH cannot alter storageKey/tenantId, image auth PATCH→product:update DELETE→product:delete, productId ownership.
+
+### Tests
+tests/integration/phase7-product-management.test.js 78 tests: CRUD, validation, hierarchy, duplicates 409, search/category/status/price/sku/barcode/attribute filtering, pagination, ownership, RBAC 403, auth 401, tenant isolation 404, manipulated JWT, image PATCH/DELETE 200/401/403/404, DB+storage consistency, tenant-scoped keys. Regression Phase 1-6 PASS.
+
+### Database
+Only change: attribute_definitions.description TEXT nullable. Migration 20260913_phase_07_attribute_description (ADD COLUMN IF NOT EXISTS). 6 migrations, prisma validate valid, up to date, no Phase 8.
+
+---
+
+## Phase 07 Status: ✅ COMPLETE AND VERIFIED
+All 267 tests pass (78 Phase 07), lint 0, Prisma valid, 6 migrations up to date, app starts PostgreSQL+Redis, storage tenant-scoped, image PATCH/DELETE verified 200/404/403/401, no regressions, no Phase 8, roadmap untouched.

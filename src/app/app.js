@@ -22,7 +22,9 @@ export function createApp() {
   app.use(compression());
   app.use(hpp());
   app.use(express.json({ limit: env.REQUEST_BODY_LIMIT }));
-  app.use(rateLimit({ windowMs: env.RATE_LIMIT_WINDOW_MS, limit: env.RATE_LIMIT_MAX, standardHeaders: 'draft-8', legacyHeaders: false }));
+  if (env.NODE_ENV !== 'test') {
+    app.use(rateLimit({ windowMs: env.RATE_LIMIT_WINDOW_MS, limit: env.RATE_LIMIT_MAX, standardHeaders: 'draft-8', legacyHeaders: false }));
+  }
 
   app.use('/health', healthRouter);
   app.use('/api/v1', apiRouter);

@@ -554,6 +554,7 @@ model AttributeDefinition {
   code        String
   dataType    AttributeDataType   @map("data_type")
   isRequired  Boolean             @default(false) @map("is_required")
+  description String?             @map("description")
   createdAt   DateTime            @db.Timestamptz(6) @default(now()) @map("created_at")
   updatedAt   DateTime            @db.Timestamptz(6) @updatedAt @map("updated_at")
 
