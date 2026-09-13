@@ -479,11 +479,121 @@ router.post(
 
 ---
 
+## Phase 06 — User Management
+
+### Core User Management Features
+
+| Feature | Implementation |
+|---------|----------------|
+| User Listing | `GET /api/v1/users` — tenant-scoped, paginated, search, filter, sort |
+| User Retrieval | `GET /api/v1/users/:id` — tenant-scoped, includes roles |
+| User Update | `PATCH /api/v1/users/:id` — explicit allowlist (firstName, lastName, status) |
+| User Deletion | `DELETE /api/v1/users/:id` — hard delete, self-deletion prevented |
+
+### User Listing Features
+
+- **Pagination:** `page` (default 1), `limit` (default 20, max 100)
+- **Search:** `search` parameter queries email, firstName, lastName (case-insensitive)
+- **Status filtering:** `status` parameter (ACTIVE, INACTIVE, SUSPENDED)
+- **Role filtering:** `roleId` parameter filters users by assigned role
+- **Sorting:** `sortBy` (createdAt, updatedAt, email, firstName, lastName, status) with `sortOrder` (asc, desc)
+- **Response:** Standard pagination metadata (`page`, `limit`, `total`, `totalPages`)
+
+### User Retrieval
+
+- Returns user with roles (id, name, isSystem)
+- **Never exposes:** `passwordHash`, `refreshToken`, `passwordResetToken`, `emailVerificationToken`, or any authentication secrets
+- 404 if user not found in authenticated tenant
+
+### User Update (Explicit Allowlist)
+
+- **Allowed fields:** `firstName`, `lastName`, `status`
+- **Explicitly rejected (400):**
+  - `email` → `EMAIL_MODIFICATION_FORBIDDEN`
+  - `passwordHash` → `PASSWORD_MODIFICATION_FORBIDDEN`
+  - `tenantId` → `TENANT_MODIFICATION_FORBIDDEN`
+- `roleIds` is not an allowed field and is silently ignored (roles managed via `/users/:id/roles` endpoint)
+- `status` validated against enum (ACTIVE, INACTIVE, SUSPENDED)
+
+### User Deletion
+
+- Hard delete via Prisma (no soft delete in Phase 06)
+- **Self-deletion prevented:** 400 `SELF_DELETION_FORBIDDEN`
+- 404 if user not found in authenticated tenant
+
+### Tenant Isolation
+
+- All queries scoped by `memberships: { some: { tenantId, status: 'ACTIVE' } }` using `req.context.tenantId` from authenticated JWT
+- **Never trusts** client-supplied `tenantId`
+- Cross-tenant GET/UPDATE/DELETE returns 404 `USER_NOT_FOUND`
+- Search/filtering cannot escape authenticated tenant scope
+- JWT with manipulated `tenantId` claim fails authentication (401 `USER_NOT_FOUND` or `INVALID_TOKEN`)
+
+### Authorization
+
+- Reuses Phase 05 RBAC permissions via existing `authorize()` middleware:
+  - `user:read` for GET endpoints
+  - `user:update` for PATCH endpoint
+  - `user:delete` for DELETE endpoint
+- **No new authorization architecture or permissions created**
+- Permissions `user:read`, `user:update`, `user:delete` existed in Phase 05 seed
+- Role assignment (seeded):
+  - `admin`: all user permissions
+  - `manager`: user:read, user:update (no user:delete)
+  - `member`: user:read only
+
+### Privilege Escalation Protection
+
+- Explicit allowlist prevents modification of privileged fields
+- `roleIds` cannot modify roles through user update endpoint
+- Self-deletion prevented
+- Platform permissions remain separate via `authorizePlatform()`
+
+### Module Structure
+
+```
+users/
+├── users.controller.js    # HTTP handlers, response formatting
+├── users.service.js       # Business logic, allowlist, privilege protection
+├── users.repository.js    # Database queries with tenant scoping
+├── users.validation.js    # Zod schemas for query/params/body
+└── users.routes.js        # Route registration with authorize()
+```
+
+### Verification Results
+
+| Check | Result |
+|-------|--------|
+| **Phase 06 Integration Tests** | 44/44 passing |
+| **Full Integration Suite** | 189/189 passing |
+| **ESLint** | 0 errors |
+| **Prisma Validate** | ✅ Valid |
+| **Migration Status** | ✅ Up to date (5 migrations, no Phase 06 schema changes) |
+| **Application Startup** | ✅ Verified |
+
+### Phase 06 Test Coverage
+
+- **GET /users:** 11 tests (auth, pagination, search, filter, sort, status, roleId, tenant isolation)
+- **GET /users/:id:** 7 tests (valid, 404, cross-tenant, sensitive fields, authz)
+- **PATCH /users/:id:** 11 tests (valid fields, invalid status, forbidden fields, cross-tenant, authz)
+- **DELETE /users/:id:** 6 tests (valid, self-delete prevention, cross-tenant, 404, authz)
+- **Privilege Escalation:** 3 tests (role manipulation, tenant escalation via JWT)
+- **Tenant Isolation:** 5 tests (all cross-tenant operations blocked)
+- **Response Structure:** 2 tests (list and single user format)
+
+### Database
+
+- **No schema changes required for Phase 06**
+- Existing Prisma schema supports all operations via User, UserRole, TenantMembership, Role models
+- 5 existing migrations remain valid and applied
+
+---
+
 ## What is NOT Implemented (Future Phases)
 
-The following are explicitly **NOT** implemented as of Phase 05 completion:
+The following are explicitly **NOT** implemented as of Phase 06 completion:
 
-- User management APIs (beyond role assignment)
+- Product/Category/Variant/Attribute/Image APIs
 - Product/Category/Variant/Attribute/Image APIs
 - Inventory management APIs
 - Order/OrderItem/OrderStatusHistory APIs

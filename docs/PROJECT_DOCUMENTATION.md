@@ -1,6 +1,6 @@
 # Project Documentation
 
-Technical architecture and implementation state as of Phase 05 completion.
+Technical architecture and implementation state as of Phase 06 completion.
 
 ---
 
@@ -60,7 +60,7 @@ src/
     │   ├── permissions.repository.js
     │   ├── permissions.validation.js
     │   └── permissions.routes.js
-    └── users/          # User role assignment
+    └── users/          # User management
         ├── users.controller.js
         ├── users.service.js
         ├── users.repository.js
@@ -412,7 +412,7 @@ The following items were identified during the Phase 03 human verification audit
 | Database Schema & Migrations (Phase 03) | ✅ Complete & Verified |
 | Authentication (Phase 04) | ✅ Complete & Verified |
 | Authorization / RBAC (Phase 05) | ✅ Complete & Verified |
-| User Management (Phase 06) | ⏳ Not Started |
+| User Management (Phase 06) | ✅ Complete & Verified |
 | Product Management (Phase 07) | ⏳ Not Started |
 | Inventory (Phase 08) | ⏳ Not Started |
 | Orders (Phase 09) | ⏳ Not Started |
@@ -435,17 +435,127 @@ The following items were identified during the Phase 03 human verification audit
 
 ## Phase 05 Status: ✅ COMPLETE AND VERIFIED
 
-All 145 tests pass, lint clean, Prisma validation passes, migrations up to date, no regressions.
-
-Phase 05 implemented and verified:
-- Role-based and permission-based authorization middleware (`authorize(permission)`)
-- Role APIs: CRUD with tenant isolation, system role protection
-- Permission APIs: list/get with tenant isolation
-- Role-Permission assignment (idempotent, cross-tenant safe)
-- User-Role assignment (idempotent, cross-tenant safe)
-- System role protection (`is_system` flag)
-- Tenant isolation enforcement at all levels
-- Multiple roles combining permissions correctly
-- All Phase 01-04 regression tests pass
-
-145 tests pass, lint clean, Prisma validation passes, migrations up to date, no regressions.
+All 450: 
+451: 145 tests pass, lint clean, Prisma validation passes, migrations up to date, no regressions.
+452: 
+453: ---
+454: 
+455: ## Phase 06 — User Management
+456: 
+457: ### Overview
+458: Phase 06 implements tenant-scoped user administration with full CRUD operations, building on the Phase 04 authentication and Phase 05 authorization foundations.
+459: 
+460: ### User Management APIs
+461: 
+462: | Method | Endpoint | Permission Required | Description |
+463: |--------|----------|---------------------|-------------|
+464: | GET | `/api/v1/users` | `user:read` | List users (tenant-scoped, paginated, search, filter, sort) |
+465: | GET | `/api/v1/users/:id` | `user:read` | Get user by ID (tenant-scoped) |
+466: | PATCH | `/api/v1/users/:id` | `user:update` | Update user (firstName, lastName, status only) |
+467: | DELETE | `/api/v1/users/:id` | `user:delete` | Delete user (self-deletion prevented) |
+468: 
+469: ### Features
+470: 
+471: #### Listing with Pagination, Search, Filtering, Sorting
+472: - **Pagination:** `page` (default 1), `limit` (default 20, max 100)
+473: - **Search:** `search` parameter queries email, firstName, lastName (case-insensitive)
+474: - **Status filtering:** `status` parameter (ACTIVE, INACTIVE, SUSPENDED)
+475: - **Role filtering:** `roleId` parameter filters users by assigned role
+476: - **Sorting:** `sortBy` (createdAt, updatedAt, email, firstName, lastName, status) with `sortOrder` (asc, desc)
+477: - **Response:** Standard pagination metadata (`page`, `limit`, `total`, `totalPages`)
+478: 
+479: #### Single User Retrieval
+480: - Returns user with roles (id, name, isSystem)
+481: - **Never exposes:** `passwordHash`, `refreshToken`, `passwordResetToken`, `emailVerificationToken`, or any authentication secrets
+482: - 404 if user not found in authenticated tenant
+483: 
+484: #### User Update (Explicit Allowlist)
+485: - **Allowed fields:** `firstName`, `lastName`, `status`
+486: - **Explicitly rejected (400):**
+487:   - `email` → `EMAIL_MODIFICATION_FORBIDDEN`
+488:   - `passwordHash` → `PASSWORD_MODIFICATION_FORBIDDEN`
+489:   - `tenantId` → `TENANT_MODIFICATION_FORBIDDEN`
+490: - `roleIds` is not an allowed field and is silently ignored (roles managed via `/users/:id/roles` endpoint)
+491: - `status` validated against enum (ACTIVE, INACTIVE, SUSPENDED)
+492: 
+493: #### User Deletion
+494: - Hard delete via Prisma (no soft delete in Phase 06)
+495: - **Self-deletion prevented:** 400 `SELF_DELETION_FORBIDDEN`
+496: - 404 if user not found in authenticated tenant
+497: 
+498: ### Tenant Isolation
+499: - All queries scoped by `memberships: { some: { tenantId, status: 'ACTIVE' } }` using `req.context.tenantId` from authenticated JWT
+500: - **Never trusts** client-supplied `tenantId`
+501: - Cross-tenant GET/UPDATE/DELETE returns 404 `USER_NOT_FOUND`
+502: - Search/filtering cannot escape authenticated tenant scope
+503: - JWT with manipulated `tenantId` claim fails authentication (401 `USER_NOT_FOUND` or `INVALID_TOKEN`)
+504: 
+505: ### Authorization
+506: - Reuses Phase 05 RBAC permissions via existing `authorize()` middleware:
+507:   - `user:read` for GET endpoints
+508:   - `user:update` for PATCH endpoint
+509:   - `user:delete` for DELETE endpoint
+510: - **No new authorization architecture or permissions created**
+511: - Permissions `user:read`, `user:update`, `user:delete` existed in Phase 05 seed
+512: - Role assignment (seeded):
+513:   - `admin`: all user permissions
+514:   - `manager`: user:read, user:update (no user:delete)
+515:   - `member`: user:read only
+516: 
+517: ### Privilege Escalation Protection
+518: - Explicit allowlist prevents modification of privileged fields
+519: - `roleIds` cannot modify roles through user update endpoint
+520: - Self-deletion prevented
+521: - Platform permissions remain separate via `authorizePlatform()`
+522: 
+523: ### Module Structure
+524: ```
+525: users/
+526: ├── users.controller.js    # HTTP handlers, response formatting
+527: ├── users.service.js       # Business logic, allowlist, privilege protection
+528: ├── users.repository.js    # Database queries with tenant scoping
+529: ├── users.validation.js    # Zod schemas for query/params/body
+530: └── users.routes.js        # Route registration with authorize()
+531: ```
+532: 
+533: ### Verification Results
+534: 
+535: | Check | Result |
+536: |-------|--------|
+537: | **Phase 06 Integration Tests** | 44/44 passing |
+538: | **Full Integration Suite** | 189/189 passing |
+539: | **ESLint** | 0 errors |
+539: | **Prisma Validate** | ✅ Valid |
+541: | **Migration Status** | ✅ Up to date (5 migrations, no Phase 06 schema changes) |
+542: | **Application Startup** | ✅ Verified |
+543: 
+544: ### Phase 06 Test Coverage
+545: - **GET /users:** 11 tests (auth, pagination, search, filter, sort, status, roleId, tenant isolation)
+546: - **GET /users/:id:** 7 tests (valid, 404, cross-tenant, sensitive fields, authz)
+547: - **PATCH /users/:id:** 11 tests (valid fields, invalid status, forbidden fields, cross-tenant, authz)
+548: - **DELETE /users/:id:** 6 tests (valid, self-delete prevention, cross-tenant, 404, authz)
+549: - **Privilege Escalation:** 3 tests (role manipulation, tenant escalation via JWT)
+550: - **Tenant Isolation:** 5 tests (all cross-tenant operations blocked)
+551: - **Response Structure:** 2 tests (list and single user format)
+552: 
+553: ### Database
+554: - **No schema changes required for Phase 06**
+555: - Existing Prisma schema supports all operations via User, UserRole, TenantMembership, Role models
+556: - 5 existing migrations remain valid and applied
+557: 
+558: ---
+559: 
+560: ## Phase 06 Status: ✅ COMPLETE AND VERIFIED
+561: 
+562: All 189 tests pass, lint clean, Prisma validation passes, migrations up to date, no regressions.
+563: 
+564: Phase 06 implemented and verified:
+565: - Tenant-scoped user CRUD with pagination, search, filter, sort
+566: - Status filtering (ACTIVE/INACTIVE/SUSPENDED) and role filtering
+567: - Sensitive field protection (passwordHash, refreshToken, etc. never exposed)
+568: - Privilege escalation prevention (email, passwordHash, tenantId, roleIds rejected)
+569: - Cross-tenant isolation enforced at all levels
+570: - Self-deletion prevention
+571: - Authorization via existing Phase 05 RBAC permissions
+572: - No new schema changes required
+573: - No Phase 1-5 regressions

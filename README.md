@@ -2,7 +2,7 @@
 
 A production-minded, multi-tenant backend for PulseOps, built with Node.js, Express, PostgreSQL, Prisma, and Redis. The project follows a modular-monolith architecture and is being delivered incrementally so that every foundation layer is tested before business modules are introduced.
 
-**Current status:** Phase 05 — Authorization / RBAC is **COMPLETE and VERIFIED**.
+**Current status:** Phase 06 — User Management is **COMPLETE and VERIFIED**.
 
 The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_Backend_Codex_Master_Roadmap.md`](docs/PulseOps_Backend_Codex_Master_Roadmap.md).
 
@@ -21,6 +21,7 @@ The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_
 - **Minimal idempotent seed for foundational roles/permissions**
 - **Authentication: JWT (HS256), refresh token rotation, password reset, email verification**
 - **Authorization / RBAC: role-based and permission-based access control with tenant isolation**
+- **User Management: tenant-scoped user CRUD with pagination, search, filter, sort, status/role filtering**
 
 ## Prerequisites
 
@@ -104,6 +105,10 @@ Never commit `.env`. Use a secret manager or deployment-specific environment var
 | POST | `/api/v1/auth/reset-password` | Reset password |
 | POST | `/api/v1/auth/verify-email` | Verify email |
 | GET | `/api/v1/auth/me` | Get current user profile |
+| GET | `/api/v1/users` | List users (tenant-scoped, paginated, search, filter, sort) |
+| GET | `/api/v1/users/:id` | Get user by ID (tenant-scoped) |
+| PATCH | `/api/v1/users/:id` | Update user (firstName, lastName, status) |
+| DELETE | `/api/v1/users/:id` | Delete user (self-deletion prevented) |
 | GET | `/api/v1/roles` | List roles (tenant-scoped) |
 | GET | `/api/v1/roles/:id` | Get role by ID |
 | POST | `/api/v1/roles` | Create role |
@@ -136,7 +141,7 @@ npm run db:seed
 
 Latest verification results (all passing):
 
-- **Tests:** 145/145 passing (integration: health, tenants, request boundaries, Phase 03 schema, Phase 04 auth, Phase 05 RBAC)
+- **Tests:** 189/189 passing (integration: health, tenants, request boundaries, Phase 03 schema, Phase 04 auth, Phase 05 RBAC, Phase 06 users)
 - **Lint:** ESLint 0 errors
 - **Prisma validate:** ✅ Valid
 - **Prisma generate:** ✅ Success
@@ -153,6 +158,7 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 - Phase 03 provides the complete core relational schema (31 models) with tenant isolation, proper indexes, constraints, Decimal money, and TIMESTAMPTZ(6) timestamps.
 - Phase 04 provides authentication (JWT, refresh tokens, password reset, email verification).
 - Phase 05 provides role-based and permission-based authorization (RBAC) with tenant isolation.
+- Phase 06 provides tenant-scoped user management (CRUD, pagination, search, filter, sort, tenant isolation).
 - User management, Product management, Inventory, Orders, Payments, Notifications, WebSockets, Redis caching, BullMQ, External integrations, Analytics, Swagger/OpenAPI, Docker/CI/CD are **NOT implemented yet**.
 - PostgreSQL and Redis connectivity are verified locally. The health endpoints distinguish liveness from dependency readiness.
 - Docker and deployment configuration are intentionally deferred until their dedicated delivery phase.
@@ -166,7 +172,7 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 | Phase 03 | Database Schema & Migrations | ✅ Complete |
 | Phase 04 | Authentication | ✅ Complete |
 | Phase 05 | Authorization / RBAC | ✅ Complete |
-| Phase 06 | User Management | ⏳ Not started |
+| Phase 06 | User Management | ✅ Complete |
 | Phase 07 | Product Management | ⏳ Not started |
 | Phase 08 | Inventory | ⏳ Not started |
 | Phase 09 | Orders | ⏳ Not started |
@@ -185,4 +191,4 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 | Phase 22 | Swagger/OpenAPI | ⏳ Not started |
 | Phase 23 | Docker/CI/CD/Deployment | ⏳ Not started |
 
-**Phase 05 is COMPLETE and VERIFIED. Phase 06 is the NEXT authorized development phase.**
+**Phase 06 is COMPLETE and VERIFIED. Phase 07 is the NEXT authorized development phase.**

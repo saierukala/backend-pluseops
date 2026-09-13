@@ -1,0 +1,10 @@
+{"level":30,"time":1789290481655,"msg":"PostgreSQL connection established"}
+
+PulseOps API is running
+  API:    http://localhost:3000/api/v1
+  Health: http://localhost:3000/health
+  PostgreSQL: connected
+  Redis: connected
+
+{"level":30,"time":1789290481659,"msg":"Redis connection established"}
+{"level":30,"time":1789290481662,"port":3000,"host":"0.0.0.0","msg":"PulseOps API listening"}
