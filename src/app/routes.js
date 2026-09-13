@@ -10,6 +10,8 @@ import { productsRouter } from '../modules/products/products.routes.js';
 import { variantsRouter } from '../modules/variants/variants.routes.js';
 import { attributesRouter } from '../modules/attributes/attributes.routes.js';
 import { productImagesRouter } from '../modules/product-images/product-images.routes.js';
+import { inventoryRouter } from '../modules/inventory/inventory.routes.js';
+import { warehousesRouter } from '../modules/warehouses/warehouses.routes.js';
 
 export const apiRouter = Router();
 apiRouter.use('/health', healthRouter);
@@ -22,4 +24,6 @@ apiRouter.use('/categories', categoriesRouter);
 apiRouter.use('/products', productsRouter);
 apiRouter.use('/products/:productId/variants', variantsRouter);
 apiRouter.use('/attributes', attributesRouter);
+apiRouter.use('/warehouses', warehousesRouter);
+apiRouter.use('/inventory', inventoryRouter);
 apiRouter.use('/', productImagesRouter);

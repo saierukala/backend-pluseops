@@ -1,6 +1,6 @@
 # Project Documentation
 
-Technical architecture and implementation state as of Phase 07 completion (Product Management — COMPLETE and VERIFIED).
+Technical architecture and implementation state as of Phase 08 completion (Inventory Management — COMPLETE and VERIFIED).
 
 ---
 
@@ -96,6 +96,18 @@ src/
     │   ├── product-images.repository.js
     │   ├── product-images.validation.js
     │   └── product-images.routes.js
+    ├── warehouses/     # Warehouse management (supporting inventory)
+    │   ├── warehouses.controller.js
+    │   ├── warehouses.service.js
+    │   ├── warehouses.repository.js
+    │   ├── warehouses.validation.js
+    │   └── warehouses.routes.js
+    ├── inventory/      # Inventory management (Phase 08)
+    │   ├── inventory.controller.js
+    │   ├── inventory.service.js
+    │   ├── inventory.repository.js
+    │   ├── inventory.validation.js
+    │   └── inventory.routes.js
     └── common/storage/ # Storage abstraction
         ├── storage.service.js
         └── local-storage.provider.js
@@ -167,26 +179,29 @@ Route → Controller → Service → Repository → Database
 - Explicit `onDelete`/`onUpdate` on all relations (CASCADE, RESTRICT, SET NULL)
 
 ### Migrations
-**Migration Chain (verified — 6 migrations):**
+**Migration Chain (verified — 7 migrations):**
 ```
-20250911_init_tenants                    # Phase 02: tenants, tenant_settings, tenant_domains
+20250911_init_tenants                         # Phase 02: tenants, tenant_settings, tenant_domains
         ↓
-20250911_phase_03_core_schema            # Phase 03: 31 models
+20250911_phase_03_core_schema                 # Phase 03: 31 models (including warehouses, inventory, inventory_movements, warehouse_inventory)
         ↓
-20250911_phase_03_fix_timestamptz        # Correction: 89 timestamp columns to TIMESTAMPTZ(6)
+20250911_phase_03_fix_timestamptz             # Correction: 89 timestamp columns to TIMESTAMPTZ(6)
         ↓
-20250911_phase_04_authentication         # Phase 04: refresh_tokens, password_reset_tokens, email_verification_tokens, User.emailVerified
+20250911_phase_04_authentication              # Phase 04: refresh_tokens, password_reset_tokens, email_verification_tokens, User.emailVerified
         ↓
-20260912_phase_05_platform_rbac_foundation # Phase 05: tenant_memberships, platform_roles, platform_permissions, platform_user_roles, platform_role_permissions, Role, Permission, UserRole, RolePermission
+20260912_phase_05_platform_rbac_foundation    # Phase 05: tenant_memberships, platform_roles, platform_permissions, platform_user_roles, platform_role_permissions, Role, Permission, UserRole, RolePermission
         ↓
-20260913_phase_07_attribute_description  # Phase 07: attribute_definitions.description (TEXT, nullable)
+20260913_phase_07_attribute_description       # Phase 07: attribute_definitions.description (TEXT, nullable)
+        ↓
+20260914_phase_08_inventory_management        # Phase 08: non-negative CHECKs on inventory/warehouse_inventory + movement consistency; reuses Phase 03 tables (no new tables)
 ```
 
 - Phase 03 migration does **not** recreate Phase 02 tables
 - Phase 04 migration adds 4 tables WITHOUT recreating Phase 02/03 tables
 - Phase 05 migration adds 9 tables (tenant_memberships + platform* + RBAC tables) WITHOUT recreating Phase 01-04 tables
 - Phase 07 migration adds `attribute_definitions.description` via `ADD COLUMN IF NOT EXISTS` (fixes prior `prisma db push` gap, no duplicate tables)
-- All 6 migrations applied, `npx prisma migrate status` reports "Database schema is up to date!"
+- Phase 08 migration adds DB-level guards only: `inventory_quantity_non_negative`, `inventory_reserved_quantity_non_negative`, `warehouse_inventory_quantity_non_negative`, `warehouse_inventory_reserved_quantity_non_negative`, `inventory_movements_quantity_consistency`; warehouses/inventory tables reused from Phase 03 (not recreated)
+- All 7 migrations applied, `npx prisma migrate status` reports "Database schema is up to date!"
 - `npx prisma validate` → valid 🚀
 - No `prisma migrate reset` or destructive operations used
 
@@ -326,11 +341,12 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 
 ## Testing
 
-### Current Verification Results (Latest Run — Phase 07 Verified)
+### Current Verification Results (Latest Run — Phase 08 Verified)
 
 | Check | Result |
 |-------|--------|
-| **Full Integration Suite** | 267/267 passing (8 suites) |
+| **Full Integration Suite** | 303/303 passing (9 suites) |
+| - `phase8-inventory.test.js` | 36 tests ✅ |
 | - `phase7-product-management.test.js` | 78 tests ✅ |
 | - `phase6-users.test.js` | 44 tests ✅ |
 | - `auth.test.js` | 30 tests ✅ |
@@ -342,9 +358,9 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 | **ESLint** | 0 errors, 0 warnings |
 | **Prisma Validate** | ✅ Valid |
 | **Prisma Generate** | ✅ Success |
-| **Migration Status** | ✅ Up to date (6 migrations) |
-| **Phase 7 Migration** | `20260913_phase_07_attribute_description` ✅ |
-| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS |
+| **Migration Status** | ✅ Up to date (7 migrations) |
+| **Phase 8 Migration** | `20260914_phase_08_inventory_management` ✅ (reuses Phase 03 tables) |
+| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS |
 
 ### Test Coverage Highlights
 - Health endpoints: liveness, DB readiness, Redis readiness
@@ -455,8 +471,8 @@ The following items were identified during the Phase 03 human verification audit
 | Authorization / RBAC (Phase 05) | ✅ Complete & Verified |
 | User Management (Phase 06) | ✅ Complete & Verified |
 | Product Management (Phase 07) | ✅ Complete & Verified (78/78, 267/267, 6 migrations) |
-| Inventory (Phase 08) | ⏳ Not Started (NEXT) |
-| Orders (Phase 09) | ⏳ Not Started |
+| Inventory Management (Phase 08) | ✅ Complete & Verified (36/36, 303/303, 7 migrations) |
+| Orders (Phase 09) | ⏳ Not Started (NEXT) |
 | Payments (Phase 10) | ⏳ Not Started |
 | Audit (Phase 11) | ⏳ Not Started |
 | Notifications (Phase 12) | ⏳ Not Started |
@@ -666,9 +682,98 @@ Authentication required (401), RBAC product:*, tenant isolation 404, server-deri
 tests/integration/phase7-product-management.test.js 78 tests: CRUD, validation, hierarchy, duplicates 409, search/category/status/price/sku/barcode/attribute filtering, pagination, ownership, RBAC 403, auth 401, tenant isolation 404, manipulated JWT, image PATCH/DELETE 200/401/403/404, DB+storage consistency, tenant-scoped keys. Regression Phase 1-6 PASS.
 
 ### Database
-Only change: attribute_definitions.description TEXT nullable. Migration 20260913_phase_07_attribute_description (ADD COLUMN IF NOT EXISTS). 6 migrations, prisma validate valid, up to date, no Phase 8.
+Only change: attribute_definitions.description TEXT nullable. Migration 20260913_phase_07_attribute_description (ADD COLUMN IF NOT EXISTS). Now superseded by Phase 08 migration chain — see Phase 08.
 
 ---
 
 ## Phase 07 Status: ✅ COMPLETE AND VERIFIED
-All 267 tests pass (78 Phase 07), lint 0, Prisma valid, 6 migrations up to date, app starts PostgreSQL+Redis, storage tenant-scoped, image PATCH/DELETE verified 200/404/403/401, no regressions, no Phase 8, roadmap untouched.
+All 267 tests pass (78 Phase 07), lint 0, Prisma valid, 6 migrations up to date (7 after Phase 08), app starts PostgreSQL+Redis, storage tenant-scoped, image PATCH/DELETE verified 200/404/403/401, no regressions, roadmap untouched.
+
+---
+
+## Phase 08 — Inventory Management
+
+### Objective
+Implement inventory tracking and movement history at the sellable variant/SKU level (`product_variant_id`), never `product_id`. Architecture: `Product → Variant/SKU → Warehouse Inventory`. Supports roadmap example `UTS-BLK-S/B/L/W` across Hyderabad/Bangalore (and any business-agnostic product via generic Phase 7 variants).
+
+### Architecture / Module Structure
+```
+Route → Controller → Service → Repository → Database
+warehouses/  # Warehouse management (supporting inventory)
+  warehouses.controller.js, warehouses.service.js, warehouses.repository.js, warehouses.validation.js, warehouses.routes.js
+inventory/   # Inventory management
+  inventory.controller.js, inventory.service.js, inventory.repository.js, inventory.validation.js, inventory.routes.js
+```
+Routes mounted in `src/app/routes.js` as `/api/v1/warehouses` and `/api/v1/inventory` behind `authenticate()`.
+
+### Responsibilities
+* **Warehouses** — tenant-scoped CRUD (`name`, `code` unique per tenant, `address`/`city`/`state`/`country`/`postalCode`, `isActive`, `isDefault`). Used as inventory dimension.
+* **Inventory** — quantities at `tenant_id + product_variant_id + warehouse_id` (`inventory` canonical + `warehouse_inventory` mirror from Phase 03). No product-level stock.
+
+### Variant/SKU-Level Model
+`inventory.tenant_id, product_variant_id, warehouse_id, quantity` — `@@unique([tenantId, productVariantId, warehouseId])`. Independent stocks: `SKU A + Warehouse 1` vs `SKU A + Warehouse 2` vs `SKU B + Warehouse 1`. Verified.
+
+### Warehouse-Specific Quantities
+One row per variant per warehouse per tenant. `GET /api/v1/inventory/variants/:variantId` returns array of warehouses with quantities.
+
+### Inventory Adjustment (`POST /api/v1/inventory/adjust`)
+Body: `variantId` (or `productVariantId`), `warehouseId`, `quantityChanged` (non-zero int), `reason`, optional `referenceType`/`referenceId`. Positive and negative supported. Validates variant+warehouse tenant ownership (404), rejects zero (400), rejects insufficient stock (400 `INSUFFICIENT_STOCK`) without side effects, creates one `ADJUSTMENT` movement.
+
+### Inventory Transfer (`POST /api/v1/inventory/transfer`)
+Body: `variantId`, `sourceWarehouseId`, `destinationWarehouseId`, `quantity` (positive int), optional `reason`/`referenceType`/`referenceId`. Validates variant+warehouses tenant ownership, rejects same warehouse (400 `SAME_WAREHOUSE`), validates positive quantity, verifies source sufficient stock, then atomically decrements source and increments dest, creates two `TRANSFER` movements (`-quantity` and `+quantity`) sharing same `referenceId`. All or nothing via transaction.
+
+### Movement History (`GET /api/v1/inventory/movements`)
+Tenant-scoped, paginated, filters `variantId/productVariantId`, `warehouseId`, `type`, `reason`. Returns `tenant_id, product_variant_id, warehouse_id, quantity_before, quantity_changed, quantity_after, reason, reference_type, reference_id, created_by, created_at`. Invariant `quantity_after = quantity_before + quantity_changed` verified per movement and enforced by DB CHECK.
+
+### Transaction Handling
+Both `adjust` and `transfer` use `prisma.$transaction(async(tx)=>{ SELECT ... FOR UPDATE ... UPDATE/INSERT ... create movement(s) })` with retry (up to 3 attempts, exponential 50ms) for serialization/deadlock (`P2010` / `40001` / `40P01`). Transfer locks in sorted warehouseId order to avoid deadlock.
+
+### PostgreSQL Row Locking / Concurrency Protection
+Option A from roadmap: `SELECT ... FOR UPDATE` via `tx.$queryRaw`. Prevents unsafe read-then-write. Concurrency test: 5 stock + 10 parallel `-1` → 5 succeed, 5 fail `INSUFFICIENT_STOCK`, final 0, never negative. Serializable retry guarantees no `could not serialize access` leak as 500.
+
+### Non-Negative Enforcement
+Service validates `after <0` → 400, plus DB CHECKs added in `20260914_phase_08_inventory_management`:
+`inventory_quantity_non_negative`, `inventory_reserved_quantity_non_negative`, `warehouse_inventory_quantity_non_negative`, `warehouse_inventory_reserved_quantity_non_negative`, `inventory_movements_quantity_consistency`. Attempted `quantity=-1` rejected.
+
+### Low-Stock (`GET /api/v1/inventory/low-stock`)
+Deterministic: `quantity <= threshold` (threshold query param `threshold`, default 10, min 0, validated via Zod). Supports `warehouseId` filter and pagination, ordered by `quantity ASC`. Returns tenant-scoped rows. Example: threshold 10 returns 6,8,10 from seed.
+
+### Tenant Isolation
+All operations derive `tenantId` from `req.context` (authenticated JWT). Never trusts `tenantId` from body/query. Every Prisma query includes `tenantId`. Cross-tenant variant/warehouse/product access fails 404 `VARIANT_NOT_FOUND`/`WAREHOUSE_NOT_FOUND`. Movements/warehouses/variants/inventories isolated (verified both directions).
+
+### Authorization
+Reuses Phase 05 `authorize()`:
+* `inventory:read` for `GET /inventory`, `GET /inventory/variants/:variantId`, `GET /inventory/movements`, `GET /inventory/low-stock`
+* `inventory:update` for `POST /inventory/adjust`, `POST /inventory/transfer`
+* `warehouse:create/read/update/delete` for warehouse CRUD
+Unauthenticated 401, insufficient 403, tenant membership ACTIVE check.
+
+### Validation
+Zod schemas `inventory.validation.js`: `adjustInventorySchema`, `transferInventorySchema`, `listInventoryQuerySchema`, `variantInventoryParamsSchema`, `movementsQuerySchema`, `lowStockQuerySchema`. Rejects invalid UUIDs, zero quantity, same warehouse, negative transfer quantity, malformed types.
+
+### APIs
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/api/v1/inventory` | inventory:read | List inventory (page/limit, warehouseId, variantId, sku, search) |
+| GET | `/api/v1/inventory/variants/:variantId` | inventory:read | Variant inventory across warehouses |
+| POST | `/api/v1/inventory/adjust` | inventory:update | Adjust stock |
+| POST | `/api/v1/inventory/transfer` | inventory:update | Atomic transfer |
+| GET | `/api/v1/inventory/movements` | inventory:read | Movement history |
+| GET | `/api/v1/inventory/low-stock` | inventory:read | Low-stock (threshold) |
+Warehouses supporting: `POST/GET /api/v1/warehouses`, `GET/PATCH/DELETE /api/v1/warehouses/:id` (warehouse:* permissions).
+
+### Tests
+`tests/integration/phase8-inventory.test.js` 36 tests: reads (list, variant, movements, low-stock), adjustments (positive/negative/insufficient/zero/tenant validation/movement math), transfers (success/insufficient/invalid warehouses/same warehouse/tenant ownership/movement creation), warehouse handling & SKU independence, authorization (read-only 403, unauth 401, authorized ok), tenant isolation (9 cases), concurrency (non-negative). Full suite 303/303.
+
+### Migration
+`20260914_phase_08_inventory_management` — adds CHECK constraints only; reuses Phase 03 `warehouses`, `inventory`, `warehouse_inventory`, `inventory_movements`. No new tables, no `prisma db push`.
+
+### Known Limitations (as reported in Phase 8 evidence)
+* Low-stock threshold via query param (default 10) not persisted per-inventory row; minimal mechanism per roadmap.
+* `warehouse_inventory` kept as mirror of `inventory` for legacy compatibility (duplicate unique constraints).
+* No Phase 09+ features (orders, payments, audit, notifications, websockets, caching, BullMQ, integrations).
+
+---
+
+## Phase 08 Status: ✅ COMPLETE AND VERIFIED
+All 303 tests pass (36 Phase 08), 78 Phase 07, lint 0, Prisma valid, 7 migrations up to date, app starts, TENANT isolation verified both directions, RBAC inventory:read/update verified, concurrency 5/5 success final 0 no negative, movement `after=before+changed`, roadmap untouched.

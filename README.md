@@ -2,7 +2,7 @@
 
 A production-minded, multi-tenant backend for PulseOps, built with Node.js, Express, PostgreSQL, Prisma, and Redis. The project follows a modular-monolith architecture and is being delivered incrementally so that every foundation layer is tested before business modules are introduced.
 
-**Current status:** Phase 07 — Product Management is **COMPLETE and VERIFIED**.
+**Current status:** Phase 08 — Inventory Management is **COMPLETE and VERIFIED**.
 
 The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_Backend_Codex_Master_Roadmap.md`](docs/PulseOps_Backend_Codex_Master_Roadmap.md).
 
@@ -23,6 +23,7 @@ The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_
 - **Authorization / RBAC: role-based and permission-based access control with tenant isolation**
 - **User Management: tenant-scoped user CRUD with pagination, search, filter, sort, status/role filtering**
 - **Product Management: business-agnostic product catalog — categories, category hierarchy, products, product/category relationships, product variants (tenant-scoped SKUs/barcodes), flexible attributes/values, variant attribute assignment, product & variant images via local StorageService with tenant-scoped keys, product filtering (search, category, status, price, SKU/barcode, attribute), pagination, RBAC, tenant isolation, validation, 78 integration tests**
+- **Inventory Management: variant/SKU-level inventory (`product_variant_id` + `warehouse_id`), warehouse-specific quantities, stock adjustments (positive/negative with insufficient-stock protection), atomic transfers, movement history (`quantity_before`/`quantity_changed`/`quantity_after`), low-stock reporting (threshold default 10), PostgreSQL transactions with `SELECT ... FOR UPDATE` row locking, non-negative enforcement (DB CHECK), tenant isolation, RBAC (`inventory:read`/`inventory:update`), Zod validation, warehouse management supporting inventory, concurrency-safe updates, 36 integration tests**
 
 ## Prerequisites
 
@@ -152,6 +153,17 @@ Never commit `.env`. Use a secret manager or deployment-specific environment var
 | GET | `/api/v1/attributes/:attributeId/values` | List attribute values |
 | PATCH | `/api/v1/attributes/:attributeId/values/:valueId` | Update attribute value |
 | DELETE | `/api/v1/attributes/:attributeId/values/:valueId` | Delete attribute value |
+| POST | `/api/v1/warehouses` | Create warehouse |
+| GET | `/api/v1/warehouses` | List warehouses |
+| GET | `/api/v1/warehouses/:id` | Get warehouse by ID |
+| PATCH | `/api/v1/warehouses/:id` | Update warehouse |
+| DELETE | `/api/v1/warehouses/:id` | Delete warehouse |
+| GET | `/api/v1/inventory` | List inventory (paginated, warehouse/variant/sku filters) |
+| GET | `/api/v1/inventory/variants/:variantId` | Get variant inventory across warehouses |
+| POST | `/api/v1/inventory/adjust` | Adjust stock (positive/negative, movement) |
+| POST | `/api/v1/inventory/transfer` | Transfer stock between warehouses (atomic) |
+| GET | `/api/v1/inventory/movements` | List inventory movements (paginated, filtered) |
+| GET | `/api/v1/inventory/low-stock` | List low-stock inventory (threshold default 10) |
 
 The same health endpoints are also exposed under `/api/v1/health`, although infrastructure probes should use the root `/health` routes.
 
@@ -172,17 +184,19 @@ npm run db:seed
 
 ## Verification
 
-Latest verification results (all passing, Phase 07 independently verified and APPROVED):
+Latest verification results (all passing, Phase 08 independently verified and APPROVED):
 
-- **Full test suite:** 267 passed, 0 failed (8 suites)
+- **Full test suite:** 303 passed, 0 failed (9 suites)
 - **Phase 7:** 78 passed, 0 failed (product management: categories, products, variants, attributes, images, filtering, RBAC, tenant isolation, storage)
+- **Phase 8:** 36 passed, 0 failed (inventory: adjustments, transfers, movements, low-stock, concurrency, tenant isolation, RBAC)
 - **Lint:** ESLint 0 errors, 0 warnings
 - **Prisma validate:** ✅ Valid
 - **Prisma generate:** ✅ Success
-- **Migration status:** Database schema up to date (6 migrations applied)
-- **Phase 7 migration:** `20260913_phase_07_attribute_description` (`attribute_definitions.description`)
+- **Migration status:** Database schema up to date (7 migrations applied)
+- **Phase 8 migration:** `20260914_phase_08_inventory_management` (non-negative CHECKs, movement consistency, reuses Phase 03 inventory/warehouse tables)
 - **Storage:** Local StorageService (`tenants/{tenantId}/products/{productId}/{filename}`), S3 deferred to Phase 16
-- **Regression:** Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS
+- **Regression:** Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS
+- **Inventory verification:** adjust 25→30→27, transfer 27→22 / 14→19, insufficient stock 400 `INSUFFICIENT_STOCK`, same warehouse 400 `SAME_WAREHOUSE`, cross-tenant read/adjust/transfer 404, unauthorized 403, unauthenticated 401, concurrent 10×-1 from 5 → 5 success/5 fail final 0 (no negative), movement `after = before + changed`
 - **Image PATCH/DELETE:** PATCH authorized owner → 200, DELETE authorized owner → 200 (DB + storage removed), cross-tenant PATCH/DELETE → 404, unauthorized PATCH/DELETE → 403, unauthenticated → 401
 
 ## Operational notes
@@ -198,7 +212,8 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 - Phase 05 provides role-based and permission-based authorization (RBAC) with tenant isolation.
 - Phase 06 provides tenant-scoped user management (CRUD, pagination, search, filter, sort, tenant isolation).
 - Phase 07 provides business-agnostic product management (categories, hierarchy, products, product/category relationships, variants with tenant-scoped SKUs/barcodes, flexible attributes/values, variant attributes, product & variant images via local StorageService with tenant-scoped keys, filtering/search/pagination, RBAC, tenant isolation).
-- Inventory, Orders, Payments, Notifications, WebSockets, Redis caching, BullMQ, External integrations, Analytics, Swagger/OpenAPI, Docker/CI/CD are **NOT implemented yet**.
+- Phase 08 provides variant/SKU-level inventory management (warehouse-specific stock, adjustments, atomic transfers, movement history `quantity_before`/`quantity_changed`/`quantity_after`, low-stock reporting threshold 10, PostgreSQL `SELECT ... FOR UPDATE` transactions, non-negative enforcement, tenant isolation, RBAC `inventory:read`/`inventory:update`, validation, warehouse management supporting inventory, concurrency-safe updates).
+- Orders, Payments, Notifications, WebSockets, Redis caching, BullMQ, External integrations, Analytics, Swagger/OpenAPI, Docker/CI/CD are **NOT implemented yet**.
 - Phase 7 uses local storage only; S3-compatible storage remains a future Phase 16 concern via StorageService abstraction; storage keys are server-generated and tenant-scoped.
 - PostgreSQL and Redis connectivity are verified locally. The health endpoints distinguish liveness from dependency readiness.
 - Docker and deployment configuration are intentionally deferred until their dedicated delivery phase.
@@ -214,8 +229,8 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 | Phase 05 | Authorization / RBAC | ✅ Complete |
 | Phase 06 | User Management | ✅ Complete |
 | Phase 07 | Product Management | ✅ Complete |
-| Phase 08 | Inventory | ⏳ Not started (NEXT) |
-| Phase 09 | Orders | ⏳ Not started |
+| Phase 08 | Inventory Management | ✅ Complete |
+| Phase 09 | Order Management | ⏳ Not started (NEXT) |
 | Phase 10 | Payments | ⏳ Not started |
 | Phase 11 | Audit | ⏳ Not started |
 | Phase 12 | Notifications | ⏳ Not started |
@@ -231,4 +246,4 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 | Phase 22 | Swagger/OpenAPI | ⏳ Not started |
 | Phase 23 | Docker/CI/CD/Deployment | ⏳ Not started |
 
-**Phase 07 is COMPLETE and VERIFIED (78/78 Phase 7 tests, 267/267 full suite). Phase 08 is the NEXT authorized development phase.**
+**Phase 08 is COMPLETE and VERIFIED (36/36 Phase 8 tests, 303/303 full suite, 7 migrations). Phase 09 — Order Management is the NEXT authorized development phase (NOT started, NOT implemented).**

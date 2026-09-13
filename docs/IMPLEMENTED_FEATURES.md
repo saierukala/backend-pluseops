@@ -612,16 +612,56 @@ users/
 - **Tenant Isolation:** every op `where:{tenantId}` from `req.context.tenantId`, cross-tenant 404 (`PRODUCT_NOT_FOUND` etc.), `productId` ownership for images/variants, JWT manipulated tenantId → 401, storage keys tenant-scoped, SKU/barcode isolation verified (tenant A lookup B SKU/barcode → 0, same SKU cross-tenant allowed, retrieve/update/delete cross-tenant variant → 404)
 - **Validation:** Zod on all inputs (slug `^[a-z0-9-]+$`, code `^[a-z0-9_-]+$`, price Decimal regex, enum status, description max, etc.), image 10MB + mime, attribute code/values, product/variant, etc.
 - **Integration/API Testing:** 78 Phase 7 tests (267 full), covering CRUD, validation, duplicates 409, search/filtering (sku/barcode/attribute), pagination, `productId` ownership, auth 401, RBAC 403, tenant isolation 404, manipulated JWT, image PATCH/DELETE (200, 404 cross-tenant, 403 unauthorized, 401 unauth, wrong productId 404, storageKey unchanged, DB+storage consistency, tenant-scoped keys), variant image, storage isolation
-- **Database:** only change `attribute_definitions.description` nullable TEXT, migration `20260913_phase_07_attribute_description` (`ADD COLUMN IF NOT EXISTS`), 6 migrations up to date, `prisma validate` valid
+- **Database:** only change `attribute_definitions.description` nullable TEXT, migration `20260913_phase_07_attribute_description` (`ADD COLUMN IF NOT EXISTS`), 6 migrations up to date (7 after Phase 08), `prisma validate` valid
+
+---
+
+## Phase 08 — Inventory Management (COMPLETE & VERIFIED — 36/36, 303/303, 7 migrations)
+
+### Inventory Management
+
+- [x] Variant/SKU-level inventory (`product_variant_id` + `warehouse_id`, never `product_id`)
+- [x] Warehouse inventory (`warehouses` tenant-scoped, `code` unique per tenant, independent stock per variant per warehouse)
+- [x] Warehouse management supporting inventory: `POST/GET /api/v1/warehouses`, `GET/PATCH/DELETE /api/v1/warehouses/:id` (`warehouse:create/read/update/delete`)
+- [x] Positive stock adjustment (`POST /api/v1/inventory/adjust` `quantityChanged` positive, `inventory:update`, creates `ADJUSTMENT` movement)
+- [x] Negative stock adjustment (`quantityChanged` negative, validates `after >=0`)
+- [x] Insufficient stock protection (400 `INSUFFICIENT_STOCK`, stock unchanged, no invalid movement)
+- [x] Inventory movement history (`GET /api/v1/inventory/movements`, paginated, filters variant/warehouse/type, fields `quantity_before`/`quantity_changed`/`quantity_after`/`reason`/`reference_type`/`reference_id`/`created_by`/`created_at`, invariant `after = before + changed`)
+- [x] Atomic transfers (`POST /api/v1/inventory/transfer` source `quantity -5` dest `+5`, 2 `TRANSFER` movements same `referenceId`, validates source/dest warehouses + variant tenant ownership, rejects same warehouse 400 `SAME_WAREHOUSE`, insufficient 400, transaction rollback on failure)
+- [x] PostgreSQL concurrency protection (`SELECT ... FOR UPDATE` row locking, sorted lock order for transfer, `prisma.$transaction` with retry for `40001`/`40P01`, verified 10 parallel `-1` from 5 → 5 success/5 fail final 0)
+- [x] Non-negative stock enforcement (service validation + DB CHECKs `inventory_quantity_non_negative`, `warehouse_inventory_quantity_non_negative`, `inventory_movements_quantity_consistency`)
+- [x] Low-stock endpoint (`GET /api/v1/inventory/low-stock` `threshold` default 10, `warehouseId` filter, `quantity <= threshold`, ordered ASC, tenant-scoped)
+- [x] Inventory listing (`GET /api/v1/inventory` paginated, filters `warehouseId`, `variantId`, `sku`, `search`)
+- [x] Variant inventory (`GET /api/v1/inventory/variants/:variantId` warehouse-specific quantities, 404 if cross-tenant variant)
+- [x] Tenant isolation (all ops `where:{tenantId}` from JWT, cross-tenant read/adjust/transfer 404, movements/warehouses/variants isolated both directions)
+- [x] Authorization (`inventory:read` for GETs, `inventory:update` for adjust/transfer, `warehouse:*` for warehouses, 401 unauth, 403 insufficient, tenant membership check)
+- [x] Validation (Zod: variantId/warehouseId UUID, quantityChanged non-zero int, transfer quantity positive, same warehouse, enum types, pagination)
+- [x] Inventory API tests (reads, adjustments, transfers, warehouse/SKU independence, auth, tenant isolation)
+- [x] Concurrency tests (parallel decrements never negative, movements math `after = before + changed`)
+- [x] Regression tests (Phase 1-7 still pass: 267→303)
+- [x] Database: reuses Phase 03 `warehouses`, `inventory`, `warehouse_inventory`, `inventory_movements`; Phase 08 migration `20260914_phase_08_inventory_management` adds only CHECK constraints, no new tables, no `prisma db push`
+- [x] Business-agnostic: same variant/SKU/warehouse model for clothing/electronics/cosmetics (verified via generic SKUs)
+
+**APIs (Phase 08):**
+| Method | Endpoint | Permission | Description |
+|--------|----------|------------|-------------|
+| GET | `/api/v1/inventory` | `inventory:read` | List inventory |
+| GET | `/api/v1/inventory/variants/:variantId` | `inventory:read` | Variant inventory |
+| POST | `/api/v1/inventory/adjust` | `inventory:update` | Adjust stock |
+| POST | `/api/v1/inventory/transfer` | `inventory:update` | Transfer stock |
+| GET | `/api/v1/inventory/movements` | `inventory:read` | Movement history |
+| GET | `/api/v1/inventory/low-stock` | `inventory:read` | Low-stock (threshold) |
+Warehouses: `POST/GET /api/v1/warehouses`, `GET/PATCH/DELETE /api/v1/warehouses/:id`
+
+**Verification:** 36/36 Phase 8, 303/303 full, lint 0, Prisma valid, 7 migrations up to date, adjust 25→30→27, transfer 27→22/14→19, insufficient 400, same warehouse 400, cross-tenant 404, unauthorized 403, unauth 401, concurrent 5/5 final 0.
 
 ---
 
 ## What is NOT Implemented (Future Phases)
 
-The following are explicitly **NOT** implemented as of Phase 07 completion (Product Management COMPLETE):
+The following are explicitly **NOT** implemented as of Phase 08 completion (Inventory Management COMPLETE):
 
-- Inventory management APIs (Phase 08 NEXT)
-- Order/OrderItem/OrderStatusHistory APIs
+- Order/OrderItem/OrderStatusHistory APIs (Phase 09 NEXT)
 - Payment/Transaction/Refund APIs
 - Notification/Preference/Template APIs
 - WebSocket/Socket.IO real-time
