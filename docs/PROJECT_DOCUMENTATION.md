@@ -1,6 +1,6 @@
 # Project Documentation
 
-Technical architecture and implementation state as of Phase 08 completion (Inventory Management — COMPLETE and VERIFIED).
+Technical architecture and implementation state as of Phase 09 completion (Order Management — COMPLETE and VERIFIED).
 
 ---
 
@@ -108,6 +108,12 @@ src/
     │   ├── inventory.repository.js
     │   ├── inventory.validation.js
     │   └── inventory.routes.js
+    ├── orders/         # Order lifecycle management (Phase 09)
+    │   ├── orders.controller.js
+    │   ├── orders.service.js
+    │   ├── orders.repository.js
+    │   ├── orders.validation.js
+    │   └── orders.routes.js
     └── common/storage/ # Storage abstraction
         ├── storage.service.js
         └── local-storage.provider.js
@@ -341,11 +347,12 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 
 ## Testing
 
-### Current Verification Results (Latest Run — Phase 08 Verified)
+### Current Verification Results (Latest Run — Phase 09 Verified)
 
 | Check | Result |
 |-------|--------|
-| **Full Integration Suite** | 303/303 passing (9 suites) |
+| **Full Integration Suite** | 337/337 passing (10 suites) |
+| - `phase9-orders.test.js` | 34 tests ✅ |
 | - `phase8-inventory.test.js` | 36 tests ✅ |
 | - `phase7-product-management.test.js` | 78 tests ✅ |
 | - `phase6-users.test.js` | 44 tests ✅ |
@@ -359,8 +366,8 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 | **Prisma Validate** | ✅ Valid |
 | **Prisma Generate** | ✅ Success |
 | **Migration Status** | ✅ Up to date (7 migrations) |
-| **Phase 8 Migration** | `20260914_phase_08_inventory_management` ✅ (reuses Phase 03 tables) |
-| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS |
+| **Phase 9 Migration** | No new migration — reused Phase 03 `orders`/`order_items`/`order_status_history` ✅ |
+| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS |
 
 ### Test Coverage Highlights
 - Health endpoints: liveness, DB readiness, Redis readiness
@@ -472,8 +479,8 @@ The following items were identified during the Phase 03 human verification audit
 | User Management (Phase 06) | ✅ Complete & Verified |
 | Product Management (Phase 07) | ✅ Complete & Verified (78/78, 267/267, 6 migrations) |
 | Inventory Management (Phase 08) | ✅ Complete & Verified (36/36, 303/303, 7 migrations) |
-| Orders (Phase 09) | ⏳ Not Started (NEXT) |
-| Payments (Phase 10) | ⏳ Not Started |
+| Order Management (Phase 09) | ✅ Complete & Verified (34/34, 337/337, 7 migrations — no new migration) |
+| Payment & Transaction Processing (Phase 10) | ⏳ Not Started (NEXT) |
 | Audit (Phase 11) | ⏳ Not Started |
 | Notifications (Phase 12) | ⏳ Not Started |
 | WebSockets (Phase 13) | ⏳ Not Started |
@@ -777,3 +784,115 @@ Warehouses supporting: `POST/GET /api/v1/warehouses`, `GET/PATCH/DELETE /api/v1/
 
 ## Phase 08 Status: ✅ COMPLETE AND VERIFIED
 All 303 tests pass (36 Phase 08), 78 Phase 07, lint 0, Prisma valid, 7 migrations up to date, app starts, TENANT isolation verified both directions, RBAC inventory:read/update verified, concurrency 5/5 success final 0 no negative, movement `after=before+changed`, roadmap untouched.
+
+---
+
+## Phase 09 — Order Management
+
+### Objective
+Implement order lifecycle management integrated with existing authentication → tenant context → authorization → validation → controller → service → repository → PostgreSQL architecture. Tenant-aware, business-agnostic, variant/SKU-centric.
+
+### Architecture / Module Structure
+```
+Route → Controller → Service → Repository → Database
+orders/  # Order lifecycle management (Phase 09)
+  orders.controller.js, orders.service.js, orders.repository.js, orders.validation.js, orders.routes.js
+```
+Routes mounted in `src/app/routes.js` as `/api/v1/orders` behind `authenticate()` and `authorize()`. No second inventory system; reuses Phase 8 inventory architecture via raw SQL within order transaction.
+
+### Order Capabilities
+* **Create orders** — variant/SKU + warehouse per item, server-side pricing, immutable snapshots, atomic inventory + history
+* **List orders** — tenant-scoped pagination (`page`/`limit`), status filter, customerId filter, safe sorting (`createdAt`/`updatedAt`/`total`/`status`)
+* **Retrieve order details** — order + items + customer + snapshots, tenant ownership, no cross-tenant leak
+* **Update order status** — `PATCH /orders/:id/status` validates state machine, creates history
+* **Cancel orders** — `POST /orders/:id/cancel` restores inventory atomically via `ORDER_RELEASE`, creates history
+* **Retrieve order status history** — `GET /orders/:id/history` paginated, tenant-scoped, chronological
+
+### Required APIs
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| POST | `/api/v1/orders` | `order:create` | Create order (items with variant/SKU + warehouse, snapshots, atomic) |
+| GET | `/api/v1/orders` | `order:read` | List orders (pagination, status, customerId) |
+| GET | `/api/v1/orders/:id` | `order:read` | Get order with items and snapshots |
+| PATCH | `/api/v1/orders/:id/status` | `order:update` | Update status (state-machine validated) |
+| POST | `/api/v1/orders/:id/cancel` | `order:cancel` | Cancel (restores inventory) |
+| GET | `/api/v1/orders/:id/history` | `order:read` | Status history |
+
+### Authorization
+Reuses Phase 05 RBAC:
+* `order:create` for POST /orders
+* `order:read` for GET list/detail/history
+* `order:update` for PATCH status
+* `order:cancel` for POST cancel
+No `order:manage` invented. Unauthenticated 401, insufficient 403, tenant membership check.
+
+### Order Items — Variant/SKU Reference
+`order_items.product_variant_id` required, never `product_id`. Validates tenant-scoped variant exists and `status ACTIVE` else 404/400 `VARIANT_NOT_SELLABLE`. Client `productId` rejected 400 `productId is not allowed`. Cross-tenant variant 404.
+
+### Historical Snapshots (Write-Once)
+Per `order_items`:
+* `product_name_snapshot` = product.name
+* `variant_name_snapshot` = attribute-joined or sku
+* `attribute_snapshot` JSON `{code: value}`
+* `sku_snapshot` = variant.sku
+* `unit_price` Decimal (authoritative variant.price)
+* `quantity` Int, `discount` Decimal, `tax` Decimal, `line_total` Decimal
+Snapshots preserve historical commercial information; later catalog price change does not alter stored snapshots (verified 100→999 stays 100). Atomic with order creation.
+
+### Pricing — Server Authoritative, Decimal
+No Float. All money `Decimal @db.Decimal(12,2)`. Totals calculated server-side: `unitCents = round(price*100)`, `line = unit*qty - discount + tax`, `subtotal = sum(unit*qty)`, `discountTotal = sum(discount)`, `taxTotal = sum(tax)`, `total = subtotal - discountTotal + taxTotal + shipping`. Client `unitPrice`/`total`/`subtotal` stripped/ignored (verified `unitPrice 1.00` → 100.00 used).
+
+### Inventory Integration (Reuses Phase 8)
+No second inventory system. Within order transaction: sorted `SELECT ... FOR UPDATE` on `inventory` rows (variant+warehouse), validate `available >= requested` else 400 `INSUFFICIENT_STOCK`, `UPDATE quantity = after`, `INSERT ... ON CONFLICT` for `warehouse_inventory` mirror, create `inventory_movements` type `ORDER_RESERVATION` (`quantity_before`/`quantity_changed` negative/`quantity_after`, `reason ORDER_CREATED`, `referenceType ORDER`, `referenceId order.id`, `createdBy` userId). Tenant isolated, non-negative guaranteed via lock + CHECK.
+
+### Transactions — Atomic
+`prisma.$transaction` wraps: inventory locks/validation/deduct, order create, items create, movements, history (null→PENDING). Failure → rollback everything (verified no orphan order/movement/history, inventory unchanged). Retry up to 3 for serialization/deadlock (`P2010`/`40001`/`40P01`) with exponential backoff.
+
+### Concurrency — SELECT ... FOR UPDATE
+Same Phase 8 strategy: deterministic sorted locks. Test: inventory 5, 10 concurrent orders qty1 → exactly 5 succeed 201, 5 fail 400 `INSUFFICIENT_STOCK`, final 0 never negative, 5 reservations, 5 orders, no duplicates, movement math `after = before + changed`.
+
+### Cancellation
+Supported cancellable states: `DRAFT`, `PENDING`, `CONFIRMED`, `PROCESSING`. Rejects SHIPPED/DELIVERED/CANCELLED/REFUNDED → 400 `CANCELLATION_NOT_ALLOWED`, double cancel → 400. Restores atomically: lookup `ORDER_RESERVATION` movements by `referenceId orderId`, for each `SELECT FOR UPDATE`, `UPDATE quantity = before+restoreQty`, mirror `warehouse_inventory`, create `ORDER_RELEASE` movement (`quantityChanged` positive, `reason` or `ORDER_CANCELLED`), update status CANCELLED, create history. Verified 18→20 restoration, double movement count 1→2.
+
+### Status State Machine
+```
+DRAFT → PENDING, CANCELLED
+PENDING → CONFIRMED, CANCELLED
+CONFIRMED → PROCESSING, CANCELLED
+PROCESSING → SHIPPED, CANCELLED
+SHIPPED → DELIVERED
+DELIVERED → REFUNDED, PARTIALLY_REFUNDED
+CANCELLED / REFUNDED → terminal (no outgoing)
+```
+Initial status `PENDING` (history null→PENDING). `PATCH /orders/:id/status` validates `isValidTransition`, else 400 `INVALID_STATUS_TRANSITION`. Prevents same-status and terminal transitions.
+
+### Status History
+Creation and every status change/cancel recorded in `order_status_history` with `fromStatus` nullable, `toStatus`, `reason`, `createdBy`. `GET /orders/:id/history` returns tenant-scoped chronological ASC paginated. Verified PENDING→CONFIRMED history.
+
+### Tenant Isolation
+Tenant context from `req.context.tenantId` (JWT), never trust body/query `tenantId`. All queries `where:{tenantId,...}` for orders, items, history, variants, warehouses, customers, inventory. Cross-tenant read 404 `ORDER_NOT_FOUND`, variant 404 `VARIANT_NOT_FOUND`, warehouse 404 `WAREHOUSE_NOT_FOUND`, history 404, cancel 404. Manipulated JWT `tenantId` → 401. Client `tenantId` stripped, order created under authenticated tenant. Both directions tested.
+
+### Validation / Security
+Zod in `orders.validation.js`: `customerId` uuid, `items` min1 each `productVariantId` uuid, `warehouseId` uuid, `quantity` int positive, `discount`/`tax` decimalString, `shippingTotal` decimal, `currency` 3-char, `productId` optional but superRefine rejects, `page`/`limit`, `status` enum, `customerId`, `sortBy`/`sortOrder`, `id` uuid, status `reason`. Invalid quantities/status transitions 400, unauthorized 403, unauthenticated 401, parameterized raw SQL only, no string concat, safe errors, no sensitive leakage.
+
+### Testing
+`tests/integration/phase9-orders.test.js` 34 tests: creation (single, multi-item totals, snapshot write-once, insufficient rollback, variant active/tenant, productId reject, price override ignored, tenantId override, warehouse isolation, movement math), listing/detail/history, status valid/invalid/terminal, cancellation success/restore/atomic/invalid, authorization (403/401, create vs read), tenant isolation (8 cross-tenant cases, manipulated JWT), concurrency (5/5, never negative, consistent movements), business-agnostic. Full suite 337/337.
+
+### Database / Migration Status
+Reuses Phase 03 tables `orders`, `order_items`, `order_status_history`. No new Phase 9 migration required. 7 migrations up to date (`20250911_init_tenants` → `20260914_phase_08_inventory_management`). `npx prisma validate` ✅, `npx prisma migrate status` up to date. No `prisma db push`.
+
+### Known Limitations (as reported in Phase 9 evidence)
+* Customer creation API is not part of Phase 9; tests create customers directly via Prisma where required.
+* `order_items` does not persist `warehouseId` because it is not part of existing Phase 3 schema/roadmap requirement; warehouse association is tracked through inventory movements (`referenceType ORDER`, `referenceId orderId`, `type ORDER_RESERVATION/ORDER_RELEASE`).
+* Shipping/tax/discount functionality remains intentionally minimal (no complex pricing engine), keep business-agnostic.
+* Payment/refund integration is deferred to Phase 10.
+* Audit, notifications, realtime, caching, background jobs, integrations, analytics, etc. remain future phases.
+* `warehouse_inventory` mirror remains for legacy compatibility.
+
+### Relationship to Phase 10
+Phase 10 Payment & Transaction Processing will operate on orders (payment → order) and remains not started, not implemented. Orders endpoint ready for future payment reference via `orderId`.
+
+---
+
+## Phase 09 Status: ✅ COMPLETE AND VERIFIED
+All 337 tests pass (34 Phase 09), 303 prior, lint 0, Prisma valid, 7 migrations up to date (no new Phase 9 migration), app startup verified, HTTP verification 201/200/200/200/200/200, unauthorized 403, unauthenticated 401, cross-tenant 404, invalid transition 400, insufficient 400 rollback, concurrent 5/5 final 0, inventory 20 restored, roadmap untouched.

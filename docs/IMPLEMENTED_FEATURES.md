@@ -653,21 +653,65 @@ users/
 | GET | `/api/v1/inventory/low-stock` | `inventory:read` | Low-stock (threshold) |
 Warehouses: `POST/GET /api/v1/warehouses`, `GET/PATCH/DELETE /api/v1/warehouses/:id`
 
-**Verification:** 36/36 Phase 8, 303/303 full, lint 0, Prisma valid, 7 migrations up to date, adjust 25→30→27, transfer 27→22/14→19, insufficient 400, same warehouse 400, cross-tenant 404, unauthorized 403, unauth 401, concurrent 5/5 final 0.
+**Verification:** 36/36 Phase 8, 303/303 full (before Phase 9), lint 0, Prisma valid, 7 migrations up to date, adjust 25→30→27, transfer 27→22/14→19, insufficient 400, same warehouse 400, cross-tenant 404, unauthorized 403, unauth 401, concurrent 5/5 final 0.
+
+---
+
+## Phase 09 — Order Management (COMPLETE & VERIFIED — 34/34, 337/337, 7 migrations — no new migration)
+
+### Order Management
+
+- [x] Order creation (`POST /api/v1/orders`) — tenant-scoped `customerId`, variant/SKU via `product_variant_id`, warehouse per item, quantity positive int, server-side Decimal pricing, atomic transaction
+- [x] Order listing (`GET /api/v1/orders`) — tenant-scoped pagination (`page`/`limit`), filters `status`, `customerId`, safe sorting `createdAt`/`updatedAt`/`total`/`status`
+- [x] Order detail (`GET /api/v1/orders/:id`) — order + items + customer, snapshots, status, tenant ownership 404
+- [x] Status updates (`PATCH /api/v1/orders/:id/status`) — state-machine validated, history created, rejects invalid 400 `INVALID_STATUS_TRANSITION`
+- [x] Cancellation (`POST /api/v1/orders/:id/cancel`) — cancellable DRAFT/PENDING/CONFIRMED/PROCESSING, restores `ORDER_RELEASE`, history, rejects SHIPPED 400 `CANCELLATION_NOT_ALLOWED`, double cancel 400
+- [x] Status history (`GET /api/v1/orders/:id/history`) — paginated chronological, `fromStatus` nullable → `toStatus`, `reason`, `createdBy`, tenant-scoped
+- [x] Variant/SKU references — `order_items.product_variant_id` required, never `productId`, `productId` rejected 400, tenant-scoped ACTIVE validation
+- [x] Immutable commercial snapshots — `product_name_snapshot`, `variant_name_snapshot`, `attribute_snapshot` JSON, `sku_snapshot`, `unit_price` Decimal (authoritative), `quantity`, `discount`, `tax`, `line_total`; write-once, later price change preserved
+- [x] Server-side Decimal pricing — `Decimal @db.Decimal(12,2)`, no Float; `line = unit*qty - discount + tax`, `subtotal`/`discountTotal`/`taxTotal`/`total = subtotal - discountTotal + taxTotal + shipping`; client `unitPrice`/`total` stripped/ignored
+- [x] Inventory reservation/reduction — `SELECT ... FOR UPDATE` sorted locks, validates `available >= requested` else 400 `INSUFFICIENT_STOCK`, `UPDATE quantity = after`, mirror `warehouse_inventory`, no negative via CHECK
+- [x] Inventory movements — `ORDER_RESERVATION` on create (`quantity_before`/`quantity_changed` negative/`quantity_after` + `after=before+changed`), `ORDER_RELEASE` on cancel, `referenceType ORDER` `referenceId orderId`, `createdBy`
+- [x] Transaction rollback — order + items + inventory + movements + history in one `prisma.$transaction`; failure rolls back all, verified no orphan order/movement/history, inventory unchanged
+- [x] Concurrency protection — `SELECT ... FOR UPDATE` deterministic order, retry for `40001`/`40P01`, verified 5 stock 10 concurrent qty1 → 5 success/5 fail final 0 never negative, movements consistent
+- [x] Cancellation inventory restoration — atomic per `ORDER_RESERVATION` movement, locks inventory, `warehouse_inventory` mirror, `ORDER_RELEASE` created, verified 18→20
+- [x] RBAC — `order:create` (POST), `order:read` (GET list/detail/history), `order:update` (PATCH), `order:cancel` (POST cancel); 401 unauth, 403 insufficient, tenant membership check
+- [x] Tenant isolation — `tenantId` from `req.context.tenantId` never client body/query; all Prisma `where:{tenantId}`, cross-tenant read/list/detail/history/status/cancel/variant/warehouse 404 both directions, manipulated JWT 401, client `tenantId` stripped
+- [x] Validation — Zod `customerId` uuid, `items` min1, `productVariantId` uuid, `warehouseId` uuid, `quantity` int positive, `discount`/`tax` decimalString, `shippingTotal` decimal, `productId` rejected, `status` enum, pagination, UUIDs
+- [x] Integration tests — 34 Phase 9, 337 full: creation, multi-item, snapshots, pricing/totals, insufficient/rollback, variant/warehouse isolation, status transitions/history, cancellation/restoration, auth (403/401), tenant isolation (8 cases), concurrency (5/5), business-agnostic
+- [x] Regression tests — Phase 1–8 still pass (303→337)
+- [x] Database — reuses Phase 03 `orders`/`order_items`/`order_status_history`; no new Phase 9 migration; 7 migrations up to date; no `prisma db push`; `warehouse_inventory` mirror legacy
+- [x] Business-agnostic — same variant/SKU/warehouse snapshot model for any tenant business
+
+**APIs (Phase 09):**
+| Method | Endpoint | Permission | Description |
+|--------|----------|------------|-------------|
+| POST | `/api/v1/orders` | `order:create` | Create order (SKU, warehouse, snapshots, atomic) |
+| GET | `/api/v1/orders` | `order:read` | List orders (pagination, status, customerId) |
+| GET | `/api/v1/orders/:id` | `order:read` | Get order with items and snapshots |
+| PATCH | `/api/v1/orders/:id/status` | `order:update` | Update status (state machine) |
+| POST | `/api/v1/orders/:id/cancel` | `order:cancel` | Cancel order (inventory restoration) |
+| GET | `/api/v1/orders/:id/history` | `order:read` | Status history (chronological) |
+
+**Verification:** 34/34 Phase 9, 337/337 full (10 suites), lint 0, Prisma valid, 7 migrations up to date (no new Phase 9 migration), app startup, HTTP 201/200, unauthorized 403, unauth 401, cross-tenant 404, invalid transition 400, insufficient 400 rollback, concurrent 5/5 final 0.
 
 ---
 
 ## What is NOT Implemented (Future Phases)
 
-The following are explicitly **NOT** implemented as of Phase 08 completion (Inventory Management COMPLETE):
+The following are explicitly **NOT** implemented as of Phase 09 completion (Order Management COMPLETE):
 
-- Order/OrderItem/OrderStatusHistory APIs (Phase 09 NEXT)
-- Payment/Transaction/Refund APIs
-- Notification/Preference/Template APIs
-- WebSocket/Socket.IO real-time
-- Redis caching layer
-- BullMQ background jobs
-- External API integrations
-- Analytics/Reporting APIs
-- Swagger/OpenAPI documentation
-- Docker/CI/CD/Deployment configuration
+- Payment & Transaction Processing — `payments`, `payment_transactions`, `refunds` APIs (Phase 10 NEXT)
+- Audit & Activity Logs — `audit_logs`, `activity_logs` APIs (Phase 11)
+- Notifications — `notifications`, `notification_preferences`, `notification_templates` (Phase 12)
+- WebSockets / Real-time — Socket.IO (Phase 13)
+- Redis Caching (Phase 14)
+- BullMQ / Background Jobs (Phase 15)
+- External API Integrations — storage S3, payment/email/SMS providers (Phase 16)
+- API Orchestration (Phase 17)
+- Analytics & Reporting (Phase 18)
+- Performance Optimization (Phase 19)
+- Security Hardening (Phase 20)
+- Complete Testing (Phase 21)
+- Swagger/OpenAPI (Phase 22)
+- Docker / CI/CD / Deployment (Phase 23)

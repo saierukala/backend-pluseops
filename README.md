@@ -2,7 +2,7 @@
 
 A production-minded, multi-tenant backend for PulseOps, built with Node.js, Express, PostgreSQL, Prisma, and Redis. The project follows a modular-monolith architecture and is being delivered incrementally so that every foundation layer is tested before business modules are introduced.
 
-**Current status:** Phase 08 — Inventory Management is **COMPLETE and VERIFIED**.
+**Current status:** Phase 09 — Order Management is **COMPLETE and VERIFIED**.
 
 The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_Backend_Codex_Master_Roadmap.md`](docs/PulseOps_Backend_Codex_Master_Roadmap.md).
 
@@ -24,6 +24,7 @@ The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_
 - **User Management: tenant-scoped user CRUD with pagination, search, filter, sort, status/role filtering**
 - **Product Management: business-agnostic product catalog — categories, category hierarchy, products, product/category relationships, product variants (tenant-scoped SKUs/barcodes), flexible attributes/values, variant attribute assignment, product & variant images via local StorageService with tenant-scoped keys, product filtering (search, category, status, price, SKU/barcode, attribute), pagination, RBAC, tenant isolation, validation, 78 integration tests**
 - **Inventory Management: variant/SKU-level inventory (`product_variant_id` + `warehouse_id`), warehouse-specific quantities, stock adjustments (positive/negative with insufficient-stock protection), atomic transfers, movement history (`quantity_before`/`quantity_changed`/`quantity_after`), low-stock reporting (threshold default 10), PostgreSQL transactions with `SELECT ... FOR UPDATE` row locking, non-negative enforcement (DB CHECK), tenant isolation, RBAC (`inventory:read`/`inventory:update`), Zod validation, warehouse management supporting inventory, concurrency-safe updates, 36 integration tests**
+- **Order Management: order lifecycle management — variant/SKU-centric ordering (`product_variant_id`), immutable commercial snapshots (`product_name_snapshot`, `variant_name_snapshot`, `attribute_snapshot`, `sku_snapshot`, `unit_price`, `quantity`, `discount`, `tax`, `line_total`), server-authoritative Decimal pricing, atomic order creation (order + items + inventory `ORDER_RESERVATION` movements + status history `PENDING` in one transaction), PostgreSQL `SELECT ... FOR UPDATE` concurrency protection (10 concurrent qty 1 from 5 → 5 success), status lifecycle (DRAFT→PENDING→CONFIRMED→PROCESSING→SHIPPED→DELIVERED, terminal CANCELLED/REFUNDED), cancellation with atomic `ORDER_RELEASE` restoration, tenant isolation, RBAC (`order:create`/`order:read`/`order:update`/`order:cancel`), Zod validation, business-agnostic, 34 integration tests**
 
 ## Prerequisites
 
@@ -164,6 +165,12 @@ Never commit `.env`. Use a secret manager or deployment-specific environment var
 | POST | `/api/v1/inventory/transfer` | Transfer stock between warehouses (atomic) |
 | GET | `/api/v1/inventory/movements` | List inventory movements (paginated, filtered) |
 | GET | `/api/v1/inventory/low-stock` | List low-stock inventory (threshold default 10) |
+| POST | `/api/v1/orders` | Create order (variant/SKU, warehouse, snapshots, atomic inventory) |
+| GET | `/api/v1/orders` | List orders (paginated, status filter) |
+| GET | `/api/v1/orders/:id` | Get order with items and snapshots |
+| PATCH | `/api/v1/orders/:id/status` | Update order status (state machine) |
+| POST | `/api/v1/orders/:id/cancel` | Cancel order (inventory restoration) |
+| GET | `/api/v1/orders/:id/history` | Get order status history |
 
 The same health endpoints are also exposed under `/api/v1/health`, although infrastructure probes should use the root `/health` routes.
 
@@ -184,19 +191,21 @@ npm run db:seed
 
 ## Verification
 
-Latest verification results (all passing, Phase 08 independently verified and APPROVED):
+Latest verification results (all passing, Phase 09 independently verified and APPROVED):
 
-- **Full test suite:** 303 passed, 0 failed (9 suites)
+- **Full test suite:** 337 passed, 0 failed (10 suites)
 - **Phase 7:** 78 passed, 0 failed (product management: categories, products, variants, attributes, images, filtering, RBAC, tenant isolation, storage)
 - **Phase 8:** 36 passed, 0 failed (inventory: adjustments, transfers, movements, low-stock, concurrency, tenant isolation, RBAC)
+- **Phase 9:** 34 passed, 0 failed (orders: creation, multi-item, snapshots, pricing/totals, insufficient/rollback, variant/warehouse isolation, status transitions, history, cancellation, inventory restoration, authorization, concurrency, business-agnostic)
 - **Lint:** ESLint 0 errors, 0 warnings
 - **Prisma validate:** ✅ Valid
 - **Prisma generate:** ✅ Success
 - **Migration status:** Database schema up to date (7 migrations applied)
-- **Phase 8 migration:** `20260914_phase_08_inventory_management` (non-negative CHECKs, movement consistency, reuses Phase 03 inventory/warehouse tables)
+- **Phase 9 migration:** No new migration required — reused Phase 03 order tables (`orders`, `order_items`, `order_status_history`)
 - **Storage:** Local StorageService (`tenants/{tenantId}/products/{productId}/{filename}`), S3 deferred to Phase 16
-- **Regression:** Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS
-- **Inventory verification:** adjust 25→30→27, transfer 27→22 / 14→19, insufficient stock 400 `INSUFFICIENT_STOCK`, same warehouse 400 `SAME_WAREHOUSE`, cross-tenant read/adjust/transfer 404, unauthorized 403, unauthenticated 401, concurrent 10×-1 from 5 → 5 success/5 fail final 0 (no negative), movement `after = before + changed`
+- **Regression:** Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS
+- **Order verification:** POST create 201 PENDING, multi-item totals (subtotal/discount/tax/shipping/total), snapshot write-once, insufficient 400 `INSUFFICIENT_STOCK` rollback (no orphan order/movement/history), valid status PENDING→CONFIRMED 200, invalid transition 400 `INVALID_STATUS_TRANSITION`, cancel PENDING→CANCELLED 200 + `ORDER_RELEASE` restoration, invalid cancel SHIPPED 400 `CANCELLATION_NOT_ALLOWED`, cross-tenant variant/warehouse/order 404, unauthorized 403, unauthenticated 401, concurrent 10× qty1 from 5 → 5 success/5 fail final 0 never negative
+- **Inventory verification:** adjust 25→30→27, transfer 27→22 / 14→19, insufficient 400 `INSUFFICIENT_STOCK`, same warehouse 400 `SAME_WAREHOUSE`, cross-tenant 404, unauthorized 403, unauthenticated 401, concurrent 10×-1 from 5 → 5 success/5 fail final 0
 - **Image PATCH/DELETE:** PATCH authorized owner → 200, DELETE authorized owner → 200 (DB + storage removed), cross-tenant PATCH/DELETE → 404, unauthorized PATCH/DELETE → 403, unauthenticated → 401
 
 ## Operational notes
@@ -213,7 +222,8 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 - Phase 06 provides tenant-scoped user management (CRUD, pagination, search, filter, sort, tenant isolation).
 - Phase 07 provides business-agnostic product management (categories, hierarchy, products, product/category relationships, variants with tenant-scoped SKUs/barcodes, flexible attributes/values, variant attributes, product & variant images via local StorageService with tenant-scoped keys, filtering/search/pagination, RBAC, tenant isolation).
 - Phase 08 provides variant/SKU-level inventory management (warehouse-specific stock, adjustments, atomic transfers, movement history `quantity_before`/`quantity_changed`/`quantity_after`, low-stock reporting threshold 10, PostgreSQL `SELECT ... FOR UPDATE` transactions, non-negative enforcement, tenant isolation, RBAC `inventory:read`/`inventory:update`, validation, warehouse management supporting inventory, concurrency-safe updates).
-- Orders, Payments, Notifications, WebSockets, Redis caching, BullMQ, External integrations, Analytics, Swagger/OpenAPI, Docker/CI/CD are **NOT implemented yet**.
+- Phase 09 provides order lifecycle management — variant/SKU-centric ordering, immutable snapshots, server-authoritative Decimal pricing, atomic transactions (order + items + inventory `ORDER_RESERVATION` + status history), `SELECT ... FOR UPDATE` concurrency, status state machine (DRAFT→PENDING→CONFIRMED→PROCESSING→SHIPPED→DELIVERED→terminal CANCELLED/REFUNDED), cancellation with `ORDER_RELEASE` restoration, history, RBAC `order:create`/`order:read`/`order:update`/`order:cancel`, tenant isolation, validation, business-agnostic.
+- Payments, Audit, Notifications, WebSockets, Redis caching, BullMQ, External integrations, Analytics, Swagger/OpenAPI, Docker/CI/CD are **NOT implemented yet**.
 - Phase 7 uses local storage only; S3-compatible storage remains a future Phase 16 concern via StorageService abstraction; storage keys are server-generated and tenant-scoped.
 - PostgreSQL and Redis connectivity are verified locally. The health endpoints distinguish liveness from dependency readiness.
 - Docker and deployment configuration are intentionally deferred until their dedicated delivery phase.
@@ -230,8 +240,8 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 | Phase 06 | User Management | ✅ Complete |
 | Phase 07 | Product Management | ✅ Complete |
 | Phase 08 | Inventory Management | ✅ Complete |
-| Phase 09 | Order Management | ⏳ Not started (NEXT) |
-| Phase 10 | Payments | ⏳ Not started |
+| Phase 09 | Order Management | ✅ Complete |
+| Phase 10 | Payment & Transaction Processing | ⏳ Not started (NEXT) |
 | Phase 11 | Audit | ⏳ Not started |
 | Phase 12 | Notifications | ⏳ Not started |
 | Phase 13 | WebSockets | ⏳ Not started |
@@ -246,4 +256,4 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 | Phase 22 | Swagger/OpenAPI | ⏳ Not started |
 | Phase 23 | Docker/CI/CD/Deployment | ⏳ Not started |
 
-**Phase 08 is COMPLETE and VERIFIED (36/36 Phase 8 tests, 303/303 full suite, 7 migrations). Phase 09 — Order Management is the NEXT authorized development phase (NOT started, NOT implemented).**
+**Phase 09 is COMPLETE and VERIFIED (34/34 Phase 9 tests, 337/337 full suite, 7 migrations). Phase 10 — Payment & Transaction Processing is the NEXT authorized development phase (NOT started, NOT implemented).**
