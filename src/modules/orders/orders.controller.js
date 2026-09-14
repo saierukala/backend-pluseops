@@ -2,11 +2,18 @@ import { OrderService } from './orders.service.js';
 
 const orderService = new OrderService();
 
+function auditContextFrom(req) {
+  return {
+    ipAddress: req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || null,
+    userAgent: req.headers['user-agent'] || null,
+  };
+}
+
 export async function createOrder(req, res, next) {
   try {
     const tenantId = req.context.tenantId;
     const userId = req.context.userId;
-    const order = await orderService.create(tenantId, userId, req.body);
+    const order = await orderService.create(tenantId, userId, req.body, auditContextFrom(req));
     res.status(201).json({ success: true, data: order, message: 'Order created successfully' });
   } catch (error) { next(error); }
 }
@@ -42,7 +49,7 @@ export async function updateOrderStatus(req, res, next) {
     const userId = req.context.userId;
     const { id } = req.params;
     const { status, reason } = req.body;
-    const order = await orderService.updateStatus(id, tenantId, userId, status, reason);
+    const order = await orderService.updateStatus(id, tenantId, userId, status, reason, auditContextFrom(req));
     res.status(200).json({ success: true, data: order, message: 'Order status updated successfully' });
   } catch (error) { next(error); }
 }
@@ -53,7 +60,7 @@ export async function cancelOrder(req, res, next) {
     const userId = req.context.userId;
     const { id } = req.params;
     const reason = req.body?.reason || null;
-    const order = await orderService.cancel(id, tenantId, userId, reason);
+    const order = await orderService.cancel(id, tenantId, userId, reason, auditContextFrom(req));
     res.status(200).json({ success: true, data: order, message: 'Order cancelled successfully' });
   } catch (error) { next(error); }
 }

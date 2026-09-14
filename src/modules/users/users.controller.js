@@ -48,8 +48,12 @@ export async function updateUser(req, res, next) {
   try {
     const tenantId = req.context.tenantId;
     const { id } = req.params;
-
-    const user = await userService.update(id, tenantId, req.body);
+    const auditContext = {
+      actorUserId: req.context.userId,
+      ipAddress: req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || null,
+      userAgent: req.headers['user-agent'] || null,
+    };
+    const user = await userService.update(id, tenantId, req.body, auditContext);
     res.status(200).json({
       success: true,
       data: user,
@@ -77,7 +81,12 @@ export async function deleteUser(req, res, next) {
       });
     }
 
-    await userService.delete(id, tenantId);
+    const auditContext = {
+      actorUserId: req.context.userId,
+      ipAddress: req.ip || req.headers['x-forwarded-for']?.split(',')[0]?.trim() || null,
+      userAgent: req.headers['user-agent'] || null,
+    };
+    await userService.delete(id, tenantId, auditContext);
     res.status(200).json({
       success: true,
       data: null,

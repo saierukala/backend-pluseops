@@ -1,11 +1,14 @@
 import { UserRepository } from './users.repository.js';
 import { AppError } from '../../common/errors/app-error.js';
+import { getPrismaClient } from '../../config/database.js';
+import { auditService } from '../audit/audit.service.js';
 
 const ALLOWED_UPDATE_FIELDS = ['firstName', 'lastName', 'status'];
 
 export class UserService {
   constructor() {
     this.repository = new UserRepository();
+    this.prisma = getPrismaClient();
   }
 
   async list(tenantId, options = {}) {
@@ -27,7 +30,7 @@ export class UserService {
     return this.toUserResponse(user);
   }
 
-  async update(id, tenantId, data) {
+  async update(id, tenantId, data, auditContext = {}) {
     const user = await this.repository.findByIdAndTenant(id, tenantId);
     if (!user) {
       throw new AppError('User not found', {
@@ -79,11 +82,46 @@ export class UserService {
       });
     }
 
-    const updatedUser = await this.repository.update(id, tenantId, updateData);
-    return this.toUserResponse(updatedUser);
+    if (Object.keys(updateData).length === 0) {
+      // still return current user without audit
+      const current = await this.repository.findById(id, tenantId);
+      return this.toUserResponse(current);
+    }
+
+    const oldValue = {};
+    for (const k of Object.keys(updateData)) oldValue[k] = user[k];
+
+    const actorUserId = auditContext.actorUserId || null;
+    const ipAddress = auditContext.ipAddress || null;
+    const userAgent = auditContext.userAgent || null;
+
+    const updatedUser = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({
+        where: { id },
+        data: updateData,
+        select: {
+          id: true, tenantId: true, email: true, firstName: true, lastName: true, status: true, emailVerified: true, lastLoginAt: true, createdAt: true, updatedAt: true,
+        },
+      });
+      await auditService.logAudit({
+        tenantId, userId: actorUserId, action: 'UPDATE', resource: 'user', resourceId: id,
+        oldValue, newValue: updateData, ipAddress, userAgent, tx,
+      });
+      await auditService.logActivity({
+        tenantId, userId: actorUserId, action: 'user.update',
+        description: `User ${id} updated`,
+        metadata: { resourceId: id, changes: Object.keys(updateData) },
+        ipAddress, userAgent, tx,
+      });
+      return updated;
+    });
+
+    // fetch with roles for response
+    const withRoles = await this.repository.findById(id, tenantId);
+    return this.toUserResponse(withRoles || updatedUser);
   }
 
-  async delete(id, tenantId) {
+  async delete(id, tenantId, auditContext = {}) {
     const user = await this.repository.findByIdAndTenant(id, tenantId);
     if (!user) {
       throw new AppError('User not found', {
@@ -92,11 +130,24 @@ export class UserService {
       });
     }
 
-    // Prevent self-deletion (optional, but good practice)
-    // This check would need the current user ID from context
-    // We'll handle this in the controller if needed
+    const actorUserId = auditContext.actorUserId || null;
+    const ipAddress = auditContext.ipAddress || null;
+    const userAgent = auditContext.userAgent || null;
+    const oldValue = { id: user.id, email: user.email, firstName: user.firstName, lastName: user.lastName, status: user.status };
 
-    await this.repository.delete(id, tenantId);
+    await this.prisma.$transaction(async (tx) => {
+      await auditService.logAudit({
+        tenantId, userId: actorUserId, action: 'DELETE', resource: 'user', resourceId: id,
+        oldValue, newValue: null, ipAddress, userAgent, tx,
+      });
+      await auditService.logActivity({
+        tenantId, userId: actorUserId, action: 'user.delete',
+        description: `User ${id} deleted`,
+        metadata: { resourceId: id, email: user.email },
+        ipAddress, userAgent, tx,
+      });
+      await tx.user.delete({ where: { id } });
+    });
     return { success: true, message: 'User deleted successfully' };
   }
 

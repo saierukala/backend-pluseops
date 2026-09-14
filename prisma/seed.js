@@ -36,6 +36,12 @@ const SYSTEM_PERMISSIONS = [
   { resource: 'warehouse', action: 'delete', name: 'warehouse:delete' },
   { resource: 'inventory', action: 'read', name: 'inventory:read' },
   { resource: 'inventory', action: 'update', name: 'inventory:update' },
+  { resource: 'payment', action: 'create', name: 'payment:create' },
+  { resource: 'payment', action: 'read', name: 'payment:read' },
+  { resource: 'payment', action: 'confirm', name: 'payment:confirm' },
+  { resource: 'payment', action: 'refund', name: 'payment:refund' },
+  { resource: 'audit', action: 'read', name: 'audit:read' },
+  { resource: 'activity', action: 'read', name: 'activity:read' },
 ];
 
 const SYSTEM_ROLES = [

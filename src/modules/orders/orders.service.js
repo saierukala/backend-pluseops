@@ -1,6 +1,7 @@
 import { getPrismaClient } from '../../config/database.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { OrderRepository } from './orders.repository.js';
+import { auditService } from '../audit/audit.service.js';
 
 const ORDER_STATUS_TRANSITIONS = {
   DRAFT: ['PENDING', 'CANCELLED'],
@@ -29,7 +30,7 @@ export class OrderService {
     this.prisma = getPrismaClient();
   }
 
-  async create(tenantId, userId, body) {
+  async create(tenantId, userId, body, auditContext = {}) {
     const customerId = body.customerId;
     const itemsInput = body.items;
     const shippingTotalStr = body.shippingTotal || '0';
@@ -230,6 +231,22 @@ export class OrderService {
               },
             });
 
+            // Audit and activity logging atomically with order creation
+            const ipAddress = auditContext.ipAddress || null;
+            const userAgent = auditContext.userAgent || null;
+            await auditService.logAudit({
+              tenantId, userId, action: 'CREATE', resource: 'order', resourceId: order.id,
+              oldValue: null,
+              newValue: { orderId: order.id, customerId, total: totalStr, itemCount: itemCalculations.length },
+              ipAddress, userAgent, tx,
+            });
+            await auditService.logActivity({
+              tenantId, userId, action: 'order.create',
+              description: `Order ${order.id} created`,
+              metadata: { orderId: order.id, total: totalStr, itemCount: itemCalculations.length },
+              ipAddress, userAgent, tx,
+            });
+
             // Return full order with items and history
             const full = await tx.order.findFirst({
               where: { id: order.id, tenantId },
@@ -274,12 +291,14 @@ export class OrderService {
     return this.repository.getHistory(id, tenantId, options);
   }
 
-  async updateStatus(id, tenantId, userId, status, reason) {
+  async updateStatus(id, tenantId, userId, status, reason, auditContext = {}) {
     const order = await this.getById(id, tenantId);
     if (!isValidTransition(order.status, status)) {
       throw new AppError(`Invalid status transition from ${order.status} to ${status}`, { statusCode: 400, code: 'INVALID_STATUS_TRANSITION' });
     }
 
+    const ipAddress = auditContext.ipAddress || null;
+    const userAgent = auditContext.userAgent || null;
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.order.update({
         where: { id },
@@ -295,6 +314,18 @@ export class OrderService {
           createdBy: userId,
         },
       });
+      await auditService.logAudit({
+        tenantId, userId, action: 'UPDATE', resource: 'order', resourceId: id,
+        oldValue: { status: order.status },
+        newValue: { status },
+        ipAddress, userAgent, tx,
+      });
+      await auditService.logActivity({
+        tenantId, userId, action: 'order.status_update',
+        description: `Order ${id} status ${order.status} -> ${status}`,
+        metadata: { orderId: id, fromStatus: order.status, toStatus: status },
+        ipAddress, userAgent, tx,
+      });
       return tx.order.findFirst({
         where: { id, tenantId },
         include: { customer: true, items: true, statusHistory: { orderBy: { createdAt: 'asc' } } },
@@ -303,7 +334,7 @@ export class OrderService {
     return updated;
   }
 
-  async cancel(id, tenantId, userId, reason) {
+  async cancel(id, tenantId, userId, reason, auditContext = {}) {
     const order = await this.getById(id, tenantId);
     if (!CANCELLABLE_STATUSES.includes(order.status)) {
       throw new AppError(`Cannot cancel order in status ${order.status}`, { statusCode: 400, code: 'CANCELLATION_NOT_ALLOWED' });
@@ -312,6 +343,8 @@ export class OrderService {
       throw new AppError('Order already cancelled', { statusCode: 400, code: 'ALREADY_CANCELLED' });
     }
 
+    const ipAddress = auditContext.ipAddress || null;
+    const userAgent = auditContext.userAgent || null;
     const result = await this.prisma.$transaction(async (tx) => {
       // Restore inventory for each item
       for (const item of order.items) {
@@ -392,6 +425,18 @@ export class OrderService {
           reason: reason || 'Order cancelled',
           createdBy: userId,
         },
+      });
+      await auditService.logAudit({
+        tenantId, userId, action: 'UPDATE', resource: 'order', resourceId: id,
+        oldValue: { status: order.status },
+        newValue: { status: 'CANCELLED' },
+        ipAddress, userAgent, tx,
+      });
+      await auditService.logActivity({
+        tenantId, userId, action: 'order.cancel',
+        description: `Order ${id} cancelled`,
+        metadata: { orderId: id, fromStatus: order.status },
+        ipAddress, userAgent, tx,
       });
       return tx.order.findFirst({ where: { id, tenantId }, include: { customer: true, items: true, statusHistory: { orderBy: { createdAt: 'asc' } } } });
     });

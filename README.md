@@ -2,7 +2,7 @@
 
 A production-minded, multi-tenant backend for PulseOps, built with Node.js, Express, PostgreSQL, Prisma, and Redis. The project follows a modular-monolith architecture and is being delivered incrementally so that every foundation layer is tested before business modules are introduced.
 
-**Current status:** Phase 10 — Payment & Transaction Processing is **COMPLETE and VERIFIED**.
+**Current status:** Phase 11 — Audit & Activity Logs is **COMPLETE and VERIFIED**.
 
 The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_Backend_Codex_Master_Roadmap.md`](docs/PulseOps_Backend_Codex_Master_Roadmap.md).
 
@@ -26,6 +26,7 @@ The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_
 - **Inventory Management: variant/SKU-level inventory (`product_variant_id` + `warehouse_id`), warehouse-specific quantities, stock adjustments (positive/negative with insufficient-stock protection), atomic transfers, movement history (`quantity_before`/`quantity_changed`/`quantity_after`), low-stock reporting (threshold default 10), PostgreSQL transactions with `SELECT ... FOR UPDATE` row locking, non-negative enforcement (DB CHECK), tenant isolation, RBAC (`inventory:read`/`inventory:update`), Zod validation, warehouse management supporting inventory, concurrency-safe updates, 36 integration tests**
 - **Order Management: order lifecycle management — variant/SKU-centric ordering (`product_variant_id`), immutable commercial snapshots (`product_name_snapshot`, `variant_name_snapshot`, `attribute_snapshot`, `sku_snapshot`, `unit_price`, `quantity`, `discount`, `tax`, `line_total`), server-authoritative Decimal pricing, atomic order creation (order + items + inventory `ORDER_RESERVATION` movements + status history `PENDING` in one transaction), PostgreSQL `SELECT ... FOR UPDATE` concurrency protection (10 concurrent qty 1 from 5 → 5 success), status lifecycle (DRAFT→PENDING→CONFIRMED→PROCESSING→SHIPPED→DELIVERED, terminal CANCELLED/REFUNDED), cancellation with atomic `ORDER_RELEASE` restoration, tenant isolation, RBAC (`order:create`/`order:read`/`order:update`/`order:cancel`), Zod validation, business-agnostic, 34 integration tests**
 - **Payment & Transaction Processing: business-agnostic payment architecture anchored to Orders (`Order → Payment → Payment Transaction → Refund`), processor-agnostic provider abstraction — no industry-specific catalog concepts. Order-derived server-authoritative Decimal amounts, duplicate pending guard, controlled state transitions (`PENDING`↔`PROCESSING`→`COMPLETED`/`FAILED`/`CANCELLED`, `COMPLETED`/`PARTIALLY_REFUNDED`→`REFUNDED`/`PARTIALLY_REFUNDED`), frontend cannot inject arbitrary status, `POST /payments/create`/`/confirm`/`/webhook` + `GET /payments/:id` + `POST /payments/:id/refund`, HMAC-SHA256 webhook signature (`x-webhook-signature`/`x-payment-signature`), database-enforced webhook idempotency (`payment_webhook_events` with `@@unique([tenantId, eventId])` + `@@unique([eventId])` + partial unique provider indexes, `INSERT` conflict → `P2002` → safely ignore), concurrent duplicate safe (5 parallel identical webhooks → 1 effect), refunds with refundable-balance check and audit-preserving transactions, `SELECT ... FOR UPDATE` row locking with Prisma `$transaction` rollback, tenant isolation via `req.context.tenantId`, RBAC (`payment:create`/`payment:confirm`/`payment:read`/`payment:refund`), 40 integration tests**
+- **Audit & Activity Logs: reusable audit/activity logging for important system actions. Existing Phase 3 models `audit_logs`/`activity_logs` reused (no duplicate tables, no new migration). Fields: `tenant_id`, `user_id`, `action`, `resource`, `resource_id`, `old_value`, `new_value`, `ip_address`, `user_agent`, `created_at` (audit) / `action`, `description`, `metadata` (activity). Reusable module `src/modules/audit/` (`sanitize`, `repository`, `service`, `controller`, `validation`, `routes`) via `auditService.logAudit`/`logActivity` abstraction for future modules. Sensitive-data protection via recursive sanitization (`[REDACTED]` for passwords/hashes/tokens/secrets). Tenant isolation via `req.context.tenantId`; cross-tenant access prevented (activity detail returns 404). APIs: `GET /audit-logs`, `GET /activity-logs`, `GET /activity-logs/:id` (authentication, RBAC `audit:read`/`activity:read`, pagination, filtering, validation). Integrated mutations: `PATCH /users/:id`, `DELETE /users/:id`, `POST /orders`, `PATCH /orders/:id/status`, `POST /orders/:id/cancel` each atomically creates audit/activity records in the same Prisma `$transaction` (mutation + log succeed together, rollback leaves no audit). 35 Phase 11 integration tests**
 
 ## Prerequisites
 
@@ -177,6 +178,9 @@ Never commit `.env`. Use a secret manager or deployment-specific environment var
 | POST | `/api/v1/payments/webhook` | Provider webhook (HMAC signature, idempotent via DB uniqueness) |
 | GET | `/api/v1/payments/:id` | Get payment with transactions/refunds (tenant-scoped) |
 | POST | `/api/v1/payments/:id/refund` | Refund payment (refundable balance, partial/full → PARTIALLY_REFUNDED/REFUNDED) |
+| GET | `/api/v1/audit-logs` | List audit logs (tenant-scoped, paginated, filters: action/resource/resourceId/userId/from/to) |
+| GET | `/api/v1/activity-logs` | List activity logs (tenant-scoped, paginated, filters: action/userId/from/to) |
+| GET | `/api/v1/activity-logs/:id` | Get activity log by ID (tenant-scoped, 404 if other tenant) |
 
 The same health endpoints are also exposed under `/api/v1/health`, although infrastructure probes should use the root `/health` routes.
 
@@ -197,25 +201,29 @@ npm run db:seed
 
 ## Verification
 
-Latest verification results (all passing, Phase 10 independently verified and APPROVED):
+Latest verification results (all passing, Phase 11 independently verified and APPROVED):
 
-- **Full test suite:** 377 passed, 0 failed (11 suites)
+- **Full test suite:** 412 passed, 0 failed (12 suites)
 - **Phase 7:** 78 passed, 0 failed (product management: categories, products, variants, attributes, images, filtering, RBAC, tenant isolation, storage)
 - **Phase 8:** 36 passed, 0 failed (inventory: adjustments, transfers, movements, low-stock, concurrency, tenant isolation, RBAC)
 - **Phase 9:** 34 passed, 0 failed (orders: creation, multi-item, snapshots, pricing/totals, insufficient/rollback, variant/warehouse isolation, status transitions, history, cancellation, inventory restoration, authorization, concurrency, business-agnostic)
 - **Phase 10:** 40 passed, 0 failed (payments: create with server amount truth, invalid/cross-tenant order 404, duplicate pending guard, confirm PENDING→COMPLETED/FAILED, invalid transition 400, frontend status injection rejected, webhook valid/invalid sig 401/malformed 400/duplicate safely ignored/concurrent duplicate 5→1 idempotent, refunds partial/full/excessive 400/invalid state 400/cross-tenant 404/audit-preserving, Decimal money, tenant isolation, rollback)
+- **Phase 11:** 35 passed, 0 failed (audit & activity logs: authentication 401, authorization 403, tenant isolation cross-tenant 404, validation malformed UUID/pagination/filters, pagination/meta, no sensitive data / sanitization `[REDACTED]`, mutation audit/activity creation for user update/delete and order create/status/cancel with correct tenant/user/action/resource/timestamps, rollback leaves no audit, API response format, safe 404)
 - **Lint:** ESLint 0 errors, 0 warnings
 - **Prisma validate:** ✅ Valid
 - **Prisma generate:** ✅ Success
 - **Migration status:** Database schema up to date (8 migrations applied)
 - **Phase 9 migration:** No new migration required — reused Phase 03 order tables (`orders`, `order_items`, `order_status_history`)
 - **Phase 10 migration:** `20260914_phase10_payments_webhook` — creates `payment_webhook_events` (idempotency) + partial unique provider indexes + non-negative CHECKs; reuses Phase 03 `payments`/`payment_transactions`/`refunds`
+- **Phase 11 migration:** No new migration — reused Phase 3 models `audit_logs`/`activity_logs` (existing indexes `tenantId+createdAt`, `tenantId+resource+resourceId`, `tenantId+action+createdAt`)
 - **Storage:** Local StorageService (`tenants/{tenantId}/products/{productId}/{filename}`), S3 deferred to Phase 16
-- **Regression:** Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS, Phase 10 PASS
+- **Regression:** Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS, Phase 10 PASS, Phase 11 PASS
 - **Order verification:** POST create 201 PENDING, multi-item totals (subtotal/discount/tax/shipping/total), snapshot write-once, insufficient 400 `INSUFFICIENT_STOCK` rollback (no orphan order/movement/history), valid status PENDING→CONFIRMED 200, invalid transition 400 `INVALID_STATUS_TRANSITION`, cancel PENDING→CANCELLED 200 + `ORDER_RELEASE` restoration, invalid cancel SHIPPED 400 `CANCELLATION_NOT_ALLOWED`, cross-tenant variant/warehouse/order 404, unauthorized 403, unauthenticated 401, concurrent 10× qty1 from 5 → 5 success/5 fail final 0 never negative
 - **Inventory verification:** adjust 25→30→27, transfer 27→22 / 14→19, insufficient 400 `INSUFFICIENT_STOCK`, same warehouse 400 `SAME_WAREHOUSE`, cross-tenant 404, unauthorized 403, unauthenticated 401, concurrent 10×-1 from 5 → 5 success/5 fail final 0
 - **Image PATCH/DELETE:** PATCH authorized owner → 200, DELETE authorized owner → 200 (DB + storage removed), cross-tenant PATCH/DELETE → 404, unauthorized PATCH/DELETE → 403, unauthenticated → 401
 - **Payment verification:** POST create 201 PENDING server amount `order.total` (client amount rejected strict), invalid order 404 `ORDER_NOT_FOUND`, cross-tenant order 404, duplicate pending 400 `PAYMENT_ALREADY_PENDING`; GET `/:id` 200 tenant-scoped, cross-tenant 404 `PAYMENT_NOT_FOUND`; POST confirm PENDING→COMPLETED 200 / `simulateFailure`→FAILED, double confirm 400 `INVALID_STATE_TRANSITION`, status injection strict 400; POST webhook valid `payment.succeeded`→COMPLETED 200 duplicate:false → second 200 duplicate:true no duplicate transaction, 5 concurrent identical → 1 effect, invalid signature 401 `INVALID_WEBHOOK_SIGNATURE`, malformed 400, DB unique `tenant_id+event_id` + `event_id`; POST refund partial `PARTIALLY_REFUNDED` → full `REFUNDED`, excessive 400 `EXCESSIVE_REFUND` no new refund, PENDING refund 400 `INVALID_REFUND_STATE`, history preserved (transactions appended)
+- **Audit verification:** GET `/audit-logs` 200 tenant-scoped pagination/meta, filters `action`/`resource`/`resourceId`/`userId`/`from`/`to`, invalid action/datetime 400, malformed UUID 400, invalid pagination 400, client `tenantId` override ignored, cross-tenant 404; GET `/activity-logs` 200, GET `/activity-logs/:id` 200 owner / 404 other tenant; `old_value`/`new_value` sanitized `[REDACTED]` for passwords/hashes/tokens/secrets; `ip_address`/`user_agent` captured from `req.ip`/`user-agent`
+- **Startup/health:** `GET /health` 200, `GET /health/db` 200, `GET /health/redis` 200/503, degraded mode verified; actual HTTP verification passed for all three Phase 11 APIs
 
 ## Operational notes
 
@@ -233,7 +241,8 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 - Phase 08 provides variant/SKU-level inventory management (warehouse-specific stock, adjustments, atomic transfers, movement history `quantity_before`/`quantity_changed`/`quantity_after`, low-stock reporting threshold 10, PostgreSQL `SELECT ... FOR UPDATE` transactions, non-negative enforcement, tenant isolation, RBAC `inventory:read`/`inventory:update`, validation, warehouse management supporting inventory, concurrency-safe updates).
 - Phase 09 provides order lifecycle management — variant/SKU-centric ordering, immutable snapshots, server-authoritative Decimal pricing, atomic transactions (order + items + inventory `ORDER_RESERVATION` + status history), `SELECT ... FOR UPDATE` concurrency, status state machine (DRAFT→PENDING→CONFIRMED→PROCESSING→SHIPPED→DELIVERED→terminal CANCELLED/REFUNDED), cancellation with `ORDER_RELEASE` restoration, history, RBAC `order:create`/`order:read`/`order:update`/`order:cancel`, tenant isolation, validation, business-agnostic.
 - Phase 10 provides Payment & Transaction Processing — business-agnostic payments anchored to Orders, provider-neutral abstraction, server-authoritative amounts, controlled transitions, HMAC webhook signature, DB-enforced idempotency via `payment_webhook_events`, partial unique provider indexes, `SELECT ... FOR UPDATE` transactions/rollback, Decimal money, tenant isolation, RBAC `payment:create`/`payment:confirm`/`payment:read`/`payment:refund`.
-- Audit, Notifications, WebSockets, Redis caching, BullMQ, External integrations, Analytics, Swagger/OpenAPI, Docker/CI/CD are **NOT implemented yet**.
+- Phase 11 provides Audit & Activity Logs — reusable `audit_logs`/`activity_logs` with tenant isolation, sanitization `[REDACTED]`, `GET /audit-logs`/`GET /activity-logs`/`GET /activity-logs/:id`, RBAC `audit:read`/`activity:read`, atomic `$transaction` integration for 5 important mutations (user update/delete, order create/status/cancel), verified 35/35 Phase 11, 412/412 full.
+- Notifications, WebSockets, Redis caching, BullMQ, External integrations, Analytics, Swagger/OpenAPI, Docker/CI/CD are **NOT implemented yet**.
 - Phase 7 uses local storage only; S3-compatible storage remains a future Phase 16 concern via StorageService abstraction; storage keys are server-generated and tenant-scoped.
 - PostgreSQL and Redis connectivity are verified locally. The health endpoints distinguish liveness from dependency readiness.
 - Docker and deployment configuration are intentionally deferred until their dedicated delivery phase.
@@ -252,8 +261,8 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 | Phase 08 | Inventory Management | ✅ Complete |
 | Phase 09 | Order Management | ✅ Complete |
 | Phase 10 | Payment & Transaction Processing | ✅ Complete |
-| Phase 11 | Audit | ⏳ Not started |
-| Phase 12 | Notifications | ⏳ Not started |
+| Phase 11 | Audit & Activity Logs | ✅ Complete |
+| Phase 12 | Notifications | ⏳ Next |
 | Phase 13 | WebSockets | ⏳ Not started |
 | Phase 14 | Redis Caching | ⏳ Not started |
 | Phase 15 | BullMQ | ⏳ Not started |
@@ -266,4 +275,4 @@ At startup the API attempts to connect to PostgreSQL and Redis. In development a
 | Phase 22 | Swagger/OpenAPI | ⏳ Not started |
 | Phase 23 | Docker/CI/CD/Deployment | ⏳ Not started |
 
-**Phase 10 is COMPLETE and VERIFIED (40/40 Phase 10 tests, 377/377 full suite, 8 migrations). Phase 11 — Audit & Activity Logs is the NEXT authorized development phase (NOT started, NOT implemented).**
+**Phase 11 is COMPLETE and VERIFIED (35/35 Phase 11 tests, 412/412 full suite, 12 suites, 8 migrations). Phase 12 — Notifications is the NEXT authorized development phase (NOT started, NOT implemented).**

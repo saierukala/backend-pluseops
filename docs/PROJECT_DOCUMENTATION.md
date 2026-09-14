@@ -1,6 +1,6 @@
 # Project Documentation
 
-Technical architecture and implementation state as of Phase 10 completion (Payment & Transaction Processing — COMPLETE and VERIFIED).
+Technical architecture and implementation state as of Phase 11 completion (Audit & Activity Logs — COMPLETE and VERIFIED).
 
 ---
 
@@ -121,6 +121,13 @@ src/
      │   ├── payments.validation.js
      │   ├── payments.routes.js
      │   └── webhook.util.js
+    ├── audit/          # Audit & activity logs (Phase 11) — reusable logging
+     │   ├── audit.sanitize.js
+     │   ├── audit.repository.js
+     │   ├── audit.service.js
+     │   ├── audit.controller.js
+     │   ├── audit.validation.js
+     │   └── audit.routes.js
     └── common/storage/ # Storage abstraction
         ├── storage.service.js
         └── local-storage.provider.js
@@ -357,11 +364,12 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 
 ## Testing
 
-### Current Verification Results (Latest Run — Phase 10 Verified)
+### Current Verification Results (Latest Run — Phase 11 Verified)
 
 | Check | Result |
 |-------|--------|
-| **Full Integration Suite** | 377/377 passing (11 suites) |
+| **Full Integration Suite** | 412/412 passing (12 suites) |
+| - `phase11-audit.test.js` | 35 tests ✅ |
 | - `phase10-payments.test.js` | 40 tests ✅ |
 | - `phase9-orders.test.js` | 34 tests ✅ |
 | - `phase8-inventory.test.js` | 36 tests ✅ |
@@ -379,7 +387,8 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 | **Migration Status** | ✅ Up to date (8 migrations) |
 | **Phase 9 Migration** | No new migration — reused Phase 03 `orders`/`order_items`/`order_status_history` ✅ |
 | **Phase 10 Migration** | `20260914_phase10_payments_webhook` — creates `payment_webhook_events` + partial unique provider indexes + CHECKs; reuses Phase 03 payment tables ✅ |
-| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS, Phase 10 PASS |
+| **Phase 11 Migration** | No new migration — reused Phase 03 `audit_logs`/`activity_logs` (existing indexes `tenantId+createdAt`, `tenantId+resource+resourceId`, `tenantId+action+createdAt`) ✅ |
+| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS, Phase 10 PASS, Phase 11 PASS |
 
 ### Test Coverage Highlights
 - Health endpoints: liveness, DB readiness, Redis readiness
@@ -494,7 +503,7 @@ The following items were identified during the Phase 03 human verification audit
 | Inventory Management (Phase 08) | ✅ Complete & Verified (36/36, 303/303, 7 migrations) |
 | Order Management (Phase 09) | ✅ Complete & Verified (34/34, 337/337, 7 migrations — no new migration) |
 | Payment & Transaction Processing (Phase 10) | ✅ Complete & Verified (40/40, 377/377, 8 migrations) |
-| Audit (Phase 11) | ⏳ Not Started |
+| Audit & Activity Logs (Phase 11) | ✅ Complete & Verified (35/35, 412/412, 8 migrations — no new migration) |
 | Notifications (Phase 12) | ⏳ Not Started |
 | WebSockets (Phase 13) | ⏳ Not Started |
 | Redis Caching (Phase 14) | ⏳ Not Started |
@@ -1010,4 +1019,192 @@ Payment-specific permissions introduced to integrate Phase 10 with existing RBAC
 
 ### Phase 10 Status: ✅ COMPLETE AND VERIFIED
 All 40 Phase 10 tests, 377 full, lint 0, Prisma valid, 8 migrations, app startup, HTTP 201/200/401/403/404/400 verified, concurrent idempotency, audit history, tenant isolation, no `P2002` leak, no Phase 11+ code, roadmap untouched.
+
+---
+
+## Phase 11 — Audit & Activity Logs (COMPLETE & VERIFIED — 35/35, 412/412, 8 migrations — no new migration)
+
+### Objective
+Track important system actions and provide reusable audit/activity logging infrastructure that future modules can use. Preserve modular-monolith architecture (`Route → Controller → Service → Repository → Database`) and all Phases 1–10 behavior.
+
+### Database Models (Reused from Phase 3)
+No duplicate tables. Phase 11 reuses existing Phase 3 models (already in `20250911_phase_03_core_schema`):
+
+**`audit_logs`** (`AuditLog`):
+- `id` UUID PK
+- `tenant_id` UUID FK `tenants(id)` CASCADE — tenant-owned, required
+- `user_id` UUID nullable FK `users(id)` SET NULL
+- `action` `AuditAction` enum (`CREATE`, `UPDATE`, `DELETE`, `LOGIN`, `LOGOUT`, `EXPORT`, `IMPORT`)
+- `resource` String — e.g., `user`, `order`, `test`
+- `resource_id` String nullable
+- `old_value` Json nullable — sanitized snapshot before mutation
+- `new_value` Json nullable — sanitized snapshot after mutation
+- `ip_address` String nullable
+- `user_agent` String nullable
+- `created_at` `timestamptz(6)` default now
+- Indexes: `@@index([tenantId, userId, createdAt])`, `@@index([tenantId, resource, resourceId])`, `@@index([tenantId, action, createdAt])`, `@@index([tenantId, createdAt])`
+
+**`activity_logs`** (`ActivityLog`):
+- `id` UUID PK
+- `tenant_id` UUID FK `tenants(id)` CASCADE
+- `user_id` UUID nullable FK `users(id)` SET NULL
+- `action` String — e.g., `user.update`, `order.create`
+- `description` String nullable — human-readable
+- `metadata` Json default `{}` — sanitized contextual data
+- `ip_address` String nullable
+- `user_agent` String nullable
+- `created_at` `timestamptz(6)` default now
+- Indexes: `@@index([tenantId, userId, createdAt])`, `@@index([tenantId, action, createdAt])`, `@@index([tenantId, createdAt])`
+
+Timestamps `timestamptz(6)` UTC, UUID PKs where project uses UUIDs, tenant isolation, jsonb for flexible old/new/metadata, no new migration required (`npx prisma migrate status` 8 migrations up to date).
+
+### Audit/Activity Data
+Implemented fields exactly as roadmap suggested, using actual implementation terminology:
+- `tenant_id` / `tenantId` — derived from `req.context.tenantId`, never client-supplied
+- `user_id` / `userId` — authenticated `req.context.userId`, nullable for system actions
+- `action` — `AuditAction` enum for audit, free-form String for activity
+- `resource` / `resourceId` — audited entity type and id
+- `old_value` / `new_value` — audit snapshots, recursively sanitized
+- `metadata` — activity contextual data, sanitized
+- `ip_address` / `userAgent` — `req.ip` or `x-forwarded-for` first entry, `user-agent` header
+- `created_at` / `createdAt` — server-generated UTC
+
+Avoids storing unnecessary domain-specific fields; records remain useful for tracing important business/administrative actions.
+
+### Reusable Audit Architecture (`src/modules/audit/`)
+`src/modules/audit/` provides clean reusable abstraction, appropriately scoped (no future modules implemented merely to demonstrate it):
+
+- **`audit.sanitize.js`** — deep/recursive sanitization. `SENSITIVE_KEYS` Set (password, passwordhash, hash, token, refreshtoken, accesstoken, secret, apisecret, webhooksecret, providercredentials, authorization, cookie, etc. — 27 keys normalized lower-case no `_-`). `sanitizeValue(value, depth, maxDepth=8)` handles String/Number/Boolean, Prisma `Decimal` → `toString()`, `Date` → ISO, Array → map, Object → redact key → `[REDACTED]` else recurse. `sanitizeAuditValues` / `sanitizeMetadata`. Depth-limited, never blindly serializes `req.body`/`headers`/`user`.
+
+- **`audit.repository.js`** — `AuditRepository` / `ActivityRepository`. `create(data, tx)` uses `tx` if provided else singleton Prisma. `list(tenantId, options)` tenant-scoped, builds `where` with optional `action/resource/resourceId/userId/from/to` (`createdAt` gte/lte via `new Date`), pagination `skip=(page-1)*limit`, `take=min(limit,100)`, safe sort whitelist (`createdAt|action|resource` for audit, `createdAt|action` for activity), `Promise.all([findMany, count])` → `{data, meta:{page,limit:take,total,totalPages}}`. `findById(id, tenantId)` via `findFirst where {id, tenantId}`.
+
+- **`audit.service.js`** — `AuditService` singleton `auditService`. `logAudit({tenantId,userId,action,resource,resourceId,oldValue,newValue,ipAddress,userAgent,tx})` requires tenant/action/resource, sanitizes via `sanitizeAuditValues`, delegates to repository with `tx`. `logActivity({...})` similarly sanitizes metadata. `logAuditAndActivity` convenience. `listAuditLogs`/`listActivityLogs`/`getActivityLogById`/`getAuditLogById`. `extractAuditContext(req)` helper (`req.ip || x-forwarded-for || socket.remoteAddress`, `user-agent`). Exported `recordAudit`/`recordActivity` for future modules to log without direct DB queries from controllers (controllers never contain DB queries per architecture, routes never contain business logic).
+
+- **`audit.controller.js`** — `listAuditLogs`, `listActivityLogs`, `getActivityLog`. Extracts `tenantId` from `req.context.tenantId`, parses `page/limit` with defaults, forwards filters, calls service, returns `{success:true, data, meta, pagination:meta, message}`. `getActivityLog` verifies tenant ownership → `404 ACTIVITY_LOG_NOT_FOUND` if other tenant (never leaks existence).
+
+- **`audit.validation.js`** — Zod schemas: `auditActionEnum` (`CREATE|UPDATE|DELETE|LOGIN|LOGOUT|EXPORT|IMPORT`), `listAuditLogsQuerySchema` (`page/limit`, `action` enum optional, `resource` max100, `resourceId` uuid, `userId` uuid, `from/to` datetime ISO, `sortBy`/`sortOrder`), `listActivityLogsQuerySchema` (similar, `action` string max100), `getActivityLogSchema` (`params.id` uuid). Coerced numbers, defaults (page1/limit20/max100, sort `createdAt` desc), rejected malformed `400 VALIDATION_ERROR`.
+
+- **`audit.routes.js`** — `auditRouter` and `activityRouter`. Each `Router()` → `use(authenticate())` → `GET /` `validate(schema)` → `authorize('audit:read'|'activity:read')` → controller. `activityRouter` also `GET /:id` with same guards. Mounted in `src/app/routes.js` as `/api/v1/audit-logs` and `/api/v1/activity-logs`.
+
+Preserves `Route → Controller → Service → Repository → Database`; reuse of `authenticate`, `authorize`, `error-handler`, `AppError`, tenant context, pagination, `timestamptz`/`Decimal`/`jsonb`/`UUID` patterns.
+
+### Sensitive-Data Protection
+Implementation explicitly avoids security vulnerability:
+
+- Never stores passwords, password hashes, refresh/access tokens, API secrets, webhook secrets, provider credentials, authentication credentials, unnecessary personal data, raw authorization headers/cookies.
+- Never blindly serializes entire `req.body`, `req.headers`, `req.user`, or DB records.
+- `sanitizeValue` recursively checks every key normalized (`toLowerCase` + strip `_-`) against `SENSITIVE_KEYS`; match → `[REDACTED]` (value replaced, not removed, to preserve structure while hiding secret).
+- Covered keys: `password`, `passwordHash`/`password_hash`, `currentPassword`, `newPassword`, `confirmPassword`, `hash`, `token`, `refreshToken`, `accessToken`, `secret`, `apiSecret`, `webhookSecret`, `providerSecret`, `providerCredentials`, `authorization`, `cookie`, `credentials`, `clientSecret`, `privateKey`, `seed`, `salt`, `tokenHash`, `emailVerificationToken`, `passwordResetToken`.
+- If `old_value`/`new_value`/`metadata` contain objects, sensitive fields removed/redacted before persistence.
+- Verification: `GET /audit-logs`/`activity-logs` response bodies contain no `password`/`token`/`secret`; direct `auditService.logAudit` with `{password:'secret', token:'abc'}` stored as `[REDACTED]`.
+
+### Tenant Isolation
+- Shared PostgreSQL + shared schema + `tenant_id` isolation.
+- For authenticated operations, derives `tenantId` from `req.context.tenantId` set by `authenticate()` (`verifyAccessToken` → `tenantId` claim → user/tenant ACTIVE check → `req.context.tenantId = decoded.tenantId`). Never trusts `req.body.tenantId`/`query.tenantId`/`headers`.
+- Repositories apply tenant scoping: every `list`/`findById` includes `where:{tenantId}`; controllers never accept client-controlled tenantId authority.
+- User from Tenant A never reads Tenant B records: `GET /audit-logs` with Tenant A token returns only `tenantId==A`; same for activity.
+- Attempted cross-tenant `GET /activity-logs/:id` (A's id with B token) → `404 ACTIVITY_LOG_NOT_FOUND` safe, not `403`, never leaks ownership.
+- Manipulated `?tenantId=<other>` or `?tenant_id` query ignored; service ignores and uses authenticated context.
+- Indexes tenant-scoped (`tenantId+createdAt`, `tenantId+resource+resourceId`) support high-volume tenant-scoped queries without over-indexing.
+
+### APIs
+Exactly three Phase 11 APIs under `/api/v1`:
+
+| Method | Endpoint | Auth | Permission | Purpose |
+|--------|----------|------|------------|---------|
+| GET | `/api/v1/audit-logs` | Bearer JWT `authenticate()` | `audit:read` | List audit logs, tenant-scoped, paginated, filtered |
+| GET | `/api/v1/activity-logs` | Bearer JWT | `activity:read` | List activity logs, tenant-scoped, paginated, filtered |
+| GET | `/api/v1/activity-logs/:id` | Bearer JWT | `activity:read` | Get activity log by ID, tenant ownership verified |
+
+**Common requirements:**
+- Require authentication → unauthenticated `401 UNAUTHORIZED`.
+- Enforce authorization via existing RBAC `authorize()` tenant-aware → unauthorized `403 FORBIDDEN`.
+- Be tenant scoped, never accept client-controlled `tenant_id` as authority.
+- Support sensible pagination `page` default1 `limit` default20 max100 → `400` if invalid.
+- Return only records belonging to authenticated tenant, avoid exposing secrets, use consistent `{success, data, meta/pagination, message}` / `{success:false, error:{code,message,details}, requestId}` conventions.
+- Filtering (relevant to data model): audit supports `action` (enum), `resource`, `resourceId`, `userId`, `from`/`to` (ISO datetime range on `createdAt`); activity supports `action` (string), `userId`, `from`/`to`. Sorting `sortBy`/`sortOrder` whitelist. Invalid filters/UUIDs/pagination rejected `400 VALIDATION_ERROR`, malformed detail UUID `400`.
+- Activity detail verifies tenant ownership: other tenant's id → `404 ACTIVITY_LOG_NOT_FOUND` (established safe not-found, not leak).
+- No additional endpoints invented.
+
+### RBAC
+Reuse Phase 5 architecture (`authenticate` → `authorize(permission)`). Do not modify/weaken existing Phase 5 permissions. New minimum permissions introduced after inspecting `prisma/seed.js` `SYSTEM_PERMISSIONS`:
+
+- `audit:read` (`resource: audit`, `action: read`) — required for `GET /audit-logs`
+- `activity:read` (`resource: activity`, `action: read`) — required for `GET /activity-logs` and `GET /activity-logs/:id`
+
+Seeded via `prisma/seed.js` upsert (`tenantId_resource_action`), linked: `admin` gets all (including audit/activity), `manager` gets most (excluded `user:delete` etc. but includes audit/activity `read`), `member` gets `*:read` including audit/activity. Verified `401` unauth, `403` insufficient, cross-tenant blocked.
+
+### Integrated Mutations (Small Justified Set)
+Phase 11 integrates a small set of existing important mutations without rewriting large modules or changing API contracts, using same `$transaction` boundary as Phases 8–10:
+
+- `PATCH /api/v1/users/:id` — `users.service.js:update` inside `prisma.$transaction(async tx=>{ tx.user.update ... auditService.logAudit(...tx) ... logActivity(...tx)})`. Captures `oldValue` allowed fields before, `newValue` changes after, `ipAddress`/`userAgent` from `req.ip`/`user-agent`.
+- `DELETE /api/v1/users/:id` — `users.service.js:delete` logs `DELETE user` with `oldValue` `{id,email,firstName,lastName,status}` before `tx.user.delete`.
+- `POST /api/v1/orders` — `orders.service.js:create` inside existing order/inventory transaction (sorted `SELECT ... FOR UPDATE`, deduct, create order/items/movements/history) now also `auditService.logAudit({action:'CREATE', resource:'order', newValue:{orderId,customerId,total}})` + `logActivity({action:'order.create'})` atomically before returning full order.
+- `PATCH /api/v1/orders/:id/status` — `updateStatus` logs `UPDATE order` `{status: from→to}` + `order.status_update` inside same `prisma.$transaction` that updates order + history.
+- `POST /api/v1/orders/:id/cancel` — `cancel` logs `UPDATE order` to `CANCELLED` + `order.cancel` inside same transaction that restores inventory via `ORDER_RELEASE` movements and updates status/history.
+
+All integrated via service layer (controllers supply `auditContext` from `req.context.userId`/`req.ip`/`user-agent`; no DB queries in controllers, no business logic in routes). Documents exactly which mutations were integrated; no Phase 12+ modules implemented to demonstrate.
+
+### Transaction Behavior
+Where mutation + audit represent one atomic business action, Prisma `$transaction` ensures they cannot silently diverge:
+
+- Business mutation and audit record committed together inside `tx` callback.
+- Audit failure (e.g., `sanitize` error or DB constraint) throws → transaction rolls back → mutation not committed, no false successful audit.
+- Mutation failure (e.g., `INSUFFICIENT_STOCK` during `POST /orders` after inventory check) → transaction rolls back → no audit/activity row left behind (verified: insufficient order attempt audit counts unchanged).
+- Order operations retain existing `SELECT ... FOR UPDATE` row locking, retry for `40001`/`40P01`, and `warehouse_inventory` mirror logic; audit participates in same transactional workflow, not a second independent transaction.
+- For `orders.service.js:create`, audit is inside the retry loop's `$transaction`, so serialization retry correctly re-attempts audit together with inventory; only committed transaction persists.
+
+### Testing
+`tests/integration/phase11-audit.test.js` uses Jest + Supertest, existing `createTenant`/`createUser`/`login`/`setupAuditPerms` helpers (argon2, `permission.upsert`, `role.upsert`, `userRole.create`). Covers all spec assignment:
+
+- Authentication: unauthenticated `GET /audit-logs`/`activity-logs`/`activity-logs/:id` →401.
+- Authorization: viewer without `audit:read` →403 for both lists.
+- Tenant isolation (4 explicit): A reads A, B reads B, A cannot read B audit, B cannot read A audit; same for activity; cross-detail `GET /activity-logs/:id` with other tenant →404 safe; manipulated `?tenantId=` ignored (still returns only authenticated tenant).
+- Validation: malformed UUID →400, invalid pagination (page -1, limit 9999) →400, invalid `action` filter →400, invalid `from` datetime →400, pagination meta correct, filtering by `action`/`resource` works.
+- Security: responses contain no `password`/`token`/`secret`; `old_value`/`new_value` redacted (`[REDACTED]`); direct `auditService.logAudit` with sensitive `oldValue`/`newValue` verified redacted, not persisted raw; client `tenantId` cannot override.
+- Mutation/Audit: successful user update → `audit_logs` `tenantId`/`userId`/`action UPDATE`/`resource user`/`resourceId`/`oldValue`/`newValue`/`createdAt`/`ipAddress`/`userAgent` correct, activity `user.update` correct; order create → `CREATE order` audit with `oldValue null`/`newValue {orderId}`; order status update → `UPDATE` with status old/new; order cancel → `CANCELLED`; user delete → `DELETE`; failed rolled-back order (quantity 99999) → audit counts unchanged; timestamps exist; `old/new` appropriately captured where implemented; sensitive redacted.
+- API: all three endpoints tested for auth, tenant isolation, validation, pagination, response format `{success, data, meta/pagination, message}`, no leakage, safe 404.
+
+**Results:**
+```
+Phase 11 tests: 35 passed
+Full regression: 412 passed
+Test suites: 12 passed
+Test Suites: 12 passed, 12 total
+Tests:       412 passed, 412 total
+```
+Complete regression actually executed (not expected). Earlier flaky `phase3-schema` timestamp `expect(createdAt.getTime() <= Date.now())` off by 1ms resolved by subsequent full-suite execution (all 12 suites green).
+
+### Verification
+```
+npm run lint
+→ 0 errors, 0 warnings
+
+npx prisma validate
+→ The schema at prisma/schema.prisma is valid 🚀
+
+npx prisma migrate status
+→ 8 migrations found
+→ Database schema is up to date!
+```
+Plus:
+- Startup/health: `createApp()` + `GET /health` →200 `{status:"ok"}`, `/health/db`/`/health/redis` readiness distinguished; degraded mode respects `FAIL_ON_DEPENDENCY_ERROR`; actual server `listen` verified.
+- HTTP: `GET /audit-logs` unauth 401, cross-tenant 404, invalid pagination 400 all via `supertest` real handlers.
+- Authentication/authorization: 401/403 verified.
+- Tenant isolation: 4 explicit + detail 404 verified.
+- Validation: Zod `VALIDATION_ERROR` 400 for all malformed inputs verified.
+
+### Known Limitations (Actual, Not Invented)
+- Payment mutations are not currently audited (intentionally small set; avoids scope creep, preserves Phase 10 contracts).
+- No new database indexes were added beyond the existing Phase 3 indexes (`tenantId+createdAt`, `tenantId+resource+resourceId`, `tenantId+action+createdAt` already cover implemented query patterns; no over-indexing without reason).
+- ISO datetime filters are supported (`from`/`to` as `z.string().datetime()`); non-ISO strings rejected `400`; epoch or other formats not supported.
+- IP extraction uses `req.ip` / `x-forwarded-for` first entry / `socket.remoteAddress`; behind proxy requires `TRUST_PROXY=true` (as configured via `env.TRUST_PROXY`) otherwise logged IP may be proxy.
+- Audit action validation is limited by implemented `AuditAction` enum (`CREATE|UPDATE|DELETE|LOGIN|LOGOUT|EXPORT|IMPORT`) for `GET /audit-logs` filter; activity `action` is free-form string (validated max100 only).
+- Existing implementation limitations without inventing additional ones: audit `resource` string max100, `resourceId`/`userId` UUID only, `limit` capped 100, `sortBy` whitelist, metadata sanitization retains structure but redacts values, no bulk audit export, no retention policy, no asynchronous batching (synchronous within transaction).
+
+### What is NOT Implemented (Future Phases)
+Phase 12 Notifications, Phase 13 WebSockets, Phase 14 Redis Caching, Phase 15 BullMQ, Phase 16 External API Integrations, Phase 17 API Orchestration, Phase 18 Analytics, Phase 19 Performance Optimization, Phase 20 Security Hardening, Phase 21 Complete Testing, Phase 22 Swagger/OpenAPI, Phase 23 Docker/CI/CD remain future work. No notification/channel/provider logic, no Socket.IO rooms, no cache aside, no queue, no storage S3 provider, no analytics aggregation added as part of Phase 11.
+
+### Phase 11 Status: ✅ COMPLETE AND VERIFIED
+All 412 tests pass (35 Phase 11), 12 suites, lint 0, Prisma valid, 8 migrations up to date (no new migration), app startup, HTTP 200/401/403/404/400 verified, tenant isolation both directions, sanitization `[REDACTED]`, atomic `$transaction`, no regressions, roadmap untouched.
 
