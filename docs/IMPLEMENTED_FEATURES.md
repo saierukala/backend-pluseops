@@ -697,11 +697,44 @@ Warehouses: `POST/GET /api/v1/warehouses`, `GET/PATCH/DELETE /api/v1/warehouses/
 
 ---
 
+## Phase 10 — Payment & Transaction Processing (COMPLETE & VERIFIED — 40/40, 377/377, 8 migrations)
+
+### Payment & Transaction Processing
+- [x] Business-agnostic payment architecture (`Order → Payment → Payment Transaction → Refund`), processor-agnostic, no industry-specific columns, payments anchored to Orders not catalog items
+- [x] Database: reuses Phase 03 `payments`/`payment_transactions`/`refunds` (`Decimal(12,2)`, `PaymentStatus`/`PaymentTransactionType`/`RefundStatus` enums, tenant-scoped); **Phase 10 infrastructure** `payment_webhook_events` (`id`, `tenant_id` CASCADE, `payment_id` SET NULL, `event_id`, `provider_event_id`, `provider_payment_id`, `type`, `payload` JSONB, `created_at timestamptz` with `@@unique([tenantId, eventId])` + `@@unique([eventId])`, indexes, FKs) + partial unique provider indexes (`WHERE NOT NULL`) + non-negative CHECKs; migration `20260914_phase10_payments_webhook`
+- [x] Architecture preserved `Route → Controller → Service → Repository → Database` (`payments/` with controller/service/repository/validation/routes/webhook.util, mounted `/api/v1/payments` in `src/app/routes.js`; controller HTTP only, service state/tenant/transaction, repository tenant-scoped Prisma)
+- [x] Payment creation (`POST /api/v1/payments/create`, `payment:create`): `orderId` uuid strict, validates order exists tenant-scoped 404, `ORDER_ELIGIBLE_STATUSES [PENDING,CONFIRMED,PROCESSING,DRAFT]` else 400, derives `amount=order.total`/`currency` server-side (client `amount` strict 400), `Decimal` non-negative, duplicate pending guard 400 `PAYMENT_ALREADY_PENDING`, `providerPaymentId`= `pay_<uuid>` + initial `CHARGE PENDING` transaction in `$transaction`, `tenantId` from `req.context`
+- [x] Payment confirmation (`POST /api/v1/payments/confirm`, `payment:confirm`): strict `paymentId` uuid + optional `providerPaymentId`/`simulateFailure` (no `status` — strict rejects injection), validates `PENDING`/`PROCESSING` else 400 `INVALID_STATE_TRANSITION`, `targetStatus = FAILED|COMPLETED` via `isValidTransition`, `SELECT ... FOR UPDATE`, creates `CHARGE` transaction, rollback on invalid, cross-tenant 404
+- [x] Controlled state machine `PENDING:[PROCESSING,COMPLETED,FAILED,CANCELLED] PROCESSING:[COMPLETED,FAILED,CANCELLED] COMPLETED:[REFUNDED,PARTIALLY_REFUNDED] PARTIALLY_REFUNDED:[REFUNDED,PARTIALLY_REFUNDED] FAILED/CANCELLED/REFUNDED:[]`, server-side only, frontend cannot inject `SUCCESS`
+- [x] Webhook (`POST /api/v1/payments/webhook`, HMAC `x-webhook-signature`/`x-payment-signature`): strict `eventId`/`type` enum `payment.succeeded|payment.failed|payment.refunded|charge.succeeded|charge.failed` + optional `paymentId`/`providerPaymentId`/`providerTransactionId`/`amount`/`currency`/`tenantId`; HMAC-SHA256 `timingSafeEqual` with `PAYMENT_WEBHOOK_SECRET`, invalid 401, malformed 400, resolves tenant via payment lookup, `INSERT` webhook event inside `$transaction` — duplicate `P2002` on `tenantId+eventId`/`eventId` → `200 duplicate:true` safely ignored, maps type to `targetStatus` only if `isValidTransition`, locks payment, deduplicates `providerTransactionId`, tenant-isolated
+- [x] Webhook idempotency: DB unique constraints + `INSERT` conflict handling (Prisma `P2002` catch equivalent to `ON CONFLICT DO NOTHING`), not read-then-write; first→process, duplicate→ignore, concurrent 5 identical → 1 effect (1 transaction +1, 1 event, 4 duplicates)
+- [x] Webhook signature validation: never trusts frontend status, `verifyWebhookSignature` with secret, secrets never logged/exposed, `timingSafeEqual`
+- [x] Payment retrieval (`GET /api/v1/payments/:id`, `payment:read`): uuid params, tenant-scoped `where {id, tenantId}` 404 for other tenant, never exposes secrets, includes `transactions`/`refunds`/`order`
+- [x] Refunds (`POST /api/v1/payments/:id/refund`, `payment:refund`): strict `amount` decimalString/`reason` max 500, requires `COMPLETED`/`PARTIALLY_REFUNDED` else 400, `refundable = amount - SUM(COMPLETED refunds)` cents, excessive 400 `EXCESSIVE_REFUND`, `SELECT ... FOR UPDATE` + re-check inside tx, creates `REFUND` COMPLETED + `REFUND` transaction, updates `PARTIALLY_REFUNDED` or `REFUNDED`, rollback on failure, audit append-only never overwrite, `Decimal(12,2)` 0.01 precise
+- [x] Transactions: `$transaction` for create/confirm/webhook/refund with `SELECT ... FOR UPDATE` row locking, rollback everything on failure, no partial orphan, no `Float` money
+- [x] Money: `Decimal @db.Decimal(12,2)` via string `toCents`/`fromCents`, non-negative CHECKs, authoritative server amounts
+- [x] Authorization: payment-specific `payment:create|confirm|read|refund` introduced to integrate Phase 10 with existing RBAC (not modifying Phase 05 permissions), plus `authenticate()` JWT + `authorize()` tenant-scoped, webhook signature-based, 401/403 enforced
+- [x] Tenant isolation: every operation `where tenantId = req.context.tenantId`, cross-tenant create/read/confirm/refund/webhook 404, manipulated JWT 401, no client `tenantId` trust, partial unique indexes tenant-scoped
+- [x] Validation: Zod strict schemas for body/params/query/headers (uuid, decimalString regex, enum, max lengths), strict rejects unknown `amount`/`status`, headers passthrough
+- [x] Business-agnostic: payment module knows `Tenant/Order/Payment/Transaction/Refund` only, works for Clothing/Electronics/Cosmetics via generic variants (verified)
+- [x] Verification: 40 Phase 10 tests (create/cross-tenant/duplicate, retrieval, confirmation including FAILED/forced status, webhook valid/invalid/malformed/duplicate/concurrent, refunds partial/full/excessive/audit, security/tenant/Decimal), 377 full no regression, lint 0, Prisma valid, 8 migrations, HTTP 201/200/401/403/404/400 verified, concurrent idempotency 5→1
+
+**APIs (Phase 10):**
+| Method | Endpoint | Permission | Description |
+|--------|----------|------------|-------------|
+| POST | `/api/v1/payments/create` | `payment:create` | Create payment (server amount) |
+| POST | `/api/v1/payments/confirm` | `payment:confirm` | Confirm (controlled transition) |
+| POST | `/api/v1/payments/webhook` | HMAC signature | Provider webhook (idempotent) |
+| GET | `/api/v1/payments/:id` | `payment:read` | Get payment |
+| POST | `/api/v1/payments/:id/refund` | `payment:refund` | Refund (refundable-balance) |
+
+**Verification:** 40/40 Phase 10, 377/377 full (11 suites), lint 0, Prisma valid, 8 migrations up to date (Phase 10 webhook idempotency `payment_webhook_events`), app startup, provider-neutral abstraction, no Phase 11+ code, roadmap untouched.
+
+---
+
 ## What is NOT Implemented (Future Phases)
 
-The following are explicitly **NOT** implemented as of Phase 09 completion (Order Management COMPLETE):
-
-- Payment & Transaction Processing — `payments`, `payment_transactions`, `refunds` APIs (Phase 10 NEXT)
+The following are explicitly **NOT** implemented as of Phase 10 completion (Payment & Transaction Processing COMPLETE):
 - Audit & Activity Logs — `audit_logs`, `activity_logs` APIs (Phase 11)
 - Notifications — `notifications`, `notification_preferences`, `notification_templates` (Phase 12)
 - WebSockets / Real-time — Socket.IO (Phase 13)

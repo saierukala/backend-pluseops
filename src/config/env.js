@@ -37,6 +37,8 @@ const envSchema = z.object({
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
   PASSWORD_RESET_EXPIRY: z.string().default('1h'),
   EMAIL_VERIFICATION_EXPIRY: z.string().default('24h'),
+  PAYMENT_WEBHOOK_SECRET: z.string().default('test-webhook-secret-min-32-chars-long-for-testing'),
+  PAYMENT_PROVIDER: z.string().default('mock'),
 });
 
 const parsed = envSchema.safeParse(process.env);

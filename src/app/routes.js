@@ -13,6 +13,7 @@ import { productImagesRouter } from '../modules/product-images/product-images.ro
 import { inventoryRouter } from '../modules/inventory/inventory.routes.js';
 import { warehousesRouter } from '../modules/warehouses/warehouses.routes.js';
 import { ordersRouter } from '../modules/orders/orders.routes.js';
+import { paymentsRouter } from '../modules/payments/payments.routes.js';
 
 export const apiRouter = Router();
 apiRouter.use('/health', healthRouter);
@@ -28,4 +29,5 @@ apiRouter.use('/attributes', attributesRouter);
 apiRouter.use('/warehouses', warehousesRouter);
 apiRouter.use('/inventory', inventoryRouter);
 apiRouter.use('/orders', ordersRouter);
+apiRouter.use('/payments', paymentsRouter);
 apiRouter.use('/', productImagesRouter);

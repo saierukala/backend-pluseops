@@ -1,6 +1,6 @@
 # Project Documentation
 
-Technical architecture and implementation state as of Phase 09 completion (Order Management — COMPLETE and VERIFIED).
+Technical architecture and implementation state as of Phase 10 completion (Payment & Transaction Processing — COMPLETE and VERIFIED).
 
 ---
 
@@ -109,11 +109,18 @@ src/
     │   ├── inventory.validation.js
     │   └── inventory.routes.js
     ├── orders/         # Order lifecycle management (Phase 09)
-    │   ├── orders.controller.js
-    │   ├── orders.service.js
-    │   ├── orders.repository.js
-    │   ├── orders.validation.js
-    │   └── orders.routes.js
+     │   ├── orders.controller.js
+     │   ├── orders.service.js
+     │   ├── orders.repository.js
+     │   ├── orders.validation.js
+     │   └── orders.routes.js
+    ├── payments/       # Payment & transaction processing (Phase 10) — business-agnostic Order→Payment→Transaction→Refund
+     │   ├── payments.controller.js
+     │   ├── payments.service.js
+     │   ├── payments.repository.js
+     │   ├── payments.validation.js
+     │   ├── payments.routes.js
+     │   └── webhook.util.js
     └── common/storage/ # Storage abstraction
         ├── storage.service.js
         └── local-storage.provider.js
@@ -185,11 +192,11 @@ Route → Controller → Service → Repository → Database
 - Explicit `onDelete`/`onUpdate` on all relations (CASCADE, RESTRICT, SET NULL)
 
 ### Migrations
-**Migration Chain (verified — 7 migrations):**
+**Migration Chain (verified — 8 migrations):**
 ```
 20250911_init_tenants                         # Phase 02: tenants, tenant_settings, tenant_domains
         ↓
-20250911_phase_03_core_schema                 # Phase 03: 31 models (including warehouses, inventory, inventory_movements, warehouse_inventory)
+20250911_phase_03_core_schema                 # Phase 03: 31 models (including payments, payment_transactions, refunds, warehouses, inventory, inventory_movements, warehouse_inventory)
         ↓
 20250911_phase_03_fix_timestamptz             # Correction: 89 timestamp columns to TIMESTAMPTZ(6)
         ↓
@@ -200,6 +207,8 @@ Route → Controller → Service → Repository → Database
 20260913_phase_07_attribute_description       # Phase 07: attribute_definitions.description (TEXT, nullable)
         ↓
 20260914_phase_08_inventory_management        # Phase 08: non-negative CHECKs on inventory/warehouse_inventory + movement consistency; reuses Phase 03 tables (no new tables)
+        ↓
+20260914_phase10_payments_webhook            # Phase 10: payment_webhook_events (webhook idempotency) + partial unique provider indexes + non-negative CHECKs; reuses Phase 03 payments/payment_transactions/refunds
 ```
 
 - Phase 03 migration does **not** recreate Phase 02 tables
@@ -207,7 +216,8 @@ Route → Controller → Service → Repository → Database
 - Phase 05 migration adds 9 tables (tenant_memberships + platform* + RBAC tables) WITHOUT recreating Phase 01-04 tables
 - Phase 07 migration adds `attribute_definitions.description` via `ADD COLUMN IF NOT EXISTS` (fixes prior `prisma db push` gap, no duplicate tables)
 - Phase 08 migration adds DB-level guards only: `inventory_quantity_non_negative`, `inventory_reserved_quantity_non_negative`, `warehouse_inventory_quantity_non_negative`, `warehouse_inventory_reserved_quantity_non_negative`, `inventory_movements_quantity_consistency`; warehouses/inventory tables reused from Phase 03 (not recreated)
-- All 7 migrations applied, `npx prisma migrate status` reports "Database schema is up to date!"
+- Phase 10 migration creates `payment_webhook_events` for webhook idempotency (`@@unique([tenantId, eventId])` + `@@unique([eventId])`, indexes on `tenantId+paymentId`/`tenantId+providerEventId`, FKs to `tenants` CASCADE / `payments` SET NULL) + partial unique indexes `payments_tenant_provider_payment_id_unique`, `payment_transactions_tenant_provider_txn_unique`, `refunds_tenant_provider_refund_unique` (WHERE NOT NULL) + CHECKs `payments_amount_non_negative`/`payment_transactions_amount_non_negative`/`refunds_amount_non_negative`; reuses Phase 03 `payments`/`payment_transactions`/`refunds` (no duplicate tables)
+- All 8 migrations applied, `npx prisma migrate status` reports "Database schema is up to date!"
 - `npx prisma validate` → valid 🚀
 - No `prisma migrate reset` or destructive operations used
 
@@ -347,11 +357,12 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 
 ## Testing
 
-### Current Verification Results (Latest Run — Phase 09 Verified)
+### Current Verification Results (Latest Run — Phase 10 Verified)
 
 | Check | Result |
 |-------|--------|
-| **Full Integration Suite** | 337/337 passing (10 suites) |
+| **Full Integration Suite** | 377/377 passing (11 suites) |
+| - `phase10-payments.test.js` | 40 tests ✅ |
 | - `phase9-orders.test.js` | 34 tests ✅ |
 | - `phase8-inventory.test.js` | 36 tests ✅ |
 | - `phase7-product-management.test.js` | 78 tests ✅ |
@@ -365,9 +376,10 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 | **ESLint** | 0 errors, 0 warnings |
 | **Prisma Validate** | ✅ Valid |
 | **Prisma Generate** | ✅ Success |
-| **Migration Status** | ✅ Up to date (7 migrations) |
+| **Migration Status** | ✅ Up to date (8 migrations) |
 | **Phase 9 Migration** | No new migration — reused Phase 03 `orders`/`order_items`/`order_status_history` ✅ |
-| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS |
+| **Phase 10 Migration** | `20260914_phase10_payments_webhook` — creates `payment_webhook_events` + partial unique provider indexes + CHECKs; reuses Phase 03 payment tables ✅ |
+| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS, Phase 10 PASS |
 
 ### Test Coverage Highlights
 - Health endpoints: liveness, DB readiness, Redis readiness
@@ -421,20 +433,21 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 - **Compression** — response compression
 - **JSON Body Limits** — configurable (`REQUEST_BODY_LIMIT`, default 1mb)
 - **Request IDs** — generated or client-supplied, included in errors
-- **Structured Logging** — Pino JSON, no sensitive data in logs
+- **Structured Logging** — Pino JSON, no sensitive data in logs (authorization/webhook secrets redacted)
 - **Centralized Errors** — consistent format, no stack traces in production responses
-- **Zod Validation** — all inputs validated at route level
+- **Zod Validation** — all inputs validated at route level (strict schemas reject unknown fields including client `amount`/`status` injection)
 - **Prisma Parameterized Queries** — SQL injection prevention via ORM
 - **JWT Authentication** — HS256, access/refresh tokens, rotation, revocation
 - **Password Hashing** — Argon2id
 - **Password Reset** — secure tokens, 1h expiry, single-use, revokes refresh tokens
 - **Email Verification** — secure tokens, 24h expiry, single-use
+- **Webhook Signature Verification** — HMAC-SHA256 (`x-webhook-signature`/`x-payment-signature`, `crypto.timingSafeEqual`, secret from `PAYMENT_WEBHOOK_SECRET`), invalid → `401 INVALID_WEBHOOK_SIGNATURE`; never trusts payment status from frontend, server-side state machine only
+- **Tenant Isolation** — `req.context.tenantId` from authenticated JWT, cross-tenant payment/refund/webhook access blocked, provider secrets never logged/exposed
 
 ### NOT Implemented (Future Phases)
 - CSRF Protection
 - Secure Cookies
-- File Upload Validation
-- Webhook Signature Verification
+- File Upload Validation (images validated in Phase 07, payment provider uploads deferred)
 
 ---
 
@@ -480,7 +493,7 @@ The following items were identified during the Phase 03 human verification audit
 | Product Management (Phase 07) | ✅ Complete & Verified (78/78, 267/267, 6 migrations) |
 | Inventory Management (Phase 08) | ✅ Complete & Verified (36/36, 303/303, 7 migrations) |
 | Order Management (Phase 09) | ✅ Complete & Verified (34/34, 337/337, 7 migrations — no new migration) |
-| Payment & Transaction Processing (Phase 10) | ⏳ Not Started (NEXT) |
+| Payment & Transaction Processing (Phase 10) | ✅ Complete & Verified (40/40, 377/377, 8 migrations) |
 | Audit (Phase 11) | ⏳ Not Started |
 | Notifications (Phase 12) | ⏳ Not Started |
 | WebSockets (Phase 13) | ⏳ Not Started |
@@ -890,9 +903,111 @@ Reuses Phase 03 tables `orders`, `order_items`, `order_status_history`. No new P
 * `warehouse_inventory` mirror remains for legacy compatibility.
 
 ### Relationship to Phase 10
-Phase 10 Payment & Transaction Processing will operate on orders (payment → order) and remains not started, not implemented. Orders endpoint ready for future payment reference via `orderId`.
+Phase 10 Payment & Transaction Processing operates on orders (`Order → Payment → Payment Transaction → Refund`) and is COMPLETE. Payment creation anchors to `orderId` tenant-scoped; webhook idempotency via `payment_webhook_events`.
 
 ---
 
 ## Phase 09 Status: ✅ COMPLETE AND VERIFIED
 All 337 tests pass (34 Phase 09), 303 prior, lint 0, Prisma valid, 7 migrations up to date (no new Phase 9 migration), app startup verified, HTTP verification 201/200/200/200/200/200, unauthorized 403, unauthenticated 401, cross-tenant 404, invalid transition 400, insufficient 400 rollback, concurrent 5/5 final 0, inventory 20 restored, roadmap untouched.
+
+---
+
+## Phase 10 — Payment & Transaction Processing (COMPLETE & VERIFIED — 40/40, 377/377, 8 migrations)
+
+### Objective
+Build payment processing and provider webhook handling. Payments remain product- and business-agnostic: a payment relates to an **Order**, never to clothing/electronics/cosmetics specifics. No catalog schema change required.
+
+### Architecture
+```
+Order
+  ↓
+Payment
+  ↓
+Payment Transaction
+  ↓
+Refund
+```
+- **Payment** — one record per order payment attempt, amount derived server-side from `order.total`, status controlled via state machine.
+- **Payment Transaction** — append-only ledger (`CHARGE`/`REFUND`/`CAPTURE`/`VOID` in schema, `CHARGE`/`REFUND` used), never overwrites prior rows, auditable history.
+- **Refund** — linked to payment, tracks refundable balance, drives terminal `PARTIALLY_REFUNDED`/`REFUNDED` transitions.
+
+Layered module preserved:
+```
+Route → Controller → Service → Repository → Database
+```
+`payments/` (`payments.controller.js`, `payments.service.js`, `payments.repository.js`, `payments.validation.js`, `payments.routes.js`, `webhook.util.js`) mounted as `/api/v1/payments` in `src/app/routes.js`. Controllers handle HTTP only; services own state transitions/tenant checks/transactions; repositories handle `tenant_id`-scoped Prisma queries; Prisma/PostgreSQL is sole store. Provider-neutral abstraction — no real external provider SDK, `PAYMENT_PROVIDER=mock`.
+
+### Database
+**Reused from Phase 03 (verified, not recreated):**
+- `payments` (`id`, `tenant_id`, `order_id` RESTRICT, `amount` `Decimal(12,2)`, `currency`, `status` `PaymentStatus`, `provider`, `provider_payment_id`, `metadata` JSONB, timestamps `timestamptz`).
+- `payment_transactions` (`tenant_id`, `payment_id` CASCADE, `type`, `amount`, `currency`, `status`, `provider_transaction_id`, `metadata`).
+- `refunds` (`tenant_id`, `payment_id` CASCADE, `amount`, `currency`, `status`, `reason`, `provider_refund_id`, `metadata`).
+
+**Phase 10 webhook/idempotency infrastructure (new, not part of Phase 03 roadmap tables):**
+- `payment_webhook_events` (`id`, `tenant_id` CASCADE, `payment_id` SET NULL, `event_id`, `provider_event_id`, `provider_payment_id`, `type`, `payload` JSONB, `created_at timestamptz`) with `@@unique([tenantId, eventId])` + `@@unique([eventId])`, indexes on `tenantId+paymentId`/`tenantId+providerEventId`.
+- Partial unique indexes `WHERE provider_*_id IS NOT NULL` on `payments(provider_payment_id)`, `payment_transactions(provider_transaction_id)`, `refunds(provider_refund_id)` — DB-enforced duplicate protection allowing concurrent duplicates to fail with `P2002` rather than application-level `SELECT THEN INSERT`.
+- CHECKs `payments_amount_non_negative`, `payment_transactions_amount_non_negative`, `refunds_amount_non_negative`.
+
+**Migration:** `20260914_phase10_payments_webhook` (`CREATE TABLE payment_webhook_events`, unique/partial indexes, FKs, CHECKs). Validated `npx prisma validate`, `npx prisma migrate status` 8 migrations up to date.
+
+### APIs
+| Method | Endpoint | Auth | Permission | Purpose | Key validation/security |
+|--------|----------|------|------------|---------|-------------------------|
+| POST | `/api/v1/payments/create` | Bearer JWT | `payment:create` | Create payment anchored to order | Validates `orderId` uuid strict, checks `order` exists tenant-scoped, `ORDER_ELIGIBLE_STATUSES [PENDING,CONFIRMED,PROCESSING,DRAFT]` else `400 ORDER_NOT_ELIGIBLE`, derives `amount=order.total` `currency=order.currency` server-side (client `amount` rejected by strict schema), duplicate pending guard `400 PAYMENT_ALREADY_PENDING`, `Decimal` non-negative, `$transaction` creates `payments` PENDING + `payment_transactions` CHARGE PENDING, tenant from `req.context.tenantId` |
+| POST | `/api/v1/payments/confirm` | Bearer | `payment:confirm` | Server-side state transition PENDING/PROCESSING → COMPLETED/FAILED | Strict body `paymentId` uuid, optional `providerPaymentId`, `simulateFailure` boolean only (no `status` — strict rejects `SUCCESS` injection), validates `P2002`? Actually validates `isValidTransition`, `SELECT ... FOR UPDATE`, creates CHARGE transaction, rollback on invalid |
+| POST | `/api/v1/payments/webhook` | HMAC (`x-webhook-signature` or `x-payment-signature`) | none (signature) | Provider event handling, idempotent | Strict `eventId`, `type` enum `[payment.succeeded, payment.failed, payment.refunded, charge.succeeded, charge.failed]`, optional `paymentId`/`providerPaymentId`/`providerTransactionId`/`amount`/`currency`/`tenantId`; HMAC-SHA256 `verifyWebhookSignature` with `timingSafeEqual` using `PAYMENT_WEBHOOK_SECRET`, missing/invalid → `401 INVALID_WEBHOOK_SIGNATURE`, resolves tenant via payment lookup, `INSERT` webhook event inside `$transaction` — duplicate `P2002` → `200 duplicate:true` safely ignored, determines `targetStatus` (succeeded→COMPLETED etc.) only if `isValidTransition`, locks payment, deduplicates `providerTransactionId` |
+| GET | `/api/v1/payments/:id` | Bearer | `payment:read` | Retrieve payment with transactions/refunds/order | Params `id` uuid, tenant-scoped `findFirst where {id, tenantId}`, 404 `PAYMENT_NOT_FOUND` for other tenant, never exposes webhook secret, provider ids safe to return |
+| POST | `/api/v1/payments/:id/refund` | Bearer | `payment:refund` | Partial/full refund, audit-preserving | Params `id` uuid, body `amount` decimalString `reason` max 500 strict, requires `COMPLETED`/`PARTIALLY_REFUNDED` else `400 INVALID_REFUND_STATE`, computes `refundable = payment.amount - SUM(COMPLETED refunds)` via cents, `400 EXCESSIVE_REFUND` if exceeds, `SELECT ... FOR UPDATE` + re-compute inside tx, creates `refunds` COMPLETED + `payment_transactions` REFUND, updates `PARTIALLY_REFUNDED` or `REFUNDED` via `isValidTransition`, rollback on failure |
+
+All success `{success:true, data:...}`, errors `{success:false, error:{code,message}}` with `requestId`. No Phase 11+ fields invented.
+
+### Authorization
+Payment-specific permissions introduced to integrate Phase 10 with existing RBAC (not prescribed verbatim by roadmap, chosen to map to the five APIs using established `resource:action` convention without modifying Phase 05 permissions):
+- `payment:create` — `POST /create`
+- `payment:confirm` — `POST /confirm`
+- `payment:read` — `GET /:id`
+- `payment:refund` — `POST /:id/refund`
+- `POST /webhook` is signature-authenticated, not RBAC-guarded. `authenticate()` verifies JWT claims `sub/tenantId/sessionId` and `tenant ACTIVE/TRIAL`; `authorize(permission)` resolves `user_roles→roles→role_permissions→permissions` tenant-scoped. Unauthenticated 401, insufficient 403.
+
+### Payment Creation — Verified Behavior
+- Anchored to `Order` via `orderId`, tenant derived from `req.context.tenantId`, `prisma.order.findFirst where {id, tenantId}` enforces ownership, cross-tenant 404.
+- Authoritative `order.total`/`currency` used; client-supplied `amount` rejected by `.strict()` schema (test strict 400).
+- `Decimal @db.Decimal(12,2)` + `toCents`/`fromCents` string handling, never Float for truth; non-negative CHECK.
+- Duplicate active payment guard (`PENDING`/`PROCESSING` exists → 400).
+- `$transaction` creates payment + initial transaction, `providerPaymentId = pay_<uuid>` server-generated, `initiatedBy` metadata.
+
+### Payment Confirmation — Verified Behavior
+- Controlled transitions via `PAYMENT_TRANSITIONS` map, `isValidTransition` check both outside and inside `SELECT ... FOR UPDATE` transaction.
+- Server decides `targetStatus = simulateFailure ? FAILED : COMPLETED`; frontend `status` field impossible (strict). Invalid transition (COMPLETED→COMPLETED, REFUNDED→anything) → 400.
+- Creates new `CHARGE` transaction with `confirmedBy` metadata, row-locked, rollback preserves original status/transaction count.
+
+### Webhook & Idempotency — Verified Behavior
+- Valid signature → process: insert `payment_webhook_events`, map type to target status, transition if allowed, create transaction deduplicated by `providerTransactionId`.
+- Duplicate delivery → `P2002` unique violation on `tenantId+eventId` (and global `eventId`) caught, returns `200 duplicate:true` with current payment, no duplicate transaction/state change.
+- Concurrent 5 identical requests → 1 effect (`payment_transactions` +1, `events` 1, 4 duplicates).
+- Uses DB uniqueness + `INSERT` conflict handling (Prisma equivalent to `ON CONFLICT DO NOTHING`), not read-then-write.
+- Invalid signature → 401, malformed (missing `eventId`/bad enum) → 400.
+
+### Refunds — Verified Behavior
+- Only `COMPLETED`/`PARTIALLY_REFUNDED` eligible, `amount` decimal positive, refundable-balance check both pre- and inside transaction to prevent race → `EXCESSIVE_REFUND`.
+- Partial → `PARTIALLY_REFUNDED`, full (sum==total) → `REFUNDED` via `PARTIALLY_REFUNDED: [REFUNDED, PARTIALLY_REFUNDED]`.
+- Audit preserved: new `refunds` + `REFUND` transaction appended, prior transactions never overwritten, amounts `Decimal(12,2)` cents-accurate (0.01).
+
+### Security, Tenant Isolation, Transactions, Money
+- Every query `where tenantId` from authenticated context; never trusts body/query tenantId; cross-tenant payment read/confirm/refund → 404.
+- All critical ops `$transaction` with `SELECT ... FOR UPDATE` locking; failure → rollback everything (verified orphan-free).
+- Money `Decimal(12,2)` via string, `toCents` integer math, CHECK non-negative; provider secrets redacted from logs/responses.
+- Business-agnostic: payment knows `Tenant/Order/Payment/Transaction/Refund` only, no `shirt/size/color` columns; works for Clothing/Electronics/Cosmetics (verified via generic SKUs).
+
+### Testing & Verification
+- 40 Phase 10 integration tests (`phase10-payments.test.js`): create (success/invalid/cross-tenant/client amount/duplicate/unauthorized/unauth), retrieval (success/cross-tenant/invalid), confirmation (COMPLETED/FAILED/invalid/forced status/cross-tenant/rollback), webhooks (valid/invalid sig/malformed/duplicate/concurrent 5→1/uniqueness/idempotent), refunds (partial/full/excessive/invalid state/duplicate exceed/cross-tenant/unauthorized/audit/Decimal), security & isolation, DB uniqueness/audit.
+- 377/377 full suite (11 suites) passing, 0 regressions Phases 01–09.
+- Verification captures above plus actual HTTP status codes (201/200/400/401/403/404) and row-lock/rollback evidence.
+
+### Known Limitations
+- Webhook HMAC over `JSON.stringify(body)` (mock provider); raw-body capture can be added via `express.json verify` without breaking contract.
+- `tenantId` optionally in webhook payload, else derived via payment lookup; provider must include `paymentId` or `providerPaymentId` if tenant unknown.
+
+### Phase 10 Status: ✅ COMPLETE AND VERIFIED
+All 40 Phase 10 tests, 377 full, lint 0, Prisma valid, 8 migrations, app startup, HTTP 201/200/401/403/404/400 verified, concurrent idempotency, audit history, tenant isolation, no `P2002` leak, no Phase 11+ code, roadmap untouched.
+

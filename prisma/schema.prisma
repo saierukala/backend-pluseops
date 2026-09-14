@@ -160,6 +160,7 @@ model Tenant {
   payments              Payment[]
   paymentTransactions   PaymentTransaction[]
   refunds               Refund[]
+  paymentWebhookEvents  PaymentWebhookEvent[]
   notifications         Notification[]
   notificationPreferences NotificationPreference[]
   notificationTemplates NotificationTemplate[]
@@ -782,6 +783,7 @@ model Payment {
 
   transactions    PaymentTransaction[]
   refunds         Refund[]
+  webhookEvents   PaymentWebhookEvent[]
 
   @@index([tenantId, orderId])
   @@index([tenantId, status])
@@ -827,6 +829,26 @@ model Refund {
   @@index([tenantId, status])
   @@index([tenantId, providerRefundId])
   @@map("refunds")
+}
+
+model PaymentWebhookEvent {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  paymentId         String?  @map("payment_id")
+  payment           Payment? @relation(fields: [paymentId], references: [id], onDelete: SetNull)
+  eventId           String   @map("event_id")
+  providerEventId   String?  @map("provider_event_id")
+  providerPaymentId String?  @map("provider_payment_id")
+  type              String
+  payload           Json     @default("{}")
+  createdAt         DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@unique([tenantId, eventId])
+  @@unique([eventId])
+  @@index([tenantId, paymentId])
+  @@index([tenantId, providerEventId])
+  @@map("payment_webhook_events")
 }
 
 model Notification {
