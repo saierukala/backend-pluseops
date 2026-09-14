@@ -42,6 +42,8 @@ const SYSTEM_PERMISSIONS = [
   { resource: 'payment', action: 'refund', name: 'payment:refund' },
   { resource: 'audit', action: 'read', name: 'audit:read' },
   { resource: 'activity', action: 'read', name: 'activity:read' },
+  { resource: 'notification', action: 'read', name: 'notification:read' },
+  { resource: 'notification', action: 'update', name: 'notification:update' },
 ];
 
 const SYSTEM_ROLES = [

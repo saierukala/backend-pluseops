@@ -767,17 +767,84 @@ Warehouses: `POST/GET /api/v1/warehouses`, `GET/PATCH/DELETE /api/v1/warehouses/
 
 ---
 
+## Phase 12 — Notifications (COMPLETE & VERIFIED — 53/53, 465/465, 8 migrations — no new migration)
+
+### Notifications Domain
+- [x] Reused existing Phase 3 models `notifications`/`notification_preferences`/`notification_templates` and enums `NotificationType`/`NotificationChannel` — no duplicate tables, no new migration; verified via `prisma/schema.prisma:854` `Notification`/`NotificationPreference`/`NotificationTemplate` and `migrate status` 8 up to date
+- [x] `notifications` fields: `tenant_id` FK CASCADE, `user_id` nullable (null = tenant-wide), `type` (`INFO`/`SUCCESS`/`WARNING`/`ERROR`), `title` 1–255, `message` 1–2000, `channel` (`IN_APP`/`EMAIL`/`SMS`/`PUSH`), `referenceType`/`referenceId` nullable, `isRead` default false `readAt` nullable, `metadata` jsonb `@default("{}")`, `createdAt` `timestamptz(6)`; indexes `tenantId+userId+isRead`, `tenantId+createdAt`, `tenantId+referenceType+referenceId`
+- [x] `notification_preferences` fields: `tenant_id` FK CASCADE, `user_id`, `channel`, `isEnabled` default true, timestamps `timestamptz(6)`; `@@unique([tenantId, userId, channel])`, `@@index([tenantId, userId])`
+- [x] `notification_templates` fields: `tenant_id`, `name`, `channel`, `subject` nullable, `body`, `variables` jsonb, `isActive` default true; `@@unique([tenantId, name, channel])` — reused, no Phase 12 API
+
+### Notification Module Layers
+- [x] Module `src/modules/notifications/` with 5 components: `notifications.repository.js` (`NotificationRepository` tenant/user-scoped `list` with `OR(userId,null)` + pagination + filters + safe sort, `findById`/`markAsRead`/`markAllAsRead`/`create`, `NotificationPreferenceRepository` `list`/`ensureDefaults`/`upsert`/`bulkUpdate`), `notifications.validation.js` (Zod `NotificationType`/`NotificationChannel` enums, `listNotificationsQuerySchema` pagination/defaults, `markReadParamsSchema` UUID, `patchPreferencesSchema` flat + aliases + `preferences` wrapper partial strict + refine at-least-one), `notifications.service.js` (`NotificationService` singleton `notificationService` with `createNotification`/`notify`/`dispatchViaChannel` + `list`/`markAsRead`/`markAllAsRead`/`getPreferences`/`updatePreferences`, constants `NOTIFICATION_CHANNELS`/`NOTIFICATION_TYPES`, `normalizePreferencePayload`), `notifications.controller.js` (5 handlers tenant/user from `req.context` → service → `{success,data,meta/pagination,message}`), `notifications.routes.js` (`notificationsRouter` `GET /` + `POST /read-all` + `PATCH /:id/read` with `authenticate()` + `authorize('notification:read'|'notification:update')` + `validate`; `notificationPreferencesRouter` `GET /` + `PATCH /` same guards) mounted in `src/app/routes.js` as `/api/v1/notifications` and `/api/v1/notification-preferences`
+- [x] Preserves `Route → Controller → Service → Repository → Database`; reuse of `authenticate`, `authorize`, `error-handler`, `AppError`, tenant context, pagination conventions
+
+### Five APIs (Phase 12)
+- [x] `GET /api/v1/notifications` — `authenticate()`, `authorize('notification:read')`, tenant/user-scoped, pagination `page`1/`limit`20/max100, filters `isRead` bool/`type` enum/`channel` enum, newest-first `createdAt desc`, returns `{success:true, data, meta, pagination, message}`, no secrets
+- [x] `PATCH /api/v1/notifications/:id/read` — `authenticate()`, `authorize('notification:update')`, `validate` UUID, tenant/user ownership check `where {id, tenantId, OR(userId,null)}` → `404 NOTIFICATION_NOT_FOUND` if other tenant, marks `isRead:true`+`readAt:now`, idempotent (already-read second returns same), ignores mass-assignment `title`/`message`/`tenantId` in body
+- [x] `POST /api/v1/notifications/read-all` — `authenticate()`, `authorize('notification:update')`, `updateMany where {tenantId, OR(userId,null), isRead:false}` → `{updated: count}`, idempotent (`0` second time), tenant-isolated (A's does not affect B's unread)
+- [x] `GET /api/v1/notification-preferences` — `authenticate()`, `authorize('notification:read')`, tenant/user-scoped, `ensureDefaults` creates 4 missing channels default `true`, returns 4 rows ordered `channel ASC`, no secrets
+- [x] `PATCH /api/v1/notification-preferences` — `authenticate()`, `authorize('notification:update')`, `validate` at-least-one field, accepts flat `IN_APP`/`EMAIL`/`SMS`/`PUSH` or aliases `inApp`/`email`/`sms`/`push` or wrapper `{preferences:{IN_APP,...}}` partial strict, `normalizePreferencePayload` + `bulkUpdate` upsert per `tenantId_userId_channel`, returns full 4 after, invalid empty/unknown → `400`, unknown flat stripped→`400` via refine, protected `tenantId`/`userId`/`createdAt` injected ignored not applied
+
+### Pagination / Filtering
+- [x] Pagination on `GET /notifications`: `page` default1, `limit` default20 capped 100, `meta`/`pagination` `{page,limit,total,totalPages}`, newest-first `createdAt desc` verified
+- [x] Filtering: `isRead` boolean, `type` enum, `channel` enum — each tenant-scoped `where` clause, verified `?type=INFO` returns only INFO, `?channel=EMAIL` only EMAIL, `?isRead=false` only unread, invalid pagination/enum → `400`
+- [x] Preferences listing not paginated — always 4 channels
+
+### Read / Read-All Behavior
+- [x] Mark one read idempotent: first `PATCH` → `isRead:true` `readAt` set, second identical `200` same state not error; `404` if not found or other tenant's (safe, not leak); `400` if `not-a-uuid`
+- [x] Read-all idempotent: `POST /read-all` marks all visible unread, returns `{updated: n}`, repeated → `{updated:0}` safe; respects visibility `OR(userId,null)` and tenant scope, does not affect other tenant's unread count verified
+- [x] Both via `update`/`updateMany` with `isRead`/`readAt` only — no arbitrary field mass-assignment
+
+### Preferences
+- [x] Defaults: `ensureDefaults` creates missing channels `isEnabled:true` via `createMany skipDuplicates`; `GET` always 4 `EMAIL`/`IN_APP`/`PUSH`/`SMS` sorted
+- [x] Updates/upserts: `PATCH` flat or wrapper `{preferences:{}}`, partial (only provided channels updated), strict on `preferences.INVALID` → `400 Unrecognized key`, empty body or only unknown flat → `400 At least one preference...`
+- [x] Tenant/user-scoped visibility: `GET`/`PATCH` use `where {tenantId, userId}` from `req.context`, not client body; verified A patch does not affect B, query `tenantId` injection ignored
+
+### Four Channels
+- [x] `IN_APP`/`EMAIL`/`SMS`/`PUSH` as enum values (`NotificationChannel`) — channel per notification and per preference, verified service `createNotification` supports all 4, concept only, no external provider delivery (no SendGrid/Twilio/Firebase/SES/OneSignal SDK), `dispatchViaChannel` is placeholder
+
+### Provider-Independent Service Abstraction
+- [x] `NotificationService` abstraction `createNotification` (validates `tenantId` required, `title`/`message` required 1–255/1–2000, `type`/`channel` enums, sanitizes `metadata` object, creates tenant-scoped row; accepts optional `tx`), `notify` (creates then checks preference for `channel !== IN_APP` — if disabled still returns but skips dispatch), `dispatchViaChannel` (no-op for external in Phase 12, in-app is DB record, future will enqueue/emit/call provider), `list`/`markAsRead`/`markAllAsRead`/`getPreferences`/`updatePreferences`; future modules call without knowing provider implementation; no provider SDKs added
+
+### RBAC
+- [x] RBAC permissions `notification:read` (`notification:read`) and `notification:update` (`notification:update`) — upserted in `prisma/seed.js` `SYSTEM_PERMISSIONS` (now 38 total, admin 38 / manager 34 / member 11), linked via `role.create`/`rolePermission.create` in tests and seed; existing Phase 5 permissions not modified/renamed/removed; `authorize('notification:read')` for `GET`s, `authorize('notification:update')` for `PATCH`/`POST read-all`/`PATCH preferences`; verified unauth `401`, insufficient `403` (viewer with only `audit:read` → 403 for all 5), authorized `200`
+- [x] Document exactly which permissions are used (see table above)
+
+### Tenant Isolation
+- [x] Every tenant-owned notification/preference query tenant-scoped via `req.context.tenantId` (never client `tenantId`/`tenant_id` query/body), preferences strictly `where {tenantId, userId}`, notifications `where {tenantId, OR(userId,null)}`; verified `Tenant A → Tenant A notification = allowed`, `Tenant A → Tenant B notification = blocked 404`, `Tenant B → Tenant A blocked 404`, list no overlap, client-supplied tenant IDs ignored (still returns only A's), preferences tenant isolation, notification 5-case + preference isolation
+- [x] Cross-tenant access fails safely (`404 NOTIFICATION_NOT_FOUND`/`ACTIVITY_LOG_NOT_FOUND` style, not `403` leak), no cross-tenant influence via `?tenantId=` query or `tenantId` body injection (ignored)
+
+### Validation / Security
+- [x] Zod validation for notification IDs UUID `400`, pagination `400` (page -1/limit 9999 → 400), filters `type`/`channel` enum `400`, preferences `400` on empty/unknown channels, at least-one-field refine `400`; mass-assignment protection: `PATCH /:id/read` body `title`/`message`/`tenantId` stripped `isRead` only via service, `PATCH /preferences` `tenantId`/`userId`/`createdAt` ignored; sensitive-data protection: list contains no `password`/`refresh`/`secret` (verified), safe errors `404`/`400`/`401`/`403` with `requestId`, no stack traces; never trusts `tenant_id`/`user_id` from body/query/params
+
+### Tests and Verification
+- [x] Phase 12 tests: 53/53 passed in `tests/integration/phase12-notifications.test.js` (auth 5, authz 6, tenant isolation 7, list 8, mark-one 6, mark-all 3, preferences 9, service 6, security 3)
+- [x] Full regression: 465/465 passed, 13/13 suites, lint 0 errors, Prisma validate passed, migrations 8 up to date (no new Phase 12 migration), startup passed, HTTP verification passed for all five endpoints (200 success + 400 validation + 401 unauth + 403 authz + 404 not-found/cross-tenant + tenant isolation + idempotency)
+- [x] Verification covers: unauthenticated 401 for all 5, authorized 200, unauthorized 403, tenant isolation 404, pagination/filtering/newest-first, mark-one read + already-read idempotent, mark-all read + repeated 0, preferences defaults 4 + updates/upserts via flat/wrapper, validation failures, unsupported fields 400, repeated update idempotent, service abstraction, mass-assignment guard, response shape, newest-first
+
+**APIs (Phase 12):**
+| Method | Endpoint | Permission | Description |
+|--------|----------|------------|-------------|
+| GET | `/api/v1/notifications` | `notification:read` | List notifications (tenant/user-scoped, paginated, filters isRead/type/channel, newest-first) |
+| PATCH | `/api/v1/notifications/:id/read` | `notification:update` | Mark one notification as read (idempotent, 404 if other tenant, 400 if invalid UUID) |
+| POST | `/api/v1/notifications/read-all` | `notification:update` | Mark all visible unread as read (idempotent, returns {updated}, tenant-isolated) |
+| GET | `/api/v1/notification-preferences` | `notification:read` | List preferences (4 channels, tenant/user-scoped, defaults) |
+| PATCH | `/api/v1/notification-preferences` | `notification:update` | Update preferences (upsert IN_APP/EMAIL/SMS/PUSH, flat or {preferences:{}}) |
+
+**Verification:** 53/53 Phase 12, 465/465 full (13 suites), lint 0, Prisma valid, 8 migrations up to date (no new Phase 12 migration — reused Phase 3 models), app startup, HTTP 200/401/403/404/400 verified for all five endpoints, tenant/user isolation both directions, idempotent read/read-all, preferences defaults/upserts, provider-independent service abstraction with `createNotification`/`notify`/`dispatchViaChannel`, channel concepts `IN_APP/EMAIL/SMS/PUSH` without provider delivery, no regressions, roadmap untouched.
+
+---
+
 ## What is NOT Implemented (Future Phases)
 
-The following are explicitly **NOT** implemented as of Phase 11 completion (Audit & Activity Logs COMPLETE):
-- Notifications — `notifications`, `notification_preferences`, `notification_templates` (Phase 12)
-- Notifications — `notifications`, `notification_preferences`, `notification_templates` (Phase 12)
-- WebSockets / Real-time — Socket.IO (Phase 13)
-- Redis Caching (Phase 14)
-- BullMQ / Background Jobs (Phase 15)
-- External API Integrations — storage S3, payment/email/SMS providers (Phase 16)
+The following are explicitly **NOT** implemented as of Phase 12 completion (Notifications COMPLETE):
+- WebSockets / Real-time — Socket.IO real-time notification events (Phase 13)
+- Redis Caching — Redis notification caching (Phase 14)
+- BullMQ / Background Jobs — BullMQ notification workers/async dispatch (Phase 15)
+- External API Integrations — external notification providers such as email/SMS/push providers (SendGrid, Twilio, Firebase, SES, OneSignal, etc.) (Phase 16)
 - API Orchestration (Phase 17)
-- Analytics & Reporting (Phase 18)
+- Analytics & Reporting — notification analytics/dashboard aggregation (Phase 18)
 - Performance Optimization (Phase 19)
 - Security Hardening (Phase 20)
 - Complete Testing (Phase 21)
