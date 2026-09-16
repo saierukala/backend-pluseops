@@ -3,5 +3,5 @@ node_modules/
 coverage/
 logs/
 generated/
-storage/
+/storage/
 storage/tenants/

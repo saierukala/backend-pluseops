@@ -5,6 +5,8 @@ import { PaymentRepository } from './payments.repository.js';
 import { verifyWebhookSignature } from './webhook.util.js';
 import { env } from '../../config/env.js';
 import { emitPaymentCompleted } from '../../realtime/realtime.service.js';
+import { createPaymentProvider } from '../../integrations/payment/payment.provider.js';
+import { IntegrationError } from '../../integrations/errors/integration-error.js';
 
 const PAYMENT_TRANSITIONS = {
   PENDING: ['PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED'],
@@ -33,9 +35,10 @@ function fromCents(cents) {
 }
 
 export class PaymentService {
-  constructor() {
+  constructor({ paymentProvider } = {}) {
     this.prisma = getPrismaClient();
     this.repository = new PaymentRepository();
+    this.paymentProvider = paymentProvider || createPaymentProvider(env.PAYMENT_PROVIDER || 'mock');
   }
 
   async create(tenantId, userId, body) {
@@ -62,8 +65,26 @@ export class PaymentService {
     const amountCents = toCents(amountStr);
     if (amountCents <= 0) throw new AppError('Order total must be positive', { statusCode: 400, code: 'INVALID_AMOUNT' });
 
+    // Integration Adapter: provider-specific charge communication (if http provider configured)
+    let externalProviderId = null;
+    if (this.paymentProvider.providerName !== 'mock') {
+      try {
+        const chargeResult = await this.paymentProvider.charge({
+          amount: amountStr,
+          currency,
+          orderId,
+          tenantId,
+          idempotencyKey: `${tenantId}:${orderId}:${amountCents}`,
+        });
+        externalProviderId = chargeResult.providerPaymentId || chargeResult.raw?.id || null;
+      } catch (err) {
+        if (err instanceof IntegrationError) throw err;
+        throw new IntegrationError(err.message || 'Payment provider error', { code: err.code || 'INTEGRATION_ERROR', statusCode: err.statusCode || 502, provider: this.paymentProvider.providerName, cause: err });
+      }
+    }
+
     const result = await this.prisma.$transaction(async (tx) => {
-      const providerPaymentId = `pay_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+      const providerPaymentId = externalProviderId || `pay_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
 
       const payment = await tx.payment.create({
         data: {
@@ -279,11 +300,19 @@ export class PaymentService {
 
     if (!eventId) throw new AppError('eventId is required', { statusCode: 400, code: 'INVALID_WEBHOOK' });
 
-    // Verify signature: header signature must be valid HMAC of JSON.stringify(payload)
+    // Verify signature via Integration Adapter boundary (provider-specific verification remains behind adapter)
+    // Preserve existing HMAC verification semantics; adapter normalizes auth failures to IntegrationError
     const headerSig = signature || headers?.['x-webhook-signature'] || headers?.['x-payment-signature'];
-    const isValidSig = verifyWebhookSignature(payload, headerSig);
-    if (!headerSig || !isValidSig) {
-      throw new AppError('Invalid webhook signature', { statusCode: 401, code: 'INVALID_WEBHOOK_SIGNATURE' });
+    try {
+      await this.paymentProvider.verifyWebhook(payload, headerSig);
+    } catch (err) {
+      if (err instanceof IntegrationError) {
+        throw new AppError('Invalid webhook signature', { statusCode: 401, code: 'INVALID_WEBHOOK_SIGNATURE' });
+      }
+      const isValidSig = verifyWebhookSignature(payload, headerSig);
+      if (!headerSig || !isValidSig) {
+        throw new AppError('Invalid webhook signature', { statusCode: 401, code: 'INVALID_WEBHOOK_SIGNATURE' });
+      }
     }
 
     // Determine tenantId and payment

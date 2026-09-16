@@ -1,9 +1,24 @@
 import { LocalStorageProvider } from './local-storage.provider.js';
+import { S3StorageProvider, MockS3StorageProvider } from '../../integrations/storage/s3-storage.provider.js';
+import { env } from '../../config/env.js';
 import { AppError } from '../errors/app-error.js';
 
+export function createStorageProvider(providerName = env.STORAGE_PROVIDER || 'local') {
+  if (providerName === 's3') {
+    return new S3StorageProvider();
+  }
+  return new LocalStorageProvider();
+}
+
+export function createMockS3Provider(options = {}) {
+  return new MockS3StorageProvider(options);
+}
+
 export class StorageService {
-  constructor() {
-    this.provider = new LocalStorageProvider();
+  constructor(providerName) {
+    const resolved = providerName || env.STORAGE_PROVIDER || 'local';
+    this.providerName = resolved;
+    this.provider = createStorageProvider(resolved);
   }
 
   generateProductImageKey(tenantId, productId, filename) {
@@ -37,19 +52,52 @@ export class StorageService {
   }
 
   async deleteFile(storageKey) {
+    this.assertTenantScopedKey(storageKey);
     return this.provider.delete(storageKey);
   }
 
   async getFileUrl(storageKey) {
+    this.assertTenantScopedKey(storageKey);
     return this.provider.getUrl(storageKey);
   }
 
   async getFileStream(storageKey) {
+    this.assertTenantScopedKey(storageKey);
     return this.provider.getStream(storageKey);
   }
 
   async fileExists(storageKey) {
+    this.assertTenantScopedKey(storageKey);
     return this.provider.exists(storageKey);
+  }
+
+  assertTenantScopedKey(storageKey) {
+    if (!storageKey || typeof storageKey !== 'string') {
+      throw new AppError('Invalid storage key', { statusCode: 400, code: 'INVALID_STORAGE_KEY' });
+    }
+    if (storageKey.includes('..') || storageKey.startsWith('/') || storageKey.includes('\\') || storageKey.includes('\0')) {
+      throw new AppError('Invalid storage path: path traversal detected', { statusCode: 400, code: 'INVALID_STORAGE_PATH' });
+    }
+    if (!storageKey.startsWith('tenants/')) {
+      throw new AppError('Storage key must be tenant-scoped', { statusCode: 400, code: 'INVALID_STORAGE_KEY' });
+    }
+    // No arbitrary client-controlled paths outside tenancy: caller must use generate* helpers
+  }
+
+  // Provider-independent operations for Phase 16 contract
+  async upload(storageKey, buffer, mimeType) {
+    this.assertTenantScopedKey(storageKey);
+    return this.provider.upload(storageKey, buffer, mimeType);
+  }
+
+  async delete(storageKey) {
+    this.assertTenantScopedKey(storageKey);
+    return this.provider.delete(storageKey);
+  }
+
+  async getUrl(storageKey) {
+    this.assertTenantScopedKey(storageKey);
+    return this.provider.getUrl(storageKey);
   }
 
   validateImageFile(file) {

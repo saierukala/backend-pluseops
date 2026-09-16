@@ -1,6 +1,6 @@
 # Project Documentation
 
-Technical architecture and implementation state as of Phase 15 completion (Background Jobs / BullMQ — COMPLETE and VERIFIED, HUMAN VERIFICATION: PASS).
+Technical architecture and implementation state as of Phase 16 completion (External API Integrations � COMPLETE and VERIFIED, HUMAN VERIFICATION: PASS).
 
 ---
 
@@ -159,6 +159,12 @@ Each feature module follows:
 ```
 Route → Controller → Service → Repository → Database
 ```
+
+Phase 16 external integrations extend to provider-independent layering:
+```
+Controller -> Service -> Integration Adapter -> External API
+```
+- **Adapter** abstracts vendor specifics (Mock vs Http, request mapping, response mapping via `mapProviderResponse`, timeout `AbortController`, retry idempotency-aware, normalized `IntegrationError`). Business `Service` calls adapter via provider-independent `providerName`/`env` (`PAYMENT_PROVIDER`, `EMAIL_PROVIDER`, etc.) never vendor field names. Secrets from `src/config/env.js` (`*_PROVIDER_URL`/`*_PROVIDER_API_KEY`/`*_PROVIDER_TIMEOUT_MS`, `S3_*`, `STORAGE_PROVIDER`), never logged or in payloads. Tenant isolation via `req.context.tenantId` (keys `tenants/{tenantId}/...`, `assertTenantScopedKey`), SigV4 for S3 (`S3StorageProvider` real REST + `MockS3StorageProvider` test-only).
 
 - **Controllers** — HTTP handling, response formatting, delegate to service
 - **Services** — Business logic, validation, orchestration
@@ -386,12 +392,13 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 
 ## Testing
 
-### Current Verification Results (Latest Run — Phase 15 Verified, HUMAN VERIFICATION: PASS)
+### Current Verification Results (Latest Run — Phase 16 Verified, HUMAN VERIFICATION: PASS)
 
 | Check | Result |
 |-------|--------|
-| **Full Integration Suite** | 568/568 passing (16 suites) — `node --experimental-vm-modules jest --runInBand --forceExit` (524 Phase 1-14 + 44 Phase 15 = 568; Phase 14 27/27 unchanged) |
+| **Full Integration Suite** | 626/626 passing (17 suites) — `node --experimental-vm-modules jest --runInBand --forceExit` (568 Phase 1-15 + 58 Phase 16 = 626; Phase 14 27/27 unchanged, Phase 15 44/44 unchanged) |
 | - `phase15-background-jobs.test.js` | 44 tests ✅ |
+| - `phase16-external-integrations.test.js` | 58 tests ✅ |
 | - `phase14-redis-caching.test.js` | 27 tests ✅ |
 | - `phase13-realtime.test.js` | 32 tests ✅ |
 | - `phase12-notifications.test.js` | 53 tests ✅ |
@@ -410,7 +417,7 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 | **ESLint** | `npm run lint` → 0 errors, 0 warnings |
 | **Prisma Validate** | `npx prisma validate` → ✅ Valid |
 | **Prisma Generate** | ✅ Success |
-| **Migration Status** | `npx prisma migrate status` → ✅ Up to date (8 migrations; no Phase 15 migration) |
+| **Migration Status** | `npx prisma migrate status` → ✅ Up to date (8 migrations; no Phase 16 migration — integrations reuse existing tables/filesystem/S3 REST) |
 | **Phase 9 Migration** | No new migration — reused Phase 03 `orders`/`order_items`/`order_status_history` ✅ |
 | **Phase 10 Migration** | `20260914_phase10_payments_webhook` — creates `payment_webhook_events` + partial unique provider indexes + CHECKs; reuses Phase 03 payment tables ✅ |
 | **Phase 11 Migration** | No new migration — reused Phase 03 `audit_logs`/`activity_logs` (existing indexes `tenantId+createdAt`, `tenantId+resource+resourceId`, `tenantId+action+createdAt`) ✅ |
@@ -418,7 +425,8 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 | **Phase 13 Migration** | No new migration — no database tables added, 8 migrations remain up to date (Socket.IO in-memory) ✅ |
 | **Phase 14 Migration** | No new migration — Redis is cache layer not a DB table, 8 migrations remain up to date (PostgreSQL authoritative) ✅ |
 | **Phase 15 Migration** | No new migration — jobs reuse existing `notifications`/`refresh_tokens`/`password_reset_tokens`/`email_verification_tokens`/`payment_webhook_events`; `npx prisma migrate status` 8 up to date ✅ |
-| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS, Phase 10 PASS, Phase 11 PASS, Phase 12 PASS, Phase 13 PASS, Phase 14 PASS (27/27), Phase 15 PASS (44/44) |
+| **Phase 16 Migration** | No new migration — integrations reuse existing `notifications`/`payments`/`product_images` and filesystem/S3 REST; `npx prisma migrate status` 8 up to date, no new tables, no cloud credentials ✅ |
+| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS, Phase 10 PASS, Phase 11 PASS, Phase 12 PASS, Phase 13 PASS, Phase 14 PASS (27/27), Phase 15 PASS (44/44), Phase 16 PASS (58/58) |
 
 ### Test Coverage Highlights
 - Health endpoints: liveness, DB readiness, Redis readiness
@@ -541,7 +549,7 @@ The following items were identified during the Phase 03 human verification audit
 | WebSockets (Phase 13) | ✅ Complete & Verified (32/32, 497/497) |
 | Redis Caching (Phase 14) | ✅ Complete & Verified (27/27, 524/524, 8 migrations — no new migration) |
 | Background Jobs / BullMQ (Phase 15) | ✅ Complete & Verified (44/44, 568/568, 8 migrations — no new migration) |
-| External Integrations (Phase 16) | ⏳ Not Started |
+| External Integrations (Phase 16) | ✅ Complete & Verified (58/58, 626/626, 8 migrations — no new migration, HUMAN VERIFICATION: PASS) |
 | API Orchestration (Phase 17) | ⏳ Not Started |
 | Analytics (Phase 18) | ⏳ Not Started |
 | Performance (Phase 19) | ⏳ Not Started |
@@ -551,6 +559,72 @@ The following items were identified during the Phase 03 human verification audit
 | Docker/CI/CD (Phase 23) | ⏳ Not Started |
 
 ---
+
+---
+
+## Phase 16 — External API Integrations (COMPLETE & VERIFIED — 58/58, 626/626, 8 migrations — no new migration, HUMAN VERIFICATION: PASS)
+
+### Objective
+Provider-independent external API integration layer: business logic depends on adapter contracts not vendor SDK field names. Architecture `Controller -> Service -> Integration Adapter -> External API`. Secrets via `src/config/env.js` Zod, tenant isolation via `req.context.tenantId`, traversal protection, SigV4 for S3, HMAC for payment webhooks, shared HTTP timeout/retry/normalized errors, no secret leakage. No cloud credentials required for tests (mock providers + local HTTP S3 test server).
+
+### Architecture
+```
+Controller -> Service -> Integration Adapter -> External API
+             |         |-> Mock Provider (deterministic, test-friendly)
+             |         └-> Http Provider (real fetch, configurable baseUrl/apiKey/timeoutMs, retry-aware)
+             └-> EmailService (provider-independent) -> EmailProvider adapter
+Business Module -> Notification/Email queue processor -> EmailService -> adapter (Phase 16 email now real, not deferred stub)
+StorageService -> LocalStorageProvider / S3StorageProvider (real S3 REST) / MockS3StorageProvider (test-only)
+Orders/Payments real HTTP via payment provider adapter (charge/refund)
+```
+Reuses `src/config/env.js`, `src/config/logger.js` (redact), `src/common/errors/app-error.js`, `authenticate`/`req.context.tenantId`.
+
+### Integrations
+
+- **Payment (Mock + Http):** `MockPaymentProvider` (`charge` `pay_mock_*` + `refund` `ref_mock_*`, `shouldTimeout`/`shouldFail` test injection, `mapProviderResponse('payment')`) + `HttpPaymentProvider` (`baseUrl= PAYMENT_PROVIDER_URL`, `apiKey= PAYMENT_PROVIDER_API_KEY`, `timeoutMs= PAYMENT_PROVIDER_TIMEOUT_MS`, `Authorization: Bearer`, `Idempotency-Key` when `idempotencyKey`, `body {amount,currency,orderId,tenantId}` JSON, `requestWithRetry` idempotent when key, `refund` no retry). Factory `createPaymentProvider(PAYMENT_PROVIDER)` returns Mock default else Http for `http`/`stripe`/`adyen`. Preserves Phase 10 state machine (`PENDING->COMPLETED/FAILED`, server `order.total`) and HMAC `verifyWebhookSignature` (`PAYMENT_WEBHOOK_SECRET`, `x-webhook-signature`/`x-payment-signature`, `timingSafeEqual` 401).
+- **Email (Mock + Http, EmailService, BullMQ):** `MockEmailProvider` (`send` `email_mock_*`, `sent[]` inspectable, `shouldTimeout`/`shouldFail`) + `HttpEmailProvider` (`EMAIL_PROVIDER_URL`/`EMAIL_PROVIDER_API_KEY`/`EMAIL_PROVIDER_TIMEOUT_MS`, POST `/send` `{to,subject,html,text,template,variables,tenantId}` JSON, `requestWithRetry` idempotent false). `EmailService` (`sendEmail({tenantId,to,subject,html,text,template,variables})` validates `tenantId`/`to`, delegates `provider.send({to,subject,...tenantId})`, logs `tenantId`/`to`/`providerId` only). BullMQ `email` queue now real: `email.processor.js` `processSendEmail` validates `tenantId`/ `to`/`subject` else `UnrecoverableError` (no retry), logs `queue= email` `jobId` `tenantId` `to` `subject`, calls `new EmailService().sendEmail` (no `fetch` in processor, provider boundary isolated), retryable `IntegrationError.TIMEOUT`/`UNAVAILABLE` retry vs validation/auth no retry. No secrets in payload (`variables` sanitized, job payload no `apiKey`/`secret`).
+- **SMS (Mock+Http):** `MockSmsProvider` (`send {to,message,tenantId}` `sms_mock_*`) + `HttpSmsProvider` (`SMS_PROVIDER_URL`/`SMS_PROVIDER_API_KEY`/`SMS_PROVIDER_TIMEOUT_MS`, POST `/send` `{to,message,tenantId}`, `requestWithRetry` no retry for send, maps `sid`/`id`). Factory `createSmsProvider(SMS_PROVIDER)`.
+- **Shipping (Mock+Http getRate/createShipment retry distinction):** `MockShippingProvider` (`getRate {origin,destination,weight,tenantId}` 12.5 USD `eta 3-5 days`, `createShipment {orderId}` `TRK*`) + `HttpShippingProvider` (`SHIPPING_PROVIDER_URL`/`API_KEY`/`TIMEOUT_MS`, `getRate` POST `/rates` `{origin,destination,weight,dimensions,tenantId}` idempotent `retries 2` -> retry on 503 vs `createShipment` POST `/shipments` `{orderId,origin,destination,tenantId}` `retries 0` idempotent false -> no retry). Validation not retryable.
+- **Maps (Mock+Http geocode/reverse):** `MockMapsProvider` (`geocode {address}` lat/lng, `reverseGeocode {lat,lng}`) + `HttpMapsProvider` (`MAPS_PROVIDER_URL`/`API_KEY`/`TIMEOUT_MS`, GET `/geocode?address=` + `/reverse?lat=&lng=&` `requestWithRetry` idempotent retry on 503, encode `address`).
+- **Object Storage (StorageService + Local + S3 + MockS3):** `StorageService` (`STORAGE_PROVIDER` local/s3 via `createStorageProvider`, `generateProductImageKey(tenantId,productId,filename)` -> `tenants/{tenantId}/products/{productId}/{sanitized}` + `generateVariantImageKey` -> `tenants/{tenantId}/products/{productId}/variants/{variantId}/{sanitized}`, `sanitizeFilename` `[^a-zA-Z0-9._-]->_`, `deleteFile`/`getFileUrl`/`getFileStream`/`fileExists` via `assertTenantScopedKey` `tenants/` required + no `..`/`//`/`\`/`\0`/`:`/`/`). `LocalStorageProvider` (`LOCAL_STORAGE_PATH` ./storage, `LOCAL_STORAGE_URL` /storage, filesystem traversal check). `S3StorageProvider` real S3 REST (`S3_BUCKET`/ `S3_REGION` us-east-1/ `S3_ENDPOINT`/ `S3_ACCESS_KEY_ID`/ `S3_SECRET_ACCESS_KEY`/ `S3_PUBLIC_BASE_URL`/ `S3_FORCE_PATH_STYLE`/ `STORAGE_TIMEOUT_MS` 5000, builds AWS SigV4 `AWS4-HMAC-SHA256 Credential=.../aws4_request, SignedHeaders=..., Signature=...` with `x-amz-date`/`x-amz-content-sha256`/`host` when creds provided else unsigned, `_buildUrl` path-style `endpoint/bucket/key` vs virtual-hosted `https://{bucket}.s3.{region}.amazonaws.com/{key}`, `upload` PUT `x-amz-content-sha256` `content-length` `requestWithRetry` idempotent 2, `delete` DELETE `fetchWithTimeout` 404->false, `getUrl` HEAD 404->null, `exists` HEAD, `getStream` GET web->node stream, timeout `STORAGE_TIMEOUT_MS`, retry normalization, `_enforceTenantKey`). `MockS3StorageProvider` test-only (in-memory `Map`, `baseUrl https://mock-s3.local/mock-bucket`, same `_enforceTenantKey` + timeout/fail simulation, `upload`/`delete`/`getUrl`/`exists`/`getStream`, clearly distinguished `constructor.name MockS3StorageProvider` vs `S3StorageProvider`, `_clear`). S3 clarification: real `S3StorageProvider` vs `MockS3StorageProvider` test-only via local HTTP S3 test server (`createS3TestServer` http `PUT` store Map + `GET`/`HEAD`/`DELETE` + `setFailNext(status)` + `setDelay(ms)` + request log, proves PUT/HEAD/GET/DELETE via `fetch`, no cloud credentials needed).
+
+### Shared HTTP
+
+- `fetchWithTimeout(url, options, {timeoutMs, provider})` via `AbortController` `setTimeout(abort)`, 504 `TIMEOUT` on `AbortError`, else `normalizeProviderError`.
+- `requestWithRetry(url, options, {timeoutMs, retries, provider, retryDelayMs=200, idempotent})` maxAttempts `idempotent ? retries+1 :1`, retries only when `isRetryableError` and `idempotent`, handles retryable status 408/429/502/503/504 `sleep(retryDelayMs*attempt)` exponential, logs warn, normalizes non-ok via `IntegrationError` mapping 429->RATE_LIMIT 404->NOT_FOUND 401/403->AUTHENTICATION >=500->UNAVAILABLE else REJECTION.
+- `IntegrationError` (`code` TIMEOUT/UNAVAILABLE/AUTHENTICATION/VALIDATION/NOT_FOUND/RATE_LIMIT/CONFIGURATION/UNKNOWN, `statusCode`, `provider`, `isRetryable()` false for VALIDATION/AUTHENTICATION/CONFIGURATION/NOT_FOUND/REJECTION/4xx else true for TIMEOUT/UNAVAILABLE/429/408/5xx, `mapHttpStatusToCode`, `normalizeProviderError` handles Abort/timeout->TIMEOUT 504 + ECONNREFUSED/ENOTFOUND/fetch failed->UNAVAILABLE 502 + status->mapped code, never leak raw SDK body).
+- `mapProviderResponse(provider, raw)` provider-independent: email `{providerId:id/messageId, status}`, sms `{providerId:sid/id, status}`, shipping `{rate,currency,eta,provider}`, maps `{lat,lng,address,provider}`, payment `{providerPaymentId:id/paymentId, status,provider}`.
+- No secret leakage: `apiKey` via `Authorization: Bearer` header only, not in logs/details/message; `normalizeProviderError` details only `providerStatus`; `mapProviderResponse` never includes `apiKey`/`secret`; queue payload excludes credentials; logger redact.
+
+### Security
+
+- Tenant isolation via `req.context.tenantId` (JWT `authenticate`), every storage key server-derived `tenants/{tenantId}/...`, `assertTenantScopedKey` rejects `..`/`//`/`\`/`\0`/`:`/`not-tenants/`, cross-tenant `404` not leak; `storage.service.js` + `s3-storage.provider.js` + `local-storage.provider.js` all enforce.
+- Storage traversal protection verified (7 rejection cases + MockS3 vs S3 both).
+- Webhook HMAC preserved (`verifyWebhookSignature` `PAYMENT_WEBHOOK_SECRET`, `x-webhook-signature`/`x-payment-signature`, `timingSafeEqual`, invalid 401, via `payment.provider.js` adapter).
+- Env secrets via `src/config/env.js` Zod (`PAYMENT_PROVIDER`/`PAYMENT_PROVIDER_URL`/`PAYMENT_PROVIDER_API_KEY`/`PAYMENT_PROVIDER_TIMEOUT_MS`, `STORAGE_PROVIDER`/`LOCAL_STORAGE_PATH`/`LOCAL_STORAGE_URL`/`S3_BUCKET`/`S3_REGION`/`S3_ENDPOINT`/`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`/`S3_PUBLIC_BASE_URL`/`S3_FORCE_PATH_STYLE`/`STORAGE_TIMEOUT_MS`, `EMAIL_PROVIDER`/`EMAIL_PROVIDER_URL`/`EMAIL_PROVIDER_API_KEY`/`EMAIL_PROVIDER_TIMEOUT_MS`, `SMS_PROVIDER`/`SMS_PROVIDER_URL`/`SMS_PROVIDER_API_KEY`/`SMS_PROVIDER_TIMEOUT_MS`, `SHIPPING_PROVIDER`/`SHIPPING_PROVIDER_URL`/`SHIPPING_PROVIDER_API_KEY`/`SHIPPING_PROVIDER_TIMEOUT_MS`, `MAPS_PROVIDER`/`MAPS_PROVIDER_URL`/`MAPS_PROVIDER_API_KEY`/`MAPS_PROVIDER_TIMEOUT_MS`).
+- Logger redact (`src/config/logger.js` redact paths authorization/apiKey/secret/password/token/cookie), never log `apiKey`/`secret`/`Authorization` in error message/details; queue payload no credentials.
+- Normalized errors via `IntegrationErrorCode` (`TIMEOUT` 504, `UNAVAILABLE` 502, `AUTHENTICATION` 401/403, `VALIDATION` 400, `NOT_FOUND` 404, `RATE_LIMIT` 429, `CONFIGURATION` 500, `REJECTION` else), `isRetryable` distinguishes permanent (400/401/404) vs retryable (408/429/5xx/timeout).
+
+### Testing
+
+- **Dedicated:** 58/58 dedicated (`tests/integration/phase16-external-integrations.test.js` 58 tests: Storage provider contract 3, Storage upload/delete/url/tenant keys 8, Storage error normalization 5, Payment adapter 11, Email adapter+BullMQ 9, SMS 4, Shipping 5, Maps 5, Error normalization 3, Secret management 3, Tenant isolation 1, Adapter contract 2).
+- **Full regression:** 626/626 (17 suites, 568 Phase 1-15 + 58 Phase 16).
+- **Suites:** 17/17.
+- **Lint:** `npm run lint` -> 0 errors, 0 warnings.
+- **Prisma:** `npx prisma validate` -> Valid, `npx prisma generate` -> Success, `npx prisma migrate status` -> 8 migrations up to date (no Phase 16 migration).
+- **Startup:** `createApp()` + ephemeral `http.createServer(app)` + `GET /health` 200 `GET /health/db` 200 `GET /health/redis` 200/503, invalid webhook 401 still verified via Phase 10 path.
+- **S3 clarification:** `S3StorageProvider` is real S3 REST (SigV4 PUT/GET/HEAD/DELETE via `fetch`, timeout 5000, retry, path/virtual-hosted, `_buildHeaders` with `x-amz-date`/`x-amz-content-sha256`/`host` + `Authorization` when creds, local HTTP S3 test server proves real HTTP `PUT`/`HEAD`/`GET`/`DELETE` with Map store + request log + `setFailNext` 503->retry 2 PUTs + `setDelay` 400ms->60ms timeout, no `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` cloud credentials needed; `MockS3StorageProvider` is distinct test-only (in-memory Map, `mock-s3`, `_clear`, not instance of `S3StorageProvider`).
+
+### Limitations
+
+- Shipping/Maps adapters are not full domain products (minimal contracts: Shipping `getRate` `{origin,destination,weight,dimensions,tenantId}` -> `{rate,currency,eta}` + `createShipment` `{orderId,origin,destination,tenantId}` -> `{providerId,trackingNumber}`; Maps `geocode {address}` -> `{lat,lng,address}` + `reverseGeocode {lat,lng}` -> `{lat,lng,address}`, not full shipping rates/labels/maps search/directions).
+- HTTP providers configurable endpoints via `src/config/env.js` (`PAYMENT_PROVIDER_URL`, `EMAIL_PROVIDER_URL`, `SMS_PROVIDER_URL`, `SHIPPING_PROVIDER_URL`, `MAPS_PROVIDER_URL`, `S3_ENDPOINT`/`S3_PUBLIC_BASE_URL`) — no real credentials needed (mock default, Http requires URL only when `*_PROVIDER=http` else `CONFIGURATION` 500 not retryable).
+- No new DB tables/migrations; storage via filesystem or S3 REST; no analytics/reporting; no Docker/CI/CD; single-process workers still.
+
+### Phase 16 Status: ✅ COMPLETE AND VERIFIED (HUMAN VERIFICATION: PASS)
+All 58 Phase 16 tests, 626/626 full (17 suites, 568 + 58), lint 0, Prisma valid, 8 migrations up to date (no new Phase 16 migration), app startup + S3 real/rest vs Mock + HTTP timeout/retry + provider-independent adapters + EmailService + BullMQ processor->service->adapter + tenant isolation + HMAC + env secrets + logger redact all verified, roadmap untouched. Phase 17 — API Orchestration is NEXT.
+
+
 
 ## Phase 05 Status: ✅ COMPLETE AND VERIFIED
 

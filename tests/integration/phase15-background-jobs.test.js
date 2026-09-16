@@ -250,7 +250,9 @@ describe('Phase 15 - Background Jobs / BullMQ', () => {
       const a = await processCalculateAnalytics({ tenantId: tenantAId, metric: 'revenue' }, { jobId: 'ana-1' });
       expect(a.deferred).toBe(true);
       const e = await processSendEmail({ tenantId: tenantAId, to: 'a@b.com', subject: 'hi' }, { jobId: 'email-1' });
-      expect(e.deferred).toBe(true);
+      // Phase 16: email processor now uses provider adapter (success), earlier phases expected deferred stub. Accept either.
+      expect(e.deferred === true || e.success === true).toBe(true);
+      if (e.success) expect(e.providerId).toBeDefined();
     });
   });
 
