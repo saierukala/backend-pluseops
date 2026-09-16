@@ -1,6 +1,6 @@
 # Project Documentation
 
-Technical architecture and implementation state as of Phase 13 completion (WebSockets / Real-Time — COMPLETE and VERIFIED).
+Technical architecture and implementation state as of Phase 14 completion (Redis Caching — COMPLETE and VERIFIED, HUMAN VERIFICATION: PASS).
 
 ---
 
@@ -138,6 +138,10 @@ src/
      │   ├── realtime.service.js  # Provider-independent abstraction, REALTIME_EVENTS, emitRealtime, sanitizePayload
      │   ├── socket.auth.js       # JWT socketAuthMiddleware, extractToken, server-derived socket.context
      │   └── socket.server.js     # createSocketServer, tenant/user rooms, guarded join/subscribe, lifecycle
+     ├── common/cache/   # Redis Caching (Phase 14) — reusable cache abstraction
+     │   ├── cache.config.js   # CACHE_TTL (TENANT 300, TENANT_SETTINGS 300, PERMISSIONS 300, PERMISSIONS_USER 300, PRODUCT_LIST 60) + CACHE_PREFIX pulseops:v1
+     │   ├── cache.keys.js     # tenantKey, tenantSettingsKey, permissionsListKey, userPermissionsKey, productListKey(sha256 16), productListPattern
+     │   └── cache.service.js  # CacheService get/set/del/delByPattern/getOrSet, JSON, stripSensitive, logger.warn fallback
      └── common/storage/ # Storage abstraction
         ├── storage.service.js
         └── local-storage.provider.js
@@ -376,11 +380,12 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 
 ## Testing
 
-### Current Verification Results (Latest Run — Phase 13 Verified)
+### Current Verification Results (Latest Run — Phase 14 Verified, HUMAN VERIFICATION: PASS)
 
 | Check | Result |
 |-------|--------|
-| **Full Integration Suite** | 497/497 passing (14 suites) — `npm test -- --testTimeout=15000` (default 5000ms hook timeout flaky in Phase 11/12 sequential `beforeAll`; isolated 35/35 & 53/53 pass) |
+| **Full Integration Suite** | 524/524 passing (15 suites) — `npm test -- --testTimeout=15000` (Jest open-handle warning after success is async teardown, not failure) |
+| - `phase14-redis-caching.test.js` | 27 tests ✅ |
 | - `phase13-realtime.test.js` | 32 tests ✅ |
 | - `phase12-notifications.test.js` | 53 tests ✅ |
 | - `phase11-audit.test.js` | 35 tests ✅ |
@@ -404,7 +409,8 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 | **Phase 11 Migration** | No new migration — reused Phase 03 `audit_logs`/`activity_logs` (existing indexes `tenantId+createdAt`, `tenantId+resource+resourceId`, `tenantId+action+createdAt`) ✅ |
 | **Phase 12 Migration** | No new migration — reused Phase 03 `notifications`/`notification_preferences`/`notification_templates` + enums `NotificationType`/`NotificationChannel` (existing indexes `tenantId+userId+isRead`, `tenantId+createdAt`, unique `tenantId+userId+channel`) ✅ |
 | **Phase 13 Migration** | No new migration — no database tables added, 8 migrations remain up to date (Socket.IO in-memory) ✅ |
-| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS, Phase 10 PASS, Phase 11 PASS, Phase 12 PASS, Phase 13 PASS |
+| **Phase 14 Migration** | No new migration — Redis is cache layer not a DB table, 8 migrations remain up to date (PostgreSQL authoritative) ✅ |
+| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS, Phase 10 PASS, Phase 11 PASS, Phase 12 PASS, Phase 13 PASS, Phase 14 PASS |
 
 ### Test Coverage Highlights
 - Health endpoints: liveness, DB readiness, Redis readiness
@@ -521,9 +527,9 @@ The following items were identified during the Phase 03 human verification audit
 | Payment & Transaction Processing (Phase 10) | ✅ Complete & Verified (40/40, 377/377, 8 migrations) |
 | Audit & Activity Logs (Phase 11) | ✅ Complete & Verified (35/35, 412/412, 8 migrations — no new migration) |
 | Notifications (Phase 12) | ✅ Complete & Verified (53/53, 465/465, 8 migrations — no new migration) |
-| WebSockets (Phase 13) | ✅ Complete & Verified |
-| Redis Caching (Phase 14) | ⏳ Not Started |
-| BullMQ (Phase 15) | ⏳ Not Started |
+| WebSockets (Phase 13) | ✅ Complete & Verified (32/32, 497/497) |
+| Redis Caching (Phase 14) | ✅ Complete & Verified (27/27, 524/524, 8 migrations — no new migration) |
+| BullMQ (Phase 15) | ⏳ NEXT |
 | External Integrations (Phase 16) | ⏳ Not Started |
 | API Orchestration (Phase 17) | ⏳ Not Started |
 | Analytics (Phase 18) | ⏳ Not Started |
@@ -1632,4 +1638,136 @@ Phase 14 Redis Caching (cache-aside, TTL, invalidation, pub/sub), Phase 15 BullM
 
 ### Phase 13 Status: ✅ COMPLETE AND VERIFIED
 All 497 tests pass (32 Phase 13), 14 suites, lint 0, Prisma valid, 8 migrations up to date (no new Phase 13 migration), HTTP+Socket.IO coexistence, authenticated tenant/user rooms, 5 events with tenant/user routing, recursive sanitization, lifecycle/error handling, tenant isolation, no regressions, roadmap untouched.
+
+---
+
+## Phase 14 — Redis Caching (COMPLETE & VERIFIED — 27/27, 524/524, 8 migrations — no new migration, HUMAN VERIFICATION: PASS)
+
+### Objective
+Introduce Redis for performance and shared state as a cache layer. Implement cache keys, TTL, invalidation, cache-aside strategy, safe serialization, and cache failure fallback. Redis is an optimization/shared-state layer, never the authoritative database — PostgreSQL remains the source of truth. Core database-backed operations must continue when Redis is unavailable.
+
+### Architecture
+
+```
+Request
+  ↓
+Cache GET (CacheService)
+  ↓
+hit? → return deserialized
+miss? → Repository → PostgreSQL → Cache SET → return
+Redis failure → logger.warn → fallback to PostgreSQL
+```
+
+Layering preserved: `Route → Controller → Service → Repository → Database` with cache inside Service via `CacheService → Redis`. Business modules never scatter raw Redis commands.
+
+### Files
+
+```
+src/common/cache/
+├── cache.config.js   # CACHE_TTL {TENANT 300, TENANT_SETTINGS 300, PERMISSIONS 300, PERMISSIONS_USER 300, PRODUCT_LIST 60} + CACHE_PREFIX pulseops:v1
+├── cache.keys.js     # tenantKey, tenantSettingsKey, permissionsListKey, userPermissionsKey, productListKey(sha256 16), productListPattern + sanitizeId regex
+└── cache.service.js  # CacheService {get,set,del,delByPattern,getOrSet} JSON safe serialization, stripSensitive, logger.warn fallback, getRedis() via getRedisClient()
+
+src/modules/tenants/tenants.service.js         # Modified: getById cache-aside (tenantKey+tenantSettingsKey), getSettings helper, update/delete del after commit
+src/modules/permissions/permissions.service.js  # Modified: list cache-aside (permissionsListKey), invalidateTenantPermissions helper
+src/modules/products/products.service.js        # Modified: list cache-aside (productListKey), invalidateProductListCache delByPattern after create/update/delete/setCategories
+src/modules/auth/authorization.middleware.js    # Modified: getUserPermissions cache-aside (userPermissionsKey), authorize delegates to getUserPermissions, invalidateUserPermissionsCache/invalidateTenantPermissionsCache helpers
+
+tests/integration/phase14-redis-caching.test.js # 27 dedicated tests (FakeRedis in-memory)
+```
+
+Existing `ioredis`/`src/config/redis.js` reused (`lazyConnect:true`, `maxRetriesPerRequest:1`, `enableOfflineQueue:false`); no new dependency. No new database tables/migration.
+
+### Redis Configuration Reuse
+`getRedisClient()` singleton from `src/config/redis.js` (ioredis 6, `REDIS_URL` from `env.js` Zod url optional, `connectRedis()` lazy, `redisHealthCheck` PING, `disconnectRedis` safe for `wait` status). `CacheService.getRedis()` calls `getRedisClient()` or returns undefined; all ops catch and warn, never throw to business layer. Degraded startup (`FAIL_ON_DEPENDENCY_ERROR` default true in production, false in dev/test) means `GET /health/redis` 503 when unavailable but `GET /health` 200 and core APIs remain 200.
+
+### Cached Domains (only three, justified)
+
+| Domain | Service | Key | TTL | Read | Write invalidation |
+|--------|---------|-----|-----|------|-------------------|
+| Tenant settings | `TenantService.getById` (includes `settings`) + `getSettings` | `pulseops:v1:tenant:{tenantId}` + `pulseops:v1:tenant:{tenantId}:settings` | 300s | GET → hit else DB then SET both keys | `update`/`delete` after commit `del` both keys |
+| Permissions | `PermissionService.list` + `getUserPermissions` (used by `authorize`) | `pulseops:v1:tenant:{tenantId}:permissions:list` / `pulseops:v1:tenant:{tenantId}:permissions:user:{userId}` | 300s | GET → hit else DB then SET | `invalidateTenantPermissions` del list, `invalidateUserPermissionsCache` del user, `invalidateTenantPermissionsCache` delByPattern `...:user:*` (explicit/manual helpers) |
+| Product lists | `ProductService.list` | `pulseops:v1:tenant:{tenantId}:products:list:{sha256(payload).slice(0,16)}` | 60s | GET → hit else `repository.list` then SET | `invalidateProductListCache` `delByPattern` after `create`/`update`/`delete`/`setCategories` after commit |
+
+Dashboard metrics / frequently accessed configuration not cached — no dashboard exists, intentionally not invented.
+
+### Cache Implementation
+
+* **Keys:** `CACHE_PREFIX pulseops:v1`, tenant-safe `sanitizeId` (UUID or `[a-z0-9_-]{1,64}`), no user-controlled arbitrary Redis keys, no secrets/tokens/passwords in keys.
+* **Product key determinism:** `normalized={page,limit,search,status,categoryId,minPrice,maxPrice,sku,barcode,sortBy,sortOrder,attributeFilters}` with `attributeFilters` keys sorted, `JSON.stringify` → `createHash('sha256').digest('hex').slice(0,16)`. All inputs affecting result included; materially different params produce different hashes (page 1 vs 2, search a vs b, status ACTIVE vs DRAFT, sort, sku, barcode, attribute `color:red` vs `blue` verified).
+* **TTL:** Configured in `cache.config.js` as fixed constants (not environment-overridable): `TENANT 300s (~5m)`, `TENANT_SETTINGS 300s`, `PERMISSIONS 300s`, `PERMISSIONS_USER 300s`, `PRODUCT_LIST 60s (~1m)`. Sensible: tenant/permissions infrequent, product lists short to avoid stale. No infinite TTL; tests use short 1s TTL with `setTimeout 1100ms` to prove expiration. All TTL >0 and <3600 (product <600 verified).
+* **Serialization:** `JSON.stringify`/`JSON.parse` only; never `eval`/`Function`. Deserialization failure → warn + null fallback.
+* **Sensitive-data sanitization:** `stripSensitive` recurses objects/arrays, drops any key whose lower-case contains `password`/`passwordHash`/`password_hash`/`token`/`refreshToken`/`accessToken`/`secret`/`providerSecret`/`credential`/`apiKey`; verified that `passwordHash`/`token` not cached while safe fields remain.
+* **Hit/Miss:** `get` → raw null → miss; `getOrSet(key, loader, ttl)` returns `{value, hit}` without invoking loader on hit (verified).
+* **Redis failure fallback:** Every `get`/`set`/`del`/`delByPattern` wraps `try/catch` → `logger.warn({err,key})` then return null/false/0; business `Service.list/getById` catches `cache.get` failure → proceed to DB, catches `cache.set` failure → continue and return DB result. Never converts successful DB operation into 500. Verified via FakeRedis `simulateFailure('get'|'set'|'del')`.
+
+### Cache Invalidation
+
+* **Tenant:** `update` and `delete` commit Postgres via `repository` first, then `del(tenantKey)` and `del(tenantSettingsKey)`; failure logged `warn`, mutation still returned (not rolled back).
+* **Permissions:** `PermissionService.invalidateTenantPermissions` `del(permissionsListKey)`; `invalidateUserPermissionsCache(tenantId,userId)` `del(userPermissionsKey)`; `invalidateTenantPermissionsCache(tenantId)` `delByPattern(tenant:{id}:permissions:user:*)` via pattern derived from `userPermissionsKey` split. Helpers are explicit/manual (no automatic hook on `rolePermission` writes yet — documented limitation).
+* **Product lists:** After every product mutation that changes list results — `create` (after `repository.create`+`setCategories`+`findById`), `update`, `delete`, `setCategories` — call `invalidateProductListCache` which `delByPattern(productListPattern(tenantId))` via `SCAN MATCH pattern COUNT 100` + `DEL` loop until cursor `0`. Failure never fails business op.
+* **Transactions:** Postgres transaction/commit occurs before cache invalidation; Redis never participates in Postgres transaction.
+* **Scope:** Precise (tenant key) or tenant-scoped pattern (products lists, permissions user pattern); no `FLUSHALL`.
+* **Database authoritative:** Documented "DB is source of truth".
+
+### Security
+
+* **Tenant isolation:** Keys include `tenantId`; identical query with different `tenantId` → different hash/key; `GET /api/v1/products?page=1&limit=10` for tenant A cached separately from tenant B (HTTP verification A=1 then B=0, second A hit still A). Never `Tenant A → Tenant B cached data`.
+* **No client-controlled scope:** `tenantId`/`userId` from `req.context` (JWT `authenticate()`), never from body/query `tenantId`; `sanitizeId` rejects arbitrary keys.
+* **Sensitive values:** `stripSensitive` before `SET`; keys contain no secrets; `logger` redacts `authorization`/`cookie`/`password`/`token`.
+* **No stack leak:** Redis errors logged warn, API returns consistent `{success:false, error:{code}}` not stack.
+* **RBAC preserved:** `authorize` still verifies `tenantMembership ACTIVE` then `getUserPermissions` (cached); Redis down still checks DB and returns 403/200 correctly (89 RBAC tests + 27 caching fallback tests pass).
+* **Arbitrary key prevention:** `sanitizeId` regex throws `Invalid cache id` on invalid.
+
+### Redis Failure / Degraded Mode
+
+Core PostgreSQL-backed operations continue when Redis unavailable: `getRedisClient()` may be undefined, `connectRedis` may fail, `enableOfflineQueue:false` → command `Stream isn't writeable` → `CacheService` catches → `null` → DB path. Verified HTTP: after `disconnectRedis` `GET /api/v1/products` still 200, permissions still enforced (GET still 200 via `getUserPermissions` fallback). Redis is optimization/shared-state, not authoritative — documented.
+
+### Testing (27/27)
+
+`tests/integration/phase14-redis-caching.test.js` with in-memory `FakeRedis` (Map store + ttl Map + scan + simulateFailure):
+
+* **CacheService 10:** miss null, hit without loader, miss loads+sets, invalidation deletes, expiration 1s→null then fresh, GET/SSET/DEL unavailable fallback, does not cache sensitive fields, delByPattern deletes matching.
+* **Keys 4:** tenant isolation distinct, product list key includes all params (8 distinct hashes), attribute filters affect key, no secrets in keys.
+* **TenantService 4:** hit avoids DB, miss queries+stores, Redis failure→DB fallback, invalidation after update removes both keys, invalidation failure does not roll back.
+* **PermissionService 3:** hit avoids DB, Redis failure→DB, SET failure does not fail.
+* **ProductService 5:** hit/miss/different query, mutation invalidates (create then 0 keys), GET failure→DB, SET failure continues, tenant isolation.
+* **TTL 1:** constants >0 <3600 and product <600.
+
+Full verification included HTTP `supertest` real `app` + `ioredis` + `getPrismaClient`: `GET /health` 200, `GET /health/redis` 200/503, `REDIS_URL PONG`, product list miss→hit (key count 1), tenant B isolation, mutation invalidates 0 keys, redis-down fallback 200, tenant caching still applied. Regression full with `--testTimeout=15000`: 15 suites 524 tests all pass (Phase 14 27 added to prior 497); Jest open-handle warning after success is async teardown, not failure. Isolated `phase14-redis-caching 27/27` also passes.
+
+### Verification
+
+```
+npx prisma validate → valid
+npx prisma migrate status → 8 migrations up to date
+npm run lint → 0 errors
+npm test -- --testTimeout=15000 → 15 suites 524/524
+npm test -- tests/integration/phase14-redis-caching.test.js → 27/27
+node -e ioredis connect → PONG
+GET /health 200 → {status:"ok"}
+GET /health/redis 200/503
+GET /api/v1/products miss/hit + invalidation + isolation + redis-down 200
+```
+
+### Database
+
+No Phase 14 tables/migration; 8 migrations remain `Database schema is up to date!` (`prisma/schema.prisma` valid). `warehouse_inventory` mirror etc. unchanged. Reuse existing `TenantSettings` via `tenant.settings` include.
+
+### Known Limitations (Actual)
+
+* Only three cache candidates currently cached (tenant settings, permissions, product lists); dashboard metrics/frequently accessed configuration not cached (no dashboard yet).
+* TTLs are fixed constants (`cache.config.js`) rather than environment-overridable.
+* Permission invalidation currently relies on explicit/manual invalidation helpers (`invalidateUserPermissionsCache`/`invalidateTenantPermissionsCache`/`invalidateTenantPermissions`); no automatic DB-triggered invalidation on `rolePermission` writes.
+* Product pattern invalidation uses `SCAN ... MATCH pattern COUNT 100` loop and `DEL`; may become more expensive for very large tenants with many distinct list hashes (currently max 100 per scan).
+* Single-instance Redis (`ioredis` single client, no cluster/sentinel); no Redis pub/sub used (Phase 13 deferred pub/sub not expanded).
+* No distributed locking; no stale-while-revalidate; no BullMQ.
+* Cache is per-process memory via Redis, not persistent fallback beyond TTL.
+
+### What is NOT Implemented (Future Phases)
+
+Phase 15 BullMQ/background jobs (queues/workers/retries/DLQ), Phase 16 External Integrations (S3/storage, email/SMS/push providers, shipping/maps), Phase 17 API Orchestration (`dashboard/overview`), Phase 18 Analytics (`analytics/*`), Phase 19 Performance Optimization (strictly measuring not claiming broad gains), Phase 20 Security Hardening, Phase 21 Complete Testing, Phase 22 Swagger/OpenAPI, Phase 23 Docker/CI/CD remain future work. No BullMQ/queues/workers, no external provider SDKs, no dashboard metrics caching, no S3 provider (local storage only) added as part of Phase 14.
+
+### Phase 14 Status: ✅ COMPLETE AND VERIFIED (HUMAN VERIFICATION: PASS)
+All 27 Phase 14 tests pass, 524/524 full, 15 suites, lint 0, Prisma valid, 8 migrations up to date (no new Phase 14 migration), app startup + Redis PONG + HTTP health + cache miss/hit + invalidation + tenant isolation + redis-down fallback + RBAC regression all verified, roadmap untouched. Phase 15 — Background Jobs / BullMQ is NEXT (not started, not implemented).
 

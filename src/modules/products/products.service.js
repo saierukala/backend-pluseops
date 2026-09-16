@@ -1,9 +1,22 @@
 import { ProductRepository } from './products.repository.js';
 import { AppError } from '../../common/errors/app-error.js';
+import { getCacheService } from '../../common/cache/cache.service.js';
+import { productListKey, productListPattern } from '../../common/cache/cache.keys.js';
+import { CACHE_TTL } from '../../common/cache/cache.config.js';
+import { logger } from '../../config/logger.js';
 
 export class ProductService {
-  constructor() {
-    this.repository = new ProductRepository();
+  constructor({ repository, cacheService } = {}) {
+    this.repository = repository ?? new ProductRepository();
+    this.cache = cacheService ?? getCacheService();
+  }
+
+  async invalidateProductListCache(tenantId) {
+    try {
+      await this.cache.delByPattern(productListPattern(tenantId));
+    } catch (error) {
+      logger.warn({ err: error, tenantId }, 'Product list cache invalidation failed');
+    }
   }
 
   async create(tenantId, data) {
@@ -27,7 +40,13 @@ export class ProductService {
       await this.repository.setCategories(product.id, tenantId, data.categories, data.primaryCategoryId);
     }
 
-    return this.repository.findById(product.id, tenantId);
+    const result = await this.repository.findById(product.id, tenantId);
+    try {
+      await this.invalidateProductListCache(tenantId);
+    } catch (error) {
+      logger.warn({ err: error, tenantId }, 'Product list cache invalidation failed after create');
+    }
+    return result;
   }
 
   async getById(id, tenantId) {
@@ -42,7 +61,23 @@ export class ProductService {
   }
 
   async list(tenantId, options = {}) {
-    return this.repository.list(tenantId, options);
+    const cacheKey = productListKey(tenantId, options);
+    try {
+      const cached = await this.cache.get(cacheKey);
+      if (cached) return cached;
+    } catch (error) {
+      logger.warn({ err: error, key: cacheKey }, 'Product list cache GET failed');
+    }
+
+    const result = await this.repository.list(tenantId, options);
+
+    try {
+      await this.cache.set(cacheKey, result, CACHE_TTL.PRODUCT_LIST);
+    } catch (error) {
+      logger.warn({ err: error, key: cacheKey }, 'Product list cache SET failed');
+    }
+
+    return result;
   }
 
   async update(id, tenantId, data) {
@@ -75,7 +110,13 @@ export class ProductService {
       await this.repository.update(id, tenantId, updateData);
     }
 
-    return this.repository.findById(id, tenantId);
+    const result = await this.repository.findById(id, tenantId);
+    try {
+      await this.invalidateProductListCache(tenantId);
+    } catch (error) {
+      logger.warn({ err: error, tenantId }, 'Product list cache invalidation failed after update');
+    }
+    return result;
   }
 
   async delete(id, tenantId) {
@@ -91,7 +132,13 @@ export class ProductService {
       });
     }
 
-    return this.repository.delete(id, tenantId);
+    const deleted = await this.repository.delete(id, tenantId);
+    try {
+      await this.invalidateProductListCache(tenantId);
+    } catch (error) {
+      logger.warn({ err: error, tenantId }, 'Product list cache invalidation failed after delete');
+    }
+    return deleted;
   }
 
   async setCategories(productId, tenantId, categoryIds, primaryCategoryId = null) {
@@ -115,7 +162,13 @@ export class ProductService {
       }
     }
 
-    return this.repository.setCategories(productId, tenantId, categoryIds, primaryCategoryId);
+    const result = await this.repository.setCategories(productId, tenantId, categoryIds, primaryCategoryId);
+    try {
+      await this.invalidateProductListCache(tenantId);
+    } catch (error) {
+      logger.warn({ err: error, tenantId }, 'Product list cache invalidation failed after setCategories');
+    }
+    return result;
   }
 
   async getCategories(productId, tenantId) {

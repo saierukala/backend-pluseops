@@ -1,5 +1,9 @@
 import { getPrismaClient } from '../../config/database.js';
 import { AppError } from '../../common/errors/app-error.js';
+import { getCacheService } from '../../common/cache/cache.service.js';
+import { userPermissionsKey } from '../../common/cache/cache.keys.js';
+import { CACHE_TTL } from '../../common/cache/cache.config.js';
+import { logger } from '../../config/logger.js';
 
 export function authorize(permission) {
   return async (req, res, next) => {
@@ -22,32 +26,10 @@ export function authorize(permission) {
         throw new AppError('Tenant membership is required', { statusCode: 403, code: 'FORBIDDEN' });
       }
 
-      const userRoles = await prisma.userRole.findMany({
-        where: { userId, tenantId },
-        select: { roleId: true },
-      });
+      const permissions = await getUserPermissions(userId, tenantId);
 
-      if (userRoles.length === 0) {
-        throw new AppError('Insufficient permissions', {
-          statusCode: 403,
-          code: 'FORBIDDEN',
-        });
-      }
-
-      const roleIds = userRoles.map((ur) => ur.roleId);
-
-      const rolePermissions = await prisma.rolePermission.findMany({
-        where: {
-          tenantId,
-          roleId: { in: roleIds },
-        },
-        include: {
-          permission: true,
-        },
-      });
-
-      const hasPermission = rolePermissions.some(
-        (rp) => rp.permission.resource === permission.split(':')[0] && rp.permission.action === permission.split(':')[1]
+      const hasPermission = permissions.some(
+        (p) => p.resource === permission.split(':')[0] && p.action === permission.split(':')[1]
       );
 
       if (!hasPermission) {
@@ -65,6 +47,24 @@ export function authorize(permission) {
       next(error);
     }
   };
+}
+
+export async function invalidateUserPermissionsCache(tenantId, userId) {
+  try {
+    const cache = getCacheService();
+    await cache.del(userPermissionsKey(tenantId, userId));
+  } catch (error) {
+    logger.warn({ err: error, tenantId, userId }, 'User permissions cache invalidation failed');
+  }
+}
+
+export async function invalidateTenantPermissionsCache(tenantId) {
+  try {
+    const cache = getCacheService();
+    await cache.delByPattern(`${userPermissionsKey(tenantId, '00000000-0000-0000-0000-000000000000').split(':user:')[0]}:user:*`);
+  } catch (error) {
+    logger.warn({ err: error, tenantId }, 'Tenant permissions cache invalidation failed');
+  }
 }
 
 // Platform permissions are deliberately separate from tenant roles. Future
@@ -87,6 +87,16 @@ export function authorizePlatform(permission) {
 }
 
 export async function getUserPermissions(userId, tenantId) {
+  const cache = getCacheService();
+  const cacheKey = userPermissionsKey(tenantId, userId);
+
+  try {
+    const cached = await cache.get(cacheKey);
+    if (cached) return cached;
+  } catch (error) {
+    logger.warn({ err: error, key: cacheKey }, 'User permissions cache GET failed');
+  }
+
   const prisma = getPrismaClient();
 
   const userRoles = await prisma.userRole.findMany({
@@ -95,6 +105,12 @@ export async function getUserPermissions(userId, tenantId) {
   });
 
   if (userRoles.length === 0) {
+    const empty = [];
+    try {
+      await cache.set(cacheKey, empty, CACHE_TTL.PERMISSIONS_USER);
+    } catch (error) {
+      logger.warn({ err: error, key: cacheKey }, 'User permissions cache SET failed');
+    }
     return [];
   }
 
@@ -110,11 +126,19 @@ export async function getUserPermissions(userId, tenantId) {
     },
   });
 
-  return rolePermissions.map((rp) => ({
+  const result = rolePermissions.map((rp) => ({
     id: rp.permission.id,
     name: rp.permission.name,
     resource: rp.permission.resource,
     action: rp.permission.action,
     description: rp.permission.description,
   }));
+
+  try {
+    await cache.set(cacheKey, result, CACHE_TTL.PERMISSIONS_USER);
+  } catch (error) {
+    logger.warn({ err: error, key: cacheKey }, 'User permissions cache SET failed');
+  }
+
+  return result;
 }

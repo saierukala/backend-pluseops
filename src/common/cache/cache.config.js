@@ -1,0 +1,9 @@
+export const CACHE_TTL = {
+  TENANT_SETTINGS: 300,
+  TENANT: 300,
+  PERMISSIONS: 300,
+  PERMISSIONS_USER: 300,
+  PRODUCT_LIST: 60,
+};
+
+export const CACHE_PREFIX = 'pulseops:v1';
