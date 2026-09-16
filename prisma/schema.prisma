@@ -506,6 +506,8 @@ model ProductVariant {
   @@index([tenantId, productId])
   @@index([tenantId, barcode])
   @@index([tenantId, status])
+  @@index([tenantId, price])
+  @@index([tenantId, status, createdAt])
   @@map("product_variants")
 }
 
@@ -629,6 +631,7 @@ model Inventory {
   @@unique([tenantId, productVariantId, warehouseId])
   @@index([tenantId, productVariantId])
   @@index([tenantId, warehouseId])
+  @@index([tenantId, quantity])
   @@map("inventory")
 }
 
@@ -721,6 +724,7 @@ model Order {
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
   @@index([tenantId, customerId])
+  @@index([tenantId, customerId, createdAt])
   @@map("orders")
 }
 

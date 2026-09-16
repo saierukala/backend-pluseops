@@ -37,7 +37,20 @@ export class OrderRepository {
         where,
         include: {
           customer: { select: { id: true, email: true, firstName: true, lastName: true } },
-          items: true,
+          items: {
+            select: {
+              id: true,
+              productVariantId: true,
+              productNameSnapshot: true,
+              variantNameSnapshot: true,
+              skuSnapshot: true,
+              unitPrice: true,
+              quantity: true,
+              discount: true,
+              tax: true,
+              lineTotal: true,
+            },
+          },
           statusHistory: { orderBy: { createdAt: 'asc' }, take: 1 },
         },
         orderBy: { [safeSort]: safeOrder },

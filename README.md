@@ -2,7 +2,7 @@
 
 A production-minded, multi-tenant backend for PulseOps, built with Node.js, Express, PostgreSQL, Prisma, and Redis. The project follows a modular-monolith architecture and is being delivered incrementally so that every foundation layer is tested before business modules are introduced.
 
-**Current status:** Phase 18 — Analytics & Reporting is **COMPLETE and VERIFIED (HUMAN VERIFICATION: PASS)**. Phase 19 — Performance Optimization is **NEXT**.
+**Current status:** Phase 18 — Analytics & Reporting is **COMPLETE and VERIFIED (HUMAN VERIFICATION: PASS)**. Phase 19 — Performance Optimization is **COMPLETE and VERIFIED (HUMAN VERIFICATION: PASS)**.
 
 The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_Backend_Codex_Master_Roadmap.md`](docs/PulseOps_Backend_Codex_Master_Roadmap.md).
 
@@ -352,7 +352,7 @@ At startup the API attempts to connect to PostgreSQL and Redis, then `initJobs()
 | Phase 16 | External Integrations | ✅ Complete |
 | Phase 17 | API Orchestration | ✅ Complete |
 | Phase 18 | Analytics & Reporting | ✅ Complete |
-| Phase 19 | Performance | ⏳ Not started |
+| Phase 19 | Performance | ✅ Complete |
 | Phase 20 | Security Hardening | ⏳ Not started |
 | Phase 21 | Complete Testing | ⏳ Not started |
 | Phase 22 | Swagger/OpenAPI | ⏳ Not started |
@@ -361,6 +361,126 @@ At startup the API attempts to connect to PostgreSQL and Redis, then `initJobs()
 **Phase 18 is COMPLETE and VERIFIED (HUMAN VERIFICATION: PASS) — 45/45 Phase 18 tests, 693/693 full suite (19 suites, 648 Phase 1-17 + 45 Phase 18 = 693; Phase 17 dedicated 22/22 unchanged, Phase 16 dedicated 58/58 unchanged, Phase 15 dedicated 44/44 unchanged, Phase 14 27/27 unchanged), `node --experimental-vm-modules jest --runInBand --forceExit` 0 failed, `node --experimental-vm-modules jest tests/integration/phase18-analytics.test.js --runInBand` 45/45, `npm run lint` 0 errors, `npx prisma validate` valid, `npx prisma migrate status` 8 migrations up to date (no Phase 18 migration — analytics reuses existing transactional tables, no new tables/columns). Phase 19 — Performance Optimization is NEXT (not started, not implemented). Analytics implementation: 6 APIs (overview/sales/orders/inventory/customers/revenue), Route→Controller→Service→Repository→PostgreSQL, UTC deterministic grouping, Decimal money, CacheService reuse, tenant isolation via req.context.tenantId + analytics:read, client tenantId override blocked. Limitations: analytics cache may remain stale up to 60s TTL; transactional writes do not auto-invalidate analytics cache; week grouping follows PostgreSQL Monday start; overview is summary-oriented not paginated; existing indexes used, comprehensive performance optimization belongs to Phase 19.**
 
 **Phase 16 is COMPLETE and VERIFIED (HUMAN VERIFICATION: PASS) — 58/58 Phase 16 tests, 626/626 full suite (17 suites, 568 Phase 1-15 + 58 Phase 16 = 626; Phase 15 dedicated 44/44 unchanged, Phase 14 27/27 unchanged), `node --experimental-vm-modules jest --runInBand --forceExit` 0 failed, `node --experimental-vm-modules jest tests/integration/phase16-external-integrations.test.js --runInBand` 58/58, `npm run lint` 0 errors, `npx prisma validate` valid, `npx prisma migrate status` 8 migrations up to date (no Phase 16 migration — integrations reuse existing tables/filesystem/S3 REST; no new DB tables, no cloud credentials). Phase 17 — API Orchestration is COMPLETE (see above). S3 clarification: `S3StorageProvider` is real S3 REST (SigV4 `AWS4-HMAC-SHA256` + `x-amz-date`/`x-amz-content-sha256`/`host`, PUT/GET/HEAD/DELETE via `fetch` + `STORAGE_TIMEOUT_MS` 5000, idempotent retry, path/virtual-hosted via `S3_ENDPOINT`/`S3_FORCE_PATH_STYLE`/`S3_BUCKET`/`S3_REGION`/`S3_PUBLIC_BASE_URL`) vs `MockS3StorageProvider` test-only (in-memory Map, `mock-s3` provider, local HTTP S3 test server `http://127.0.0.1:{port}` with Map store + `PUT`/`GET`/`HEAD`/`DELETE` + `setFailNext(503)`/`setDelay` + request log, no cloud credentials needed, proves real HTTP). Limitations: Shipping/Maps adapters are not full domain products (minimal `getRate`/`createShipment`/`geocode`/`reverseGeocode` contracts, not full shipping/maps domain); HTTP providers configurable endpoints (`PAYMENT_PROVIDER_URL`/`EMAIL_PROVIDER_URL`/`SMS_PROVIDER_URL`/`SHIPPING_PROVIDER_URL`/`MAPS_PROVIDER_URL`/`S3_ENDPOINT`) via `src/config/env.js`; no real credentials needed (mock providers default, Http providers require URL only when `*_PROVIDER=http` else `CONFIGURATION` 500); no separate DLQ still (failed retention 24h); Redis outage sync fallback still can reintroduce latency.**
+
+---
+
+## Phase 19 — Performance Optimization (COMPLETE & VERIFIED — HUMAN VERIFICATION: PASS)
+
+### Objective
+
+Optimize existing PulseOps backend **only after functionality was proven** (Phases 1-18 complete and verified). Evidence-based optimization — no speculative changes.
+
+### Performance Areas
+
+1. **PostgreSQL/database optimization** — targeted index additions for tenant-scoped query patterns
+2. **Query optimization** — selective field loading, removal of unnecessary includes
+3. **API response optimization** — reduced payload sizes, explicit field selection
+4. **Compression** — tuned threshold and level for JSON payloads
+5. **Redis cache tuning** — TTL increases for stable endpoints, preserved invalidation
+
+### Four Approved Database Indexes
+
+| Index | Query Pattern | Rationale |
+|-------|---------------|-----------|
+| `ProductVariant (tenantId, price)` | `WHERE tenant_id = $1 AND price >= $2 AND price <= $3` | Price range filtering in product list; existing indexes don't cover price |
+| `ProductVariant (tenantId, status, createdAt)` | `WHERE tenant_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT 20` | Status filtering + sort; avoids explicit Sort node |
+| `Inventory (tenantId, quantity)` | `WHERE tenant_id = $1 AND quantity <= 10` | Low-stock threshold queries; no existing index on quantity |
+| `Order (tenantId, customerId, createdAt)` | `WHERE tenant_id = $1 AND customer_id = $2 ORDER BY created_at DESC LIMIT 20` | Customer order history pagination + sort; existing indexes don't combine customer + sort |
+
+### Rejected Index
+
+| Index | Reason |
+|-------|--------|
+| `Product (tenantId, name)` | Actual product search uses `ILIKE '%term%'` (leading wildcard). Normal B-tree does not optimize leading-wildcard search. Only pg_trgm or full-text search would help — roadmap prohibits adding pg_trgm complexity. Index removed from schema, database, and migration. |
+
+### Orders List Optimization
+
+- **Before**: `items: true` — loaded all item fields including `attributeSnapshot` (JSON blob) in list responses
+- **After**: Explicit `select` of 10 scalar fields (`id`, `productVariantId`, `productNameSnapshot`, `variantNameSnapshot`, `skuSnapshot`, `unitPrice`, `quantity`, `discount`, `tax`, `lineTotal`)
+- **Excluded**: `attributeSnapshot`, `createdAt`, `orderId`, `tenantId`
+- **Contract**: Preserved — list endpoint never documented returning `attributeSnapshot`; full detail via `GET /orders/:id`
+- **Measurement**: Qualitative code-level optimization. No production benchmark performed. Payload reduction not measured numerically.
+
+### Compression Tuning
+
+```javascript
+app.use(compression({
+  threshold: 512,  // was default 1KB
+  level: 6         // balanced CPU vs ratio
+}));
+```
+
+Lower threshold catches smaller JSON responses typical of API endpoints.
+
+### Redis TTL Tuning
+
+| Cache Key | Before | After | Rationale |
+|-----------|--------|-------|-----------|
+| `PRODUCT_LIST` | 60s | 300s | Products change infrequently; invalidated on write |
+| `DASHBOARD_OVERVIEW` | 60s | 300s | Dashboard tolerates 5min staleness |
+| `ANALYTICS_OVERVIEW` | 60s | 300s | Overview metrics stable |
+| `ANALYTICS_SALES` | 60s | 180s | Detailed analytics benefit from 3min cache |
+| `ANALYTICS_ORDERS` | 60s | 180s | — |
+| `ANALYTICS_INVENTORY` | 60s | 180s | — |
+| `ANALYTICS_CUSTOMERS` | 60s | 180s | — |
+| `ANALYTICS_REVENUE` | 60s | 180s | — |
+
+Existing invalidation (`delByPattern` after writes) and cache-failure fallback (DB authoritative) preserved. No measured hit-rate improvement (test env uses fake Redis) — configuration tuning based on data volatility analysis.
+
+### Database Migration
+
+- **File**: `prisma/migrations/20260916_phase19_performance_indexes/migration.sql`
+- **Contains**: 4 `CREATE INDEX IF NOT EXISTS` statements for the approved indexes
+- **Status**: Applied, marked via `prisma migrate resolve --applied`
+- **Verification**: `npx prisma migrate status` → "Database schema is up to date!" (9 migrations total)
+
+### Testing Results
+
+```
+Test Suites: 19 passed, 19 total
+Tests:       693 passed, 693 total
+Lint:        0 errors, 0 warnings
+Prisma validate: ✅ Valid
+Migration status: ✅ Up to date
+Application startup: ✅ Verified
+```
+
+### Performance Measurement Limitations
+
+- **No production load testing** — index effectiveness and cache hit rates measured qualitatively
+- **Test database has insufficient/empty data** for meaningful before/after query-plan benchmarking
+- **No fabricated performance numbers** — index benefits based on actual query patterns and PostgreSQL planner behavior
+- **Redis hit-rate improvements not measured** under production load
+
+### Architecture & Security Preserved
+
+```
+Route
+  ↓
+Controller
+  ↓
+Service
+  ↓
+Repository
+  ↓
+PostgreSQL
+```
+
+- All new indexes include `tenantId` as leading column (tenant-aware)
+- All queries remain tenant-scoped via `where: { tenantId, ... }`
+- No cross-tenant data leakage possible
+- Existing API contracts preserved
+- Existing cache invalidation and Redis failure fallback preserved
+
+### Scope Boundary
+
+```text
+Phase 20 — Security Hardening: NOT IMPLEMENTED
+Phase 21 — Complete Testing: NOT IMPLEMENTED (beyond regression suite)
+Phase 22 — Swagger/OpenAPI: NOT IMPLEMENTED
+Phase 23 — Docker/CI/CD: NOT IMPLEMENTED
+Roadmap: UNCHANGED
+```
 
 Phase 13 — WebSockets / Real-Time — Verified details:
 - **Files:** `src/realtime/realtime.service.js` (abstraction + `REALTIME_EVENTS` + `emitRealtime` + `sanitizePayload` + helpers `emitOrderCreated`/`emitOrderUpdated`/`emitInventoryLowStock`/`emitPaymentCompleted`/`emitNotificationCreated`), `src/realtime/socket.auth.js` (`socketAuthMiddleware`, `extractToken` from `auth.token`/`Authorization`/`query.token`, `verifyAccessToken`, `USER_NOT_FOUND`/`TENANT_INACTIVE`/`TOKEN_EXPIRED`), `src/realtime/socket.server.js` (`createSocketServer`, auto-join `tenant:{tenantId}`/`user:{userId}`, guarded `join`/`subscribe`, `connected` ack, `disconnect`/`error`, `closeSocketServer`), `tests/integration/phase13-realtime.test.js` (32 tests), plus approvals `src/app/server.js` (`initSocketIO`), `src/modules/orders/orders.service.js`, `src/modules/inventory/inventory.service.js`, `src/modules/payments/payments.service.js`, `src/modules/notifications/notifications.service.js`, `package.json`/`package-lock.json` (`socket.io`/`socket.io-client` ^4.8.1)

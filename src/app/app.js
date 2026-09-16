@@ -19,7 +19,7 @@ export function createApp() {
   app.use(requestContext);
   app.use(helmet());
   app.use(cors({ origin: env.corsOrigins, credentials: true }));
-  app.use(compression());
+  app.use(compression({ threshold: 512, level: 6 }));
   app.use(hpp());
   app.use(express.json({ limit: env.REQUEST_BODY_LIMIT }));
   if (env.NODE_ENV !== 'test') {
