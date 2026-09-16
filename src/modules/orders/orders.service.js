@@ -494,4 +494,8 @@ export class OrderService {
   getStatusTransitions() {
     return ORDER_STATUS_TRANSITIONS;
   }
+
+  async getOverview(tenantId) {
+    return this.repository.getOverview(tenantId);
+  }
 }

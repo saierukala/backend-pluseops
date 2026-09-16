@@ -182,4 +182,8 @@ export class ProductService {
 
     return this.repository.getCategories(productId, tenantId);
   }
+
+  async getOverview(tenantId) {
+    return this.repository.getOverview(tenantId);
+  }
 }

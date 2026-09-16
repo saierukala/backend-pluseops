@@ -207,6 +207,10 @@ export class UserService {
     }));
   }
 
+  async getOverview(tenantId) {
+    return this.repository.getOverview(tenantId);
+  }
+
   toUserResponse(user) {
     return {
       id: user.id,

@@ -224,4 +224,22 @@ export class UserRepository {
     const user = await this.prisma.user.findFirst({ where, select: { id: true } });
     return !!user;
   }
+
+  async getOverview(tenantId) {
+    const [totalUsers, statusGroups, recentUsers] = await Promise.all([
+      this.prisma.user.count({ where: { memberships: { some: { tenantId, status: 'ACTIVE' } } } }),
+      this.prisma.user.groupBy({ by: ['status'], where: { memberships: { some: { tenantId } } }, _count: { status: true } }),
+      this.prisma.user.findMany({
+        where: { memberships: { some: { tenantId, status: 'ACTIVE' } } },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: { id: true, email: true, firstName: true, lastName: true, status: true, createdAt: true },
+      }),
+    ]);
+    const byStatus = {};
+    for (const g of statusGroups) {
+      byStatus[g.status] = g._count.status;
+    }
+    return { total: totalUsers, byStatus, recent: recentUsers };
+  }
 }

@@ -1,6 +1,6 @@
 # Project Documentation
 
-Technical architecture and implementation state as of Phase 16 completion (External API Integrations � COMPLETE and VERIFIED, HUMAN VERIFICATION: PASS).
+Technical architecture and implementation state as of Phase 17 completion (API Orchestration — COMPLETE and VERIFIED, HUMAN VERIFICATION: PASS).
 
 ---
 
@@ -138,11 +138,15 @@ src/
      │   ├── realtime.service.js  # Provider-independent abstraction, REALTIME_EVENTS, emitRealtime, sanitizePayload
      │   ├── socket.auth.js       # JWT socketAuthMiddleware, extractToken, server-derived socket.context
      │   └── socket.server.js     # createSocketServer, tenant/user rooms, guarded join/subscribe, lifecycle
-      ├── common/cache/   # Redis Caching (Phase 14) — reusable cache abstraction
-      │   ├── cache.config.js   # CACHE_TTL (TENANT 300, TENANT_SETTINGS 300, PERMISSIONS 300, PERMISSIONS_USER 300, PRODUCT_LIST 60) + CACHE_PREFIX pulseops:v1
-      │   ├── cache.keys.js     # tenantKey, tenantSettingsKey, permissionsListKey, userPermissionsKey, productListKey(sha256 16), productListPattern
-      │   └── cache.service.js  # CacheService get/set/del/delByPattern/getOrSet, JSON, stripSensitive, logger.warn fallback
-      ├── jobs/           # Background Jobs / BullMQ (Phase 15) — queues, processors, workers
+       ├── common/cache/   # Redis Caching (Phase 14) — reusable cache abstraction
+       │   ├── cache.config.js   # CACHE_TTL (TENANT 300, TENANT_SETTINGS 300, PERMISSIONS 300, PERMISSIONS_USER 300, PRODUCT_LIST 60, DASHBOARD_OVERVIEW 60) + CACHE_PREFIX pulseops:v1
+       │   ├── cache.keys.js     # tenantKey, tenantSettingsKey, permissionsListKey, userPermissionsKey, productListKey(sha256 16), productListPattern, dashboardOverviewKey, dashboardOverviewPattern
+       │   └── cache.service.js  # CacheService get/set/del/delByPattern/getOrSet, JSON, stripSensitive, logger.warn fallback
+       ├── dashboard/      # API Orchestration (Phase 17) — orchestration layer
+       │   ├── dashboard.controller.js  # HTTP, x-cache header, {success,data,message}
+       │   ├── dashboard.service.js     # Orchestration: Promise.allSettled → six domain getOverview(tenantId) + CacheService reuse
+       │   └── dashboard.routes.js      # GET /dashboard/overview + authenticate() + authorize('dashboard:read')
+       ├── jobs/           # Background Jobs / BullMQ (Phase 15) — queues, processors, workers
       │   ├── connection.js     # Dedicated BullMQ Redis (maxRetriesPerRequest:null, enableReadyCheck:false, REDIS_URL reuse)
       │   ├── jobs.config.js    # QUEUE_NAMES/JOB_NAMES/DEFAULT_JOB_OPTIONS/QUEUE_PREFIX/timeouts
       │   ├── queues/           # notification/cleanup/webhook (real) + email/report/analytics (deferred stubs)
@@ -396,7 +400,8 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 
 | Check | Result |
 |-------|--------|
-| **Full Integration Suite** | 626/626 passing (17 suites) — `node --experimental-vm-modules jest --runInBand --forceExit` (568 Phase 1-15 + 58 Phase 16 = 626; Phase 14 27/27 unchanged, Phase 15 44/44 unchanged) |
+| **Full Integration Suite** | 648/648 passing (18 suites) — `node --experimental-vm-modules jest --runInBand --forceExit` (626 Phase 1-16 + 22 Phase 17 = 648; Phase 17 22/22, Phase 16 58/58, Phase 15 44/44 unchanged) |
+| - `phase17-dashboard.test.js` | 22 tests ✅ |
 | - `phase15-background-jobs.test.js` | 44 tests ✅ |
 | - `phase16-external-integrations.test.js` | 58 tests ✅ |
 | - `phase14-redis-caching.test.js` | 27 tests ✅ |
@@ -417,7 +422,8 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 | **ESLint** | `npm run lint` → 0 errors, 0 warnings |
 | **Prisma Validate** | `npx prisma validate` → ✅ Valid |
 | **Prisma Generate** | ✅ Success |
-| **Migration Status** | `npx prisma migrate status` → ✅ Up to date (8 migrations; no Phase 16 migration — integrations reuse existing tables/filesystem/S3 REST) |
+| **Migration Status** | `npx prisma migrate status` → ✅ Up to date (8 migrations; no Phase 17 migration — dashboard reuses existing tables, 0 schema changes) |
+| **Phase 17 Migration** | No new migration — 0 schema changes; dashboard reuses `orders`/`inventory`/`payments`/`users`/`notifications`/`products`; 8 migrations up to date ✅ |
 | **Phase 9 Migration** | No new migration — reused Phase 03 `orders`/`order_items`/`order_status_history` ✅ |
 | **Phase 10 Migration** | `20260914_phase10_payments_webhook` — creates `payment_webhook_events` + partial unique provider indexes + CHECKs; reuses Phase 03 payment tables ✅ |
 | **Phase 11 Migration** | No new migration — reused Phase 03 `audit_logs`/`activity_logs` (existing indexes `tenantId+createdAt`, `tenantId+resource+resourceId`, `tenantId+action+createdAt`) ✅ |
@@ -426,7 +432,7 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 | **Phase 14 Migration** | No new migration — Redis is cache layer not a DB table, 8 migrations remain up to date (PostgreSQL authoritative) ✅ |
 | **Phase 15 Migration** | No new migration — jobs reuse existing `notifications`/`refresh_tokens`/`password_reset_tokens`/`email_verification_tokens`/`payment_webhook_events`; `npx prisma migrate status` 8 up to date ✅ |
 | **Phase 16 Migration** | No new migration — integrations reuse existing `notifications`/`payments`/`product_images` and filesystem/S3 REST; `npx prisma migrate status` 8 up to date, no new tables, no cloud credentials ✅ |
-| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS, Phase 10 PASS, Phase 11 PASS, Phase 12 PASS, Phase 13 PASS, Phase 14 PASS (27/27), Phase 15 PASS (44/44), Phase 16 PASS (58/58) |
+| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS, Phase 10 PASS, Phase 11 PASS, Phase 12 PASS, Phase 13 PASS, Phase 14 PASS (27/27), Phase 15 PASS (44/44), Phase 16 PASS (58/58), Phase 17 PASS (22/22) |
 
 ### Test Coverage Highlights
 - Health endpoints: liveness, DB readiness, Redis readiness
@@ -550,7 +556,7 @@ The following items were identified during the Phase 03 human verification audit
 | Redis Caching (Phase 14) | ✅ Complete & Verified (27/27, 524/524, 8 migrations — no new migration) |
 | Background Jobs / BullMQ (Phase 15) | ✅ Complete & Verified (44/44, 568/568, 8 migrations — no new migration) |
 | External Integrations (Phase 16) | ✅ Complete & Verified (58/58, 626/626, 8 migrations — no new migration, HUMAN VERIFICATION: PASS) |
-| API Orchestration (Phase 17) | ⏳ Not Started |
+| API Orchestration (Phase 17) | ✅ Complete & Verified (22/22, 648/648, 8 migrations — no new migration, HUMAN VERIFICATION: PASS) |
 | Analytics (Phase 18) | ⏳ Not Started |
 | Performance (Phase 19) | ⏳ Not Started |
 | Security Hardening (Phase 20) | ⏳ Not Started |
@@ -622,7 +628,100 @@ Reuses `src/config/env.js`, `src/config/logger.js` (redact), `src/common/errors/
 - No new DB tables/migrations; storage via filesystem or S3 REST; no analytics/reporting; no Docker/CI/CD; single-process workers still.
 
 ### Phase 16 Status: ✅ COMPLETE AND VERIFIED (HUMAN VERIFICATION: PASS)
-All 58 Phase 16 tests, 626/626 full (17 suites, 568 + 58), lint 0, Prisma valid, 8 migrations up to date (no new Phase 16 migration), app startup + S3 real/rest vs Mock + HTTP timeout/retry + provider-independent adapters + EmailService + BullMQ processor->service->adapter + tenant isolation + HMAC + env secrets + logger redact all verified, roadmap untouched. Phase 17 — API Orchestration is NEXT.
+All 58 Phase 16 tests, 626/626 full (17 suites, 568 + 58), lint 0, Prisma valid, 8 migrations up to date (no new Phase 16 migration), app startup + S3 real/rest vs Mock + HTTP timeout/retry + provider-independent adapters + EmailService + BullMQ processor->service->adapter + tenant isolation + HMAC + env secrets + logger redact all verified, roadmap untouched. Phase 17 — API Orchestration is COMPLETE (see below).
+
+---
+
+## Phase 17 — API Orchestration (COMPLETE & VERIFIED — 22/22, 648/648, 8 migrations — no new migration, HUMAN VERIFICATION: PASS)
+
+### Objective
+Create high-value orchestration API `GET /api/v1/dashboard/overview` aggregating existing backend modules without duplicating domain logic or introducing internal HTTP calls.
+
+### Architecture — Orchestration Layer
+```
+Dashboard Route
+  ↓
+Dashboard Controller
+  ↓
+Dashboard Service (orchestration only — no direct Prisma)
+  ↓
+OrderService.getOverview(tenantId)
+InventoryService.getOverview(tenantId)
+PaymentService.getOverview(tenantId)
+UserService.getOverview(tenantId)
+NotificationService.getOverview(tenantId)
+ProductService.getOverview(tenantId)
+  ↓
+Existing repositories (tenant-scoped aggregation)
+  ↓
+Prisma / PostgreSQL
+```
+- **DashboardService** is pure orchestration: delegates to six existing domain services via established `getOverview(tenantId)` service/repository boundaries; contains zero direct `prisma.*` domain queries (verified via code inspection and runtime delegation test).
+- Six domain services expose `getOverview(tenantId)` through existing boundaries: `OrderService`/`OrderRepository.getOverview`, `InventoryService`/`InventoryRepository.getOverview`, `PaymentService`/`PaymentRepository.getOverview`, `UserService`/`UserRepository.getOverview`, `NotificationService`/`NotificationRepository.getOverview`, `ProductService`/`ProductRepository.getOverview` — each performs efficient tenant-scoped `count`/`groupBy`/`aggregate`/`findMany take 5` with `where:{tenantId}`.
+- Reuses `authenticate()` + `authorize('dashboard:read')`, existing `CacheService`, existing `dashboardOverviewKey` + `CACHE_TTL.DASHBOARD_OVERVIEW`.
+- No internal HTTP calls (`fetch`/`axios`/`supertest` absent, verified).
+
+### Endpoint
+| Method | Endpoint | Auth | Permission | Behavior |
+|--------|----------|------|------------|----------|
+| GET | `/api/v1/dashboard/overview` | Bearer JWT `authenticate()` | `dashboard:read` | Tenant-scoped aggregation; returns `{success:true, data:{tenantId, generatedAt, orders, inventory, payments, users, notifications, products}, message}` + `x-cache: HIT|MISS`; error via `AppError` + central `errorHandler` |
+
+### Tenant Isolation & Authorization
+- Tenant derived solely from `req.context.tenantId` (JWT `authenticate()`); never from client `tenantId` query/body (verified: `?tenantId=other` ignored).
+- Every underlying `getOverview` is tenant-scoped (`where:{tenantId}`); cross-tenant access yields only own tenant data (verified Tenant A vs B payments/notifications/inventory).
+- Protected by existing RBAC: `dashboard:read` via `authorize('dashboard:read')`; unauthenticated → `401 UNAUTHORIZED/INVALID_TOKEN`, missing permission → `403 FORBIDDEN`.
+
+### Orchestration Details
+- **Parallel** where safe: `buildOverview` uses `Promise.allSettled` over six independent `getOverview` calls; each service internally uses `Promise.all` for counts/aggregates. Prioritizes correctness over premature optimization; `~22ms` in tests proves parallel.
+- **Partial failure handling:** individual section failure returns `{error:true, message, code}` rather than fabricated data; `allSettled` aggregates; if at least one succeeds, response is `200` with error marker; if all six fail, throws first error (verified).
+- **All-fail behavior:** throws, resulting in `500` via `errorHandler`.
+- **Consistent response:** `{success:true, data, message}` on success; `{success:false, error:{code,message}, requestId}` on error; no stack/Prisma internals/secrets leaked (verified).
+- **No Phase 18 analytics:** Dashboard derives only from currently implemented modules; no analytics tables or Phase 18 filtering (`from`/`to`/`groupBy`) introduced.
+
+### Redis / Caching — Reuse of Phase 14
+- Reuses existing `CacheService` (no second Redis, no new client, no new abstraction).
+- Key: `pulseops:v1:tenant:{tenantId}:dashboard:overview` via `dashboardOverviewKey(tenantId)` (`CACHE_PREFIX` + `sanitizeId`).
+- TTL: `60` seconds (`CACHE_TTL.DASHBOARD_OVERVIEW` <600, >0, verified).
+- **Miss:** `cache.get` null → call domain services → `cache.set` with TTL.
+- **Hit:** returns cached `{data, cacheHit:true}` + `x-cache: HIT` header without DB calls.
+- **Tenant-specific keys:** `dashboardOverviewKey(A) !== dashboardOverviewKey(B)`; cache isolation verified (A cached != B cached).
+- **Invalidation:** `invalidateCache(tenantId)` → `cache.del(key)`; tested miss→hit→del→null.
+- **GET/SET failure fallback:** `try/catch logger.warn` → fallback to domain services; verified `FakeRedis` GET failure still returns DB data, SET failure still `200`.
+- **No new Redis architecture**, sensitive-data protected via `CacheService.stripSensitive` (password/token/secret stripped, verified `passwordHash` undefined after set).
+- Single-instance ioredis reused; degraded mode preserves correctness.
+
+### Database
+- **Zero new migrations**, **zero schema changes**, existing 8 migrations remain current (`npx prisma migrate status` → Database schema is up to date!).
+- No analytics tables introduced (Phase 18 deferred); reuses existing 34 models.
+- `npx prisma validate` → valid.
+
+### Testing / Verification
+- **Dedicated:** 22/22 in `tests/integration/phase17-dashboard.test.js` (endpoint 7: success derived aggregation + 401 + 403 + cross-tenant isolation + client override blocked + envelope + invalid token; orchestration 5: no HTTP + delegates via boundaries + runtime delegation + parallel + repo contains getOverview; Redis 7: miss→hit, tenant keys, invalidation, GET fallback, SET fallback, TTL/sanitization, sensitive protection; partial failure 2; auth regression 1).
+- **Full regression:** 648/648 (18 suites: 626 Phase 1-16 + 22 Phase 17).
+- **Lint:** `npm run lint` → 0 errors, 0 warnings.
+- **Prisma:** `npx prisma validate` → Valid, `npx prisma migrate status` → 8 migrations up to date (no Phase 17 migration).
+- **Startup:** `createApp()` + ephemeral `http.createServer(app)` + `GET /health` 200, `GET /health/db`/`redis` as before.
+- **Health:** `GET /health` 200 still passing.
+- **Authenticated dashboard:** `GET /api/v1/dashboard/overview` → 200 with tenant data.
+- **401 unauthenticated, 403 insufficient-permission, cross-tenant isolation, client tenantId override, cache hit/miss + tenant isolation + Redis fallback, partial failure error marker / all-fail throws, no internal HTTP calls** all verified in dedicated tests.
+
+### Scope — What is Complete vs Future
+- **Phase 17 (this phase) is API Orchestration — COMPLETE.**
+- **Phase 18 Analytics & Reporting — NOT implemented** (no `analytics/*` tables/APIs).
+- **Phase 19 Performance Optimization — NOT implemented** (no broad perf work; correct orchestration only).
+- **Phase 20 Security Hardening — NOT implemented** (no full hardening).
+- **Phase 21 Complete Testing — NOT implemented as future-phase** (Phase 17 tests are 22/22, but future comprehensive testing phase remains).
+- **Phase 22 Swagger/OpenAPI — NOT implemented.**
+- **Phase 23 Docker/CI/CD/Deployment — NOT implemented.**
+- Phase 1–16 remain complete and verified; no history rewritten.
+
+### Limitations / Design Notes (Actual)
+- Partial failures produce explicit `{error:true, message, code}` per section rather than fabricated successful data; consumers must handle error markers. All-section failure results in error (not partial 200).
+- No exactly-once or distributed-transaction guarantees beyond `Promise.allSettled` and per-service Prisma queries; orchestration is at-least-once read aggregation, not transactional across domains.
+- No Phase 18 analytics features (date range, groupBy, category/product/status filters, revenue timeseries) — dashboard derives revenue sums from existing `order.total`/`payment.amount` aggregates only.
+
+### Phase 17 Status: ✅ COMPLETE AND VERIFIED (HUMAN VERIFICATION: PASS)
+All 22 Phase 17 tests, 648/648 full (18 suites, 626 + 22), lint 0, Prisma valid, 8 migrations up to date (no new Phase 17 migration), app startup + health + orchestration via six domain services + Redis reuse + parallel + partial-failure + tenant isolation + RBAC all verified, roadmap untouched.
 
 
 

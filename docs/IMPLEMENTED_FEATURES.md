@@ -1185,15 +1185,106 @@ All 44 Phase 15 tests pass, 568/568 full (16 suites, 524 Phase 1-14 (Phase 14 27
 
 
 
-## What is NOT Implemented (Future Phases as of Phase 16 completion)
+## Phase 17 — API Orchestration (COMPLETE & VERIFIED — 22/22, 648/648, 8 migrations — no new migration, HUMAN VERIFICATION: PASS)
 
-The following are explicitly **NOT** implemented as of Phase 15 completion (Background Jobs / BullMQ COMPLETE):
-- API Orchestration — `dashboard/overview` aggregation (Phase 17) — only `reportQueue` stub (Phase 16 integrations are COMPLETE, not stubs)
-- API Orchestration — `dashboard/overview` aggregation (Phase 17) — only `reportQueue` stub
-- Analytics & Reporting — `analytics/*` implementation (Phase 18) — only `analyticsQueue` stub
+### Architecture — Orchestration Layer
+```
+Dashboard Route
+  ↓
+Dashboard Controller
+  ↓
+Dashboard Service (orchestration only — no direct Prisma)
+  ↓
+OrderService.getOverview(tenantId)
+InventoryService.getOverview(tenantId)
+PaymentService.getOverview(tenantId)
+UserService.getOverview(tenantId)
+NotificationService.getOverview(tenantId)
+ProductService.getOverview(tenantId)
+  ↓
+Existing repositories (tenant-scoped aggregation)
+  ↓
+Prisma / PostgreSQL
+```
+- DashboardService is pure orchestration: imports six domain services (`OrderService`, `InventoryService`, `PaymentService`, `UserService`, `NotificationService`, `ProductService`) and delegates via `getOverview(tenantId)`; contains zero direct `prisma.*` domain queries, zero `getPrismaClient`, verified via code inspection and runtime delegation test (`FakeRedis` + mock services prove 6 calls).
+- Six domain services expose `getOverview(tenantId)` via existing service/repository boundaries: each repository implements efficient tenant-scoped `count`/`groupBy`/`aggregate`/`findMany take 5`; services simply delegate to repository. No new repository files, no duplicated business logic, no second domain layer.
+- Reuses `authenticate()` + `authorize('dashboard:read')`, existing Phase 14 `CacheService`, `dashboardOverviewKey` + `CACHE_TTL.DASHBOARD_OVERVIEW`.
+- No internal HTTP calls between modules (`fetch`/`axios` absent, verified).
+
+### Endpoint
+| Method | Endpoint | Auth | Permission | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/api/v1/dashboard/overview` | Bearer JWT `authenticate()` | `dashboard:read` | Tenant-scoped orchestration; returns `{success:true, data:{tenantId, generatedAt, orders, inventory, payments, users, notifications, products}, message:'Dashboard overview retrieved successfully'}` + `x-cache: HIT|MISS`; error via `AppError` + central `errorHandler` |
+
+- Response sections (derived only from currently implemented modules, no analytics tables invented): `orders` `{total, byStatus, revenueSum, recent[5]}`, `inventory` `{warehouses, variants, lowStockItems, totalQuantity}`, `payments` `{total, byStatus, completedRevenue, recent[5]}`, `users` `{total, byStatus, recent[5]}`, `notifications` `{total, unread, recent[5]}`, `products` `{products, categories, variants}`.
+
+### Tenant Isolation & Authorization
+- Tenant derived solely from `req.context.tenantId` (JWT `authenticate()`); never from client `tenantId` query/body (verified `?tenantId=other` ignored → own tenant).
+- Every underlying `getOverview` is tenant-scoped `where:{tenantId}`; cross-tenant verification: Tenant A sees only A orders/inventory/payments/users/notifications/products, Tenant B sees only B (verified Tenant A COMPLETED vs B PENDING, notification titles isolated, inventory quantities differ).
+- Protected by existing RBAC via `authorize('dashboard:read')`; unauthenticated → `401 UNAUTHORIZED/INVALID_TOKEN`, missing permission (e.g., only `order:read`) → `403 FORBIDDEN` (verified). `dashboard:read` is minimal new permission following existing `resource:action` convention.
+
+### Orchestration Details
+- **Parallel where safe:** `DashboardService.buildOverview` uses `Promise.allSettled` over six independent `getOverview` calls; each repository internally uses `Promise.all` for counts/aggregates. Deterministic, no race on tenant isolation. Verified `~22ms` and runtime delegation test.
+- **Partial failure handling:** individual section failure returns `{error:true, message, code}` rather than fabricated data; `allSettled` aggregates; if at least one succeeds, HTTP `200` with error marker; verified by monkey-patching `getPaymentsOverview` → `payments: {error:true}` while `orders` still present.
+- **All-fail behavior:** if all six fail, throws first error → `500` via `errorHandler` (verified: six mocks failing → rejects).
+- **Consistent response:** success `{success:true, data, message}`; error `{success:false, error:{code,message}, requestId}`; no stack/Prisma internals/secrets leaked (verified `JSON.stringify` not matching `prisma|stack|passwordHash|secret`).
+- **No Phase 18 analytics:** Dashboard derives revenue sums from existing `order.total`/`payment.amount` aggregates only; no date-range/groupBy/category/product/status filters, no new analytics schema.
+
+### Redis / Caching — Reuse of Phase 14
+- Reuses existing `CacheService` (`src/common/cache/cache.service.js` `get`/`set`/`del` with `stripSensitive`, `logger.warn` fallback) and `src/config/redis.js` (no second Redis, no new client, no new abstraction, no new `CACHE_PREFIX` architecture).
+- Key: `pulseops:v1:tenant:{tenantId}:dashboard:overview` via `dashboardOverviewKey(tenantId)` (`CACHE_PREFIX` + `sanitizeId` regex validation).
+- TTL: `60` seconds (`CACHE_TTL.DASHBOARD_OVERVIEW` 60 <600 >0, verified).
+- **Miss:** `cache.get` null → call six domain services → `cache.set` with TTL 60 → return `cacheHit:false` + `x-cache: MISS`.
+- **Hit:** `cache.get` returns deserialized `{data, cacheHit:true}` → no DB calls → `x-cache: HIT` (verified miss stores 1 key, hit returns same `orders.total`, second call `cacheHit:true`).
+- **Tenant-specific keys:** `dashboardOverviewKey(A) !== dashboardOverviewKey(B)` → isolation verified (A cached `tenantId A` ≠ B `tenantId B`).
+- **Invalidation:** `invalidateCache(tenantId)` → `cache.del(key)` → `null` (verified).
+- **GET/SET failure fallback:** `try/catch logger.warn` → fallback to domain services; `FakeRedis` GET failure still returns DB data `cacheHit:false`, SET failure still `200` (verified).
+- **No second cache implementation**, sensitive-data protection via `stripSensitive` (verified `passwordHash`/`token` undefined after set, `data.ok` preserved).
+- Single-instance ioredis reused; degraded mode preserves correctness (Redis down → DB fallback, still `200`).
+
+### Database
+- **Zero new migrations**, **zero schema changes**, existing 8 migrations remain current (`npx prisma migrate status` → Database schema is up to date!).
+- `npx prisma validate` → valid.
+- No analytics tables introduced (Phase 18 deferred); reuses existing 34 models (`tenants`, `orders`, `inventory`, `payments`, `users`, `notifications`, `products`, etc.).
+- No Phase 18 analytics schema claimed.
+
+### Testing / Verification
+- **Dedicated:** 22/22 in `tests/integration/phase17-dashboard.test.js` (endpoint 7: success derived aggregation + 401 unauth + 403 insufficient + cross-tenant isolation + client override blocked + envelope no leak + invalid token; orchestration 5: no HTTP + delegates via boundaries + runtime delegation with mock services + parallel + repo contains getOverview; Redis 7: miss→hit tenant keys, invalidation, GET fallback, SET fallback, TTL/sanitization, sensitive protection; partial failure 2; auth regression 1).
+- **Full regression:** 648/648 (18 suites: 626 Phase 1-16 + 22 Phase 17) `node --experimental-vm-modules jest --runInBand --forceExit`.
+- **Lint:** `npm run lint` → 0 errors, 0 warnings.
+- **Prisma:** `npx prisma validate` → Valid, `npx prisma migrate status` → 8 migrations up to date (no Phase 17 migration).
+- **Startup:** `createApp()` + ephemeral `http.createServer(app)` + `GET /health` 200.
+- **Health:** `GET /health` 200.
+- **Authenticated dashboard:** `GET /api/v1/dashboard/overview` → 200 with tenant `orders.total`/`byStatus`/`recent`, `inventory.variants`/`warehouses`/`lowStockItems`, `payments.byStatus`, `users`, `notifications`, `products`.
+- **401 unauthenticated, 403 insufficient-permission, cross-tenant isolation, client tenantId override, cache hit/miss + tenant isolation + Redis fallback, partial failure error marker / all-fail throws, no internal HTTP calls** all verified.
+
+### Scope — What is Complete vs Future (as of Phase 17)
+- **Phase 17 API Orchestration — COMPLETE** (this phase).
+- **Phase 18 Analytics & Reporting — NOT implemented** (no `analytics/*` tables/APIs, no date-range/groupBy/reportQueue consumption beyond stub).
+- **Phase 19 Performance Optimization — NOT implemented** (no broad perf work; orchestration prioritizes correctness, Phase 19 dedicated).
+- **Phase 20 Security Hardening — NOT implemented.**
+- **Phase 21 Complete Testing — NOT implemented as future-phase** (Phase 17 tests are 22/22, but future comprehensive testing phase remains).
+- **Phase 22 Swagger/OpenAPI — NOT implemented.**
+- **Phase 23 Docker/CI/CD/Deployment — NOT implemented.**
+- Phase 1–16 remain complete and verified; no history rewritten.
+
+### Limitations / Design Notes (Actual)
+- Partial failures produce explicit `{error:true, message, code}` per section rather than fabricated successful data; consumers must handle error markers. All-section failure results in error (thrown, not partial 200). Verified via `payments down` → `payments.error:true`.
+- No exactly-once or distributed-transaction guarantees beyond `Promise.allSettled` and per-service Prisma `count/groupBy/aggregate` reads; orchestration is at-least-once read aggregation, not transactional across domains.
+- No Phase 18 analytics features (date range, groupBy, category/product/status filters, revenue timeseries) — dashboard revenue sums are simple `order.total`/`payment.amount` aggregates only.
+
+### Phase 17 Status: ✅ COMPLETE AND VERIFIED (HUMAN VERIFICATION: PASS)
+All 22 Phase 17 tests, 648/648 full (18 suites, 626 + 22), lint 0, Prisma valid, 8 migrations up to date (no new Phase 17 migration), app startup + health + orchestration via six domain services (OrderService/InventoryService/PaymentService/UserService/NotificationService/ProductService) through existing repositories + Redis reuse + parallel Promise.allSettled + partial-failure handling + tenant isolation + dashboard:read RBAC all verified, roadmap untouched, no Phase 18+ claimed.
+
+---
+
+## What is NOT Implemented (Future Phases as of Phase 17 completion)
+
+The following are explicitly **NOT** implemented as of Phase 17 completion (API Orchestration — COMPLETE):
+- Analytics & Reporting — `analytics/*` implementation (Phase 18) — only `reportQueue`/`analyticsQueue` stubs
 - Performance Optimization (Phase 19)
 - Security Hardening (Phase 20)
 - Complete Testing (Phase 21)
 - Swagger/OpenAPI (Phase 22)
 - Docker / CI/CD / Deployment (Phase 23)
-Phase 16 External Integrations is COMPLETE; future phases (17 API Orchestration, 18 Analytics, 19 Performance, 20 Security Hardening, 21 Complete Testing, 22 Swagger/OpenAPI, 23 Docker/CI/CD) remain NOT implemented as documented above.
+Phase 17 API Orchestration is COMPLETE; future phases (18 Analytics, 19 Performance, 20 Security Hardening, 21 Complete Testing, 22 Swagger/OpenAPI, 23 Docker/CI/CD) remain NOT implemented as documented above.

@@ -427,6 +427,10 @@ export class PaymentService {
     }
   }
 
+  async getOverview(tenantId) {
+    return this.repository.getOverview(tenantId);
+  }
+
   // For testing webhook signature generation
   getWebhookSecret() {
     return env.PAYMENT_WEBHOOK_SECRET;

@@ -203,4 +203,13 @@ export class ProductRepository {
       include: { category: true },
     });
   }
+
+  async getOverview(tenantId) {
+    const [totalProducts, totalCategories, variantCount] = await Promise.all([
+      this.prisma.product.count({ where: { tenantId } }),
+      this.prisma.category.count({ where: { tenantId } }),
+      this.prisma.productVariant.count({ where: { tenantId } }),
+    ]);
+    return { products: totalProducts, categories: totalCategories, variants: variantCount };
+  }
 }

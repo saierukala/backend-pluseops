@@ -92,6 +92,20 @@ export class NotificationRepository {
     const client = tx || this.prisma;
     return client.notification.createMany({ data: dataArray });
   }
+
+  async getOverview(tenantId) {
+    const [total, unread, recent] = await Promise.all([
+      this.prisma.notification.count({ where: { tenantId } }),
+      this.prisma.notification.count({ where: { tenantId, isRead: false } }),
+      this.prisma.notification.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: { id: true, type: true, title: true, channel: true, isRead: true, createdAt: true },
+      }),
+    ]);
+    return { total, unread, recent };
+  }
 }
 
 export class NotificationPreferenceRepository {

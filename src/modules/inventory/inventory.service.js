@@ -135,6 +135,10 @@ export class InventoryService {
     return result;
   }
 
+  async getOverview(tenantId) {
+    return this.repository.getOverview(tenantId);
+  }
+
   async transfer(tenantId, userId, body) {
     const variantId = this.resolveVariantId(body);
     const sourceWarehouseId = body.sourceWarehouseId || body.warehouseId;

@@ -65,4 +65,35 @@ export class OrderRepository {
     ]);
     return { data, meta: { page, limit: take, total, totalPages: Math.ceil(total / take) } };
   }
+
+  async getOverview(tenantId) {
+    const [totalOrders, statusGroups, recentOrders, revenueAgg] = await Promise.all([
+      this.prisma.order.count({ where: { tenantId } }),
+      this.prisma.order.groupBy({ by: ['status'], where: { tenantId }, _count: { status: true } }),
+      this.prisma.order.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: { id: true, status: true, total: true, currency: true, customerId: true, createdAt: true },
+      }),
+      this.prisma.order.aggregate({ where: { tenantId }, _sum: { total: true } }),
+    ]);
+    const byStatus = {};
+    for (const g of statusGroups) {
+      byStatus[g.status] = g._count.status;
+    }
+    return {
+      total: totalOrders,
+      byStatus,
+      revenueSum: revenueAgg._sum.total ? revenueAgg._sum.total.toString() : '0.00',
+      recent: recentOrders.map((o) => ({
+        id: o.id,
+        status: o.status,
+        total: o.total.toString(),
+        currency: o.currency,
+        customerId: o.customerId,
+        createdAt: o.createdAt,
+      })),
+    };
+  }
 }

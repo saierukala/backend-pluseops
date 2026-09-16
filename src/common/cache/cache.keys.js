@@ -51,3 +51,11 @@ export function productListKey(tenantId, options) {
 export function productListPattern(tenantId) {
   return `${CACHE_PREFIX}:tenant:${sanitizeId(tenantId)}:products:list:*`;
 }
+
+export function dashboardOverviewKey(tenantId) {
+  return `${CACHE_PREFIX}:tenant:${sanitizeId(tenantId)}:dashboard:overview`;
+}
+
+export function dashboardOverviewPattern(tenantId) {
+  return `${CACHE_PREFIX}:tenant:${sanitizeId(tenantId)}:dashboard:*`;
+}

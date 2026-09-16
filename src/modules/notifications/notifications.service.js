@@ -132,6 +132,10 @@ export class NotificationService {
     const all = await this.preferenceRepository.list(tenantId, userId);
     return all.length === 0 ? updated : all;
   }
+
+  async getOverview(tenantId) {
+    return this.notificationRepository.getOverview(tenantId);
+  }
 }
 
 export const notificationService = new NotificationService();

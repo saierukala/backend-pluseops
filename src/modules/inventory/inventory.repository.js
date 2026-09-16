@@ -97,4 +97,19 @@ export class InventoryRepository {
     ]);
     return { data, meta: { page, limit: take, total, totalPages: Math.ceil(total / take) } };
   }
+
+  async getOverview(tenantId) {
+    const [warehouseCount, variantCount, lowStockCount, inventoryAgg] = await Promise.all([
+      this.prisma.warehouse.count({ where: { tenantId } }),
+      this.prisma.productVariant.count({ where: { tenantId } }),
+      this.prisma.inventory.count({ where: { tenantId, quantity: { lte: 10 } } }),
+      this.prisma.inventory.aggregate({ where: { tenantId }, _sum: { quantity: true } }),
+    ]);
+    return {
+      warehouses: warehouseCount,
+      variants: variantCount,
+      lowStockItems: lowStockCount,
+      totalQuantity: inventoryAgg._sum.quantity ?? 0,
+    };
+  }
 }

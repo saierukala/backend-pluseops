@@ -31,6 +31,37 @@ export class PaymentRepository {
     return tx.payment.findMany({ where: { orderId, tenantId } });
   }
 
+  async getOverview(tenantId) {
+    const [totalPayments, statusGroups, revenueAgg, recentPayments] = await Promise.all([
+      this.prisma.payment.count({ where: { tenantId } }),
+      this.prisma.payment.groupBy({ by: ['status'], where: { tenantId }, _count: { status: true } }),
+      this.prisma.payment.aggregate({ where: { tenantId, status: 'COMPLETED' }, _sum: { amount: true } }),
+      this.prisma.payment.findMany({
+        where: { tenantId },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        select: { id: true, orderId: true, amount: true, currency: true, status: true, createdAt: true },
+      }),
+    ]);
+    const byStatus = {};
+    for (const g of statusGroups) {
+      byStatus[g.status] = g._count.status;
+    }
+    return {
+      total: totalPayments,
+      byStatus,
+      completedRevenue: revenueAgg._sum.amount ? revenueAgg._sum.amount.toString() : '0.00',
+      recent: recentPayments.map((p) => ({
+        id: p.id,
+        orderId: p.orderId,
+        amount: p.amount.toString(),
+        currency: p.currency,
+        status: p.status,
+        createdAt: p.createdAt,
+      })),
+    };
+  }
+
   sanitize(payment) {
     if (!payment) return payment;
     const { ...rest } = payment;

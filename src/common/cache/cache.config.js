@@ -4,6 +4,7 @@ export const CACHE_TTL = {
   PERMISSIONS: 300,
   PERMISSIONS_USER: 300,
   PRODUCT_LIST: 60,
+  DASHBOARD_OVERVIEW: 60,
 };
 
 export const CACHE_PREFIX = 'pulseops:v1';
