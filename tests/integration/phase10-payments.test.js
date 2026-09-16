@@ -298,6 +298,28 @@ describe('Phase 10 - Payment & Transaction Processing', () => {
   });
 
   describe('Webhooks', () => {
+    // Phase 15 async webhook (BullMQ) approved: when Redis is available webhook returns 202 enqueued,
+    // fallback (Redis unavailable) returns 200 synchronous. Tests must be deterministic regardless of
+    // Redis state left by earlier suites (e.g., auth). Force synchronous fallback for webhook assertions
+    // by temporarily disabling BullMQ Redis, so payment status is updated immediately and expectations
+    // for 200/duplicate/idempotency remain valid. This does not change production async behavior.
+    let originalRedisUrl;
+    beforeAll(async () => {
+      originalRedisUrl = env.REDIS_URL;
+      env.REDIS_URL = '';
+      const { disconnectBullMqRedis } = await import('../../src/jobs/connection.js');
+      await disconnectBullMqRedis();
+      const { _resetWebhookQueueForTest } = await import('../../src/jobs/queues/webhook.queue.js');
+      _resetWebhookQueueForTest();
+    });
+    afterAll(async () => {
+      env.REDIS_URL = originalRedisUrl;
+      const { disconnectBullMqRedis } = await import('../../src/jobs/connection.js');
+      await disconnectBullMqRedis();
+      const { _resetWebhookQueueForTest } = await import('../../src/jobs/queues/webhook.queue.js');
+      _resetWebhookQueueForTest();
+    });
+
     it('valid webhook -> processes and updates payment to COMPLETED', async () => {
       const ord = await request(app).post('/api/v1/orders').set('Authorization', `Bearer ${tokenA}`).send({ customerId: customerAId, items: [{ productVariantId: variantAId, warehouseId: warehouseAId, quantity: 1 }] });
       const pay = await request(app).post('/api/v1/payments/create').set('Authorization', `Bearer ${tokenA}`).send({ orderId: ord.body.data.id });
@@ -569,11 +591,10 @@ describe('Phase 10 - Payment & Transaction Processing', () => {
     it('uniqueness enforcement for webhook eventId per tenant', async () => {
       const ord = await request(app).post('/api/v1/orders').set('Authorization', `Bearer ${tokenA}`).send({ customerId: customerAId, items: [{ productVariantId: variantAId, warehouseId: warehouseAId, quantity: 1 }] });
       const pay = await request(app).post('/api/v1/payments/create').set('Authorization', `Bearer ${tokenA}`).send({ orderId: ord.body.data.id });
-      const eventId = `evt_uniq_${Date.now()}`;
-      const payload = { eventId, type: 'payment.succeeded', paymentId: pay.body.data.id, tenantId: tenantAId };
-      const sig = signPayload(payload);
-      await request(app).post('/api/v1/payments/webhook').set('x-webhook-signature', sig).send(payload);
-      // direct DB duplicate insert should fail with P2002
+      const eventId = `evt_uniq_${Date.now()}_${crypto.randomUUID().slice(0,6)}`;
+      const payload = { eventId, type: 'payment.succeeded' };
+      // Direct DB uniqueness check (deterministic, not depending on HTTP async webhook)
+      await prisma.paymentWebhookEvent.create({ data: { tenantId: tenantAId, paymentId: pay.body.data.id, eventId, providerEventId: eventId, type: 'payment.succeeded', payload } });
       await expect(prisma.paymentWebhookEvent.create({ data: { tenantId: tenantAId, paymentId: pay.body.data.id, eventId, providerEventId: eventId, type: 'payment.succeeded', payload } })).rejects.toMatchObject({ code: 'P2002' });
     });
 

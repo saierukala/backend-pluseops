@@ -1278,13 +1278,174 @@ All 22 Phase 17 tests, 648/648 full (18 suites, 626 + 22), lint 0, Prisma valid,
 
 ---
 
-## What is NOT Implemented (Future Phases as of Phase 17 completion)
+## Phase 18 — Analytics & Reporting (COMPLETE & VERIFIED — 45/45, 693/693, 8 migrations — no new migration, HUMAN VERIFICATION: PASS)
 
-The following are explicitly **NOT** implemented as of Phase 17 completion (API Orchestration — COMPLETE):
-- Analytics & Reporting — `analytics/*` implementation (Phase 18) — only `reportQueue`/`analyticsQueue` stubs
+### Objective
+Build analytics and reporting APIs from existing transactional data without introducing a separate analytics database. Reuse the layered architecture `Route → Controller → Service → Repository → PostgreSQL` and all Phases 1–17 behavior. Analytics are computed on-demand from orders, payments, inventory, customers, and products tables using UTC-deterministic grouping and Decimal monetary aggregation.
+
+### Architecture
+```
+Route → Controller → Service → Repository → PostgreSQL
+```
+- **Controller** (`analytics.controller.js`) — HTTP handling, `req.context.tenantId` from auth, delegates to service, standard `{success,data,message}` + `x-cache: HIT|MISS` header.
+- **Service** (`analytics.service.js`) — Business coordination, cache-aside via `CacheService` (tenant-scoped keys, 60s TTL), calls repository loader on miss, logs fallback on Redis failure, invalidation pattern for analytics keys.
+- **Repository** (`analytics.repository.js`) — PostgreSQL/Prisma persistence and aggregation; uses Prisma `count`/`aggregate`/`groupBy` for non-grouped queries; raw SQL with `date_trunc(... AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'` for deterministic UTC day/week/month buckets; joins orders→order_items→product_variants→products/categories for category/product filtering.
+- **Validation** (`analytics.validation.js`) — Zod schemas for all six endpoints; `from`/`to` date strings with `from <= to` refinement; `groupBy` enum `day|week|month`; `category/categoryId`, `product/productId`, `status`, `warehouseId/warehouse`, `page/limit` (max 100); client `tenantId`/`tenant` accepted but ignored for isolation.
+- **Routes** (`analytics.routes.js`) — Mounted at `/api/v1/analytics/*` behind `authenticate()` + `authorize('analytics:read')` + validation.
+
+No separate analytics database introduced; all analytics derived from existing transactional tables: `orders`, `order_items`, `payments`, `refunds`, `inventory`, `product_variants`, `products`, `categories`, `customers`, `warehouses`.
+
+### Endpoints (All `/api/v1/analytics/*`)
+
+| Method | Endpoint | Auth | Permission | Description |
+|--------|----------|------|------------|-------------|
+| GET | `/api/v1/analytics/overview` | Bearer JWT `authenticate()` | `analytics:read` | Summary analytics: order counts/status, totals/averages, customers, products/variants, warehouses, inventory quantities/reserved/low-stock, completed payments, refunds, net revenue. No pagination. |
+| GET | `/api/v1/analytics/sales` | Bearer JWT | `analytics:read` | Sales analytics: order count, total sales, average order value; filters `from`/`to`, `groupBy=day|week|month`, `category/categoryId`, `product/productId`, `status`; grouped buckets with pagination or non-grouped single summary. |
+| GET | `/api/v1/analytics/orders` | Bearer JWT | `analytics:read` | Order analytics: order counts, status breakdown, totals; filters `from`/`to`, `groupBy=day|week|month`, `status`; grouped buckets with pagination or non-grouped status entries paginated. |
+| GET | `/api/v1/analytics/inventory` | Bearer JWT | `analytics:read` | Inventory analytics: quantity, reserved quantity, warehouse/variant counts, low-stock items; filters `category/categoryId`, `product/productId`, `warehouseId/warehouse`, `status` (variant status); `byWarehouse` aggregation enriched with warehouse names; paginated detail rows. |
+| GET | `/api/v1/analytics/customers` | Bearer JWT | `analytics:read` | Customer analytics: total customers, total orders, avg orders/customer, top customers by revenue (paginated), optional new-customer time buckets via `groupBy=day|week|month` on `customers.createdAt`. |
+| GET | `/api/v1/analytics/revenue` | Bearer JWT | `analytics:read` | Revenue analytics: completed payments (`grossRevenue`), completed refunds (`totalRefunded`), `netRevenue = grossRevenue - totalRefunded`; filters `from`/`to`, `groupBy=day|week|month`, `status` (payment status default COMPLETED); grouped buckets with pagination. |
+
+### Supported Query Parameters
+
+| Parameter | Applicable Endpoints | Description |
+|-----------|---------------------|-------------|
+| `from` | overview, sales, orders, customers, revenue | Start date (YYYY-MM-DD), interpreted as UTC 00:00:00.000 |
+| `to` | overview, sales, orders, customers, revenue | End date (YYYY-MM-DD), interpreted as UTC 23:59:59.999 |
+| `groupBy` | sales, orders, customers, revenue | `day` | `week` | `month` — deterministic UTC buckets via `date_trunc('day|week|month', created_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'` |
+| `category` / `categoryId` | sales, inventory | Filter by category UUID (joins via product_categories → products → variants) |
+| `product` / `productId` | sales, inventory | Filter by product UUID (joins via variants → product_variants) |
+| `status` | sales, orders, inventory, revenue | Sales/Orders: `OrderStatus` enum; Inventory: `VariantStatus` enum; Revenue: `PaymentStatus` enum (default COMPLETED) |
+| `warehouseId` / `warehouse` | inventory | Filter by warehouse UUID |
+| `page` | sales, orders, inventory, customers, revenue | Page number (default 1, positive int) |
+| `limit` | sales, orders, inventory, customers, revenue | Page size (default 20, max 100) |
+| `tenantId` / `tenant` | all | Accepted but **ignored**; tenant context derived solely from authenticated JWT (`req.context.tenantId`). Client cannot override tenant isolation. |
+
+Date validation: `from` and `to` must be valid ISO date strings; `from <= to` enforced via Zod `superRefine`; invalid → `400 VALIDATION_ERROR`.
+
+### Analytics Details
+
+**Overview** (non-grouped summary):
+- `orders`: `total`, `byStatus` (object), `totalSales` (Decimal 2dp), `avgOrderValue` (Decimal 2dp)
+- `customers`: `total`
+- `inventory`: `totalQuantity`, `totalReserved`, `lowStockItems` (threshold 10), `warehouses`, `variants`
+- `products`: `total`, `variants`
+- `revenue`: `totalPayments`, `completedRevenue`, `totalRefunded`, `netRevenue` (all Decimal 2dp)
+
+**Sales**:
+- Non-grouped: single summary `{orderCount, totalSales, avgValue}` filtered by date/category/product/status
+- Grouped: paginated buckets `{bucket: ISO timestamp, orderCount, totalSales, avgValue}` + overall `summary`
+
+**Orders**:
+- Non-grouped: status entries paginated `{status, count}` + `summary: {total, byStatus, totalSales}`
+- Grouped: paginated buckets `{bucket, orderCount, totalSales}` + `summary: {total, byStatus}`
+
+**Inventory**:
+- `summary`: `totalQuantity`, `totalReserved`, `warehouses`, `variants`, `itemCount`, `lowStockItems` (filtered by category/product/status/warehouse where applicable)
+- `byWarehouse`: enriched with `warehouse.name/code`, `totalQuantity`, `totalReserved`, `itemCount`
+- `data`: paginated detail rows with `productVariant` (sku, price, status, productId) and `warehouse` (name, code)
+
+**Customers**:
+- `summary`: `totalCustomers`, `totalOrders`, `avgOrdersPerCustomer` (2dp)
+- `topCustomers`: paginated `{customerId, email, firstName, lastName, orderCount, totalSpent}` ordered by spend desc
+- `buckets` (if `groupBy`): `{bucket, newCustomers}` with `bucketMeta` pagination
+
+**Revenue**:
+- `summary`: `grossRevenue`, `totalRefunded`, `netRevenue`, `paymentCount` (all Decimal 2dp)
+- Non-grouped: single bucket
+- Grouped: paginated buckets `{bucket, paymentCount, grossRevenue}` + `summary`
+
+### Money / Decimal Handling
+All monetary aggregations remain `Decimal`/`numeric` based (Prisma `Decimal @db.Decimal(12,2)`). Aggregated sums retrieved as strings, parsed via `Number.parseFloat`, formatted to two decimal places via `toFixed(2)`. **Never Float** at any stage — storage, aggregation, or response.
+
+### UTC / Date Semantics
+- Database timestamps remain `timestamptz(6)` (UTC).
+- Date bounds for `YYYY-MM-DD` interpreted using UTC boundaries: `from` → `00:00:00.000 UTC`, `to` → `23:59:59.999 UTC`.
+- Grouped analytics explicitly normalize timestamps to UTC: `date_trunc('day|week|month', created_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`.
+- Day/week/month buckets are deterministic and **do not depend on PostgreSQL session timezone**. Week grouping follows PostgreSQL week semantics (Monday start).
+
+### Revenue / Refund Semantics
+- **grossRevenue**: Sum of `amount` from `payments` where `status = 'COMPLETED'` AND `payment.createdAt` inside requested date range (UTC boundaries).
+- **totalRefunded**: Sum of `amount` from `refunds` where `status = 'COMPLETED'` AND `refund.createdAt` inside requested date range (UTC boundaries).
+- **netRevenue**: `grossRevenue - totalRefunded` (Decimal 2dp).
+- Refunds counted according to their own `refund.createdAt`, not the payment's `createdAt`. A refund for a payment from a different date range is attributed to the refund's date range.
+
+### Security / Tenant Isolation
+- `authenticate()` middleware validates JWT, resolves user/tenant, establishes `req.context.tenantId`.
+- `authorize('analytics:read')` enforces RBAC permission.
+- All repository queries scoped by `where: {tenantId}` from authenticated context.
+- Client-supplied `tenantId`/`tenant` query parameters accepted by Zod but **ignored** — cannot override tenant isolation.
+- All inputs validated through Zod schemas (strict, rejects unknown fields).
+- Safe error handling via centralized `errorHandler` — no stack traces in production.
+- Parameterized raw SQL where used (`$queryRawUnsafe` with positional params `$1`, `$2`...); no string concatenation.
+- No sensitive data exposed in responses (passwords, tokens, secrets never in analytics tables).
+
+### Redis / Caching
+Phase 18 reuses the existing Phase 14 `CacheService` — **no second Redis client**.
+- **Cache-aside**: `GET` → hit return deserialized; miss → repository loader → `SET` with TTL → return.
+- **Tenant-scoped keys**: `pulseops:v1:tenant:{tenantId}:analytics:{endpoint}:{sha256(params).slice(0,16)}` via `analyticsKey()` with deterministic sorted param hashing.
+- **Analytics-specific TTLs**: 60 seconds for all six endpoints (`CACHE_TTL.ANALYTICS_* = 60` in `cache.config.js`).
+- **Cache miss → database fallback**: Redis failure on `get` logs warn and proceeds to DB; failure on `set` logs warn and returns DB result.
+- **Redis failure does not break analytics**: Core PostgreSQL-backed operations continue when Redis unavailable (verified via FakeRedis failure simulation).
+- **Analytics cache invalidation**: `invalidateCache(tenantId)` deletes specific keys and patterns via `delByPattern` for all six analytics endpoints.
+
+### Database / Migrations
+- **No Phase 18 schema changes**; no new tables; no new columns; no migration created.
+- Database remains at **8 migrations** (same as Phase 17).
+- `npx prisma migrate status` → "Database schema is up to date!"
+- `npx prisma validate` → valid.
+
+### Testing
+- **Phase 18 dedicated**: 45 tests passed (`tests/integration/phase18-analytics.test.js`).
+- **Full regression**: 19 test suites passed, **693 tests passed** (`node --experimental-vm-modules jest --runInBand --forceExit`).
+- **Coverage includes**:
+  - API success responses for all six endpoints
+  - Validation (date format, `from <= to`, `groupBy` enum, pagination bounds, UUID formats, status enums)
+  - Authentication (401 unauthenticated)
+  - Authorization (403 missing `analytics:read`)
+  - Tenant isolation (cross-tenant requests return 404/own data only, client `tenantId` ignored)
+  - Aggregation correctness (order totals, inventory quantities, revenue math)
+  - UTC grouping determinism (day/week/month buckets aligned to UTC midnight)
+  - Revenue/refund date semantics (payment `createdAt` vs refund `createdAt`, net revenue formula)
+  - Cache hit/miss/fallback (miss stores key, hit returns cached, Redis failure falls back to DB)
+  - Redis isolation (tenant A keys ≠ tenant B keys)
+  - Repository failure handling (errors propagate safely)
+- **Lint**: `npm run lint` → 0 problems
+- **Prisma**: `npx prisma validate` → valid
+
+### Phase 10 Regression Test Fix
+A Phase 10 webhook integration test was made deterministic because the already-approved Phase 15 BullMQ architecture can return HTTP 202 when Redis/BullMQ is ready, whereas the older test expected the synchronous 200 fallback. **The production payment webhook implementation was NOT changed.** This is a test-only adjustment, not a Phase 18 production feature.
+
+### Scope Boundary
+**Phase 19+ was NOT implemented as part of Phase 18.**
+- Phase 19 Performance Optimization — NOT completed.
+- Swagger/OpenAPI — NOT completed.
+- Docker / CI/CD / Deployment — NOT completed.
+- Comprehensive security hardening — NOT completed.
+- Complete-system testing — NOT completed.
+
+Phase 18 delivers analytics APIs only. No performance optimization, no deployment artifacts, no OpenAPI spec, no security hardening beyond existing Phase 1–17 foundations.
+
+### Known Limitations
+- Analytics cache may remain stale for up to the configured 60-second TTL.
+- Transactional writes do not automatically invalidate every analytics cache entry (invalidation is explicit via `invalidateCache`).
+- Week grouping follows PostgreSQL week semantics (Monday start).
+- Overview is summary-oriented rather than paginated.
+- Analytics uses existing indexes; comprehensive performance/query-plan optimization belongs to Phase 19.
+
+These are accurate operational boundaries, not claims of incompleteness.
+
+### Phase 18 Status: ✅ COMPLETE AND VERIFIED (HUMAN VERIFICATION: PASS)
+All 45 Phase 18 tests, 693/693 full (19 suites, 648 Phase 1-17 + 45 Phase 18 = 693), lint 0, Prisma valid, 8 migrations up to date (no Phase 18 migration), app startup + health + 6 analytics APIs + UTC deterministic grouping + Decimal money + CacheService reuse + tenant isolation + analytics:read RBAC all verified, roadmap untouched.
+
+---
+
+## What is NOT Implemented (Future Phases as of Phase 18 completion)
+
+The following are explicitly **NOT** implemented as of Phase 18 completion (Analytics & Reporting — COMPLETE):
 - Performance Optimization (Phase 19)
 - Security Hardening (Phase 20)
 - Complete Testing (Phase 21)
 - Swagger/OpenAPI (Phase 22)
 - Docker / CI/CD / Deployment (Phase 23)
-Phase 17 API Orchestration is COMPLETE; future phases (18 Analytics, 19 Performance, 20 Security Hardening, 21 Complete Testing, 22 Swagger/OpenAPI, 23 Docker/CI/CD) remain NOT implemented as documented above.
+Phase 18 Analytics & Reporting is COMPLETE; future phases (19 Performance, 20 Security Hardening, 21 Complete Testing, 22 Swagger/OpenAPI, 23 Docker/CI/CD) remain NOT implemented as documented above.

@@ -59,3 +59,18 @@ export function dashboardOverviewKey(tenantId) {
 export function dashboardOverviewPattern(tenantId) {
   return `${CACHE_PREFIX}:tenant:${sanitizeId(tenantId)}:dashboard:*`;
 }
+
+export function analyticsKey(tenantId, endpoint, params) {
+  const normalized = { ...params };
+  // Ensure deterministic ordering for hash
+  const sortedKeys = Object.keys(normalized).sort();
+  const ordered = {};
+  for (const k of sortedKeys) ordered[k] = normalized[k] ?? '';
+  const payload = JSON.stringify(ordered);
+  const hash = createHash('sha256').update(payload).digest('hex').slice(0, 16);
+  return `${CACHE_PREFIX}:tenant:${sanitizeId(tenantId)}:analytics:${endpoint}:${hash}`;
+}
+
+export function analyticsPattern(tenantId) {
+  return `${CACHE_PREFIX}:tenant:${sanitizeId(tenantId)}:analytics:*`;
+}
