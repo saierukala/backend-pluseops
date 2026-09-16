@@ -4,6 +4,7 @@ import { AppError } from '../../common/errors/app-error.js';
 import { PaymentRepository } from './payments.repository.js';
 import { verifyWebhookSignature } from './webhook.util.js';
 import { env } from '../../config/env.js';
+import { emitPaymentCompleted } from '../../realtime/realtime.service.js';
 
 const PAYMENT_TRANSITIONS = {
   PENDING: ['PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED'],
@@ -152,7 +153,19 @@ export class PaymentService {
         include: { transactions: true, refunds: true, order: true },
       });
     });
-
+    try {
+      if (result.status === 'COMPLETED') {
+        emitPaymentCompleted(tenantId, {
+          id: result.id,
+          tenantId,
+          orderId: result.orderId,
+          amount: result.amount?.toString?.() ?? String(result.amount),
+          currency: result.currency,
+          status: result.status,
+          providerPaymentId: result.providerPaymentId,
+        });
+      }
+    } catch (_e) { void _e; }
     return result;
   }
 
@@ -357,8 +370,22 @@ export class PaymentService {
           // For idempotency we already inserted event; no further action
         }
 
-        return tx.payment.findFirst({ where: { id: payment.id, tenantId }, include: { transactions: true, refunds: true } });
+        const updatedPayment = await tx.payment.findFirst({ where: { id: payment.id, tenantId }, include: { transactions: true, refunds: true } });
+        return updatedPayment;
       });
+      // Emit if webhook caused COMPLETED
+      try {
+        if (created && created.status === 'COMPLETED' && payment.status !== 'COMPLETED') {
+          emitPaymentCompleted(tenantId, {
+            id: created.id,
+            tenantId,
+            orderId: created.orderId,
+            amount: created.amount?.toString?.() ?? String(created.amount),
+            currency: created.currency,
+            status: created.status,
+          });
+        }
+      } catch (_e) { void _e; }
       return { payment: created, duplicate: false };
     } catch (err) {
       // Prisma unique violation P2002

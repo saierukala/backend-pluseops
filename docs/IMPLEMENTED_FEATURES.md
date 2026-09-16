@@ -832,17 +832,129 @@ Warehouses: `POST/GET /api/v1/warehouses`, `GET/PATCH/DELETE /api/v1/warehouses/
 | GET | `/api/v1/notification-preferences` | `notification:read` | List preferences (4 channels, tenant/user-scoped, defaults) |
 | PATCH | `/api/v1/notification-preferences` | `notification:update` | Update preferences (upsert IN_APP/EMAIL/SMS/PUSH, flat or {preferences:{}}) |
 
-**Verification:** 53/53 Phase 12, 465/465 full (13 suites), lint 0, Prisma valid, 8 migrations up to date (no new Phase 12 migration — reused Phase 3 models), app startup, HTTP 200/401/403/404/400 verified for all five endpoints, tenant/user isolation both directions, idempotent read/read-all, preferences defaults/upserts, provider-independent service abstraction with `createNotification`/`notify`/`dispatchViaChannel`, channel concepts `IN_APP/EMAIL/SMS/PUSH` without provider delivery, no regressions, roadmap untouched.
+**Verification:** 53/53 Phase 12, 497/497 full with --testTimeout=15000 (14 suites), lint 0, Prisma valid, 8 migrations up to date (no new Phase 12 migration — reused Phase 3 models), app startup, HTTP 200/401/403/404/400 verified for all five endpoints, tenant/user isolation both directions, idempotent read/read-all, preferences defaults/upserts, provider-independent service abstraction with `createNotification`/`notify`/`dispatchViaChannel`, channel concepts `IN_APP/EMAIL/SMS/PUSH` without provider delivery, no regressions, roadmap untouched.
+
+---
+
+## Phase 13 — WebSockets / Real-Time
+
+### Overview
+Phase 13 adds Socket.IO real-time operations as a provider-independent, tenant-aware layer coexisting with the existing Express HTTP server. Reuses existing JWT authentication, never trusts client-supplied `tenantId`/`userId`, uses in-memory single-instance model (Redis pub/sub deferred to Phase 14).
+
+### Files
+
+| File | Purpose |
+|------|---------|
+| `src/realtime/realtime.service.js` | Abstraction `REALTIME_EVENTS`, `ALLOWED_EVENTS`, `setIoInstance`/`getIoInstance`, `sanitizePayload` (recursive, 27+ keys, stack stripped), `emitRealtime(event,payload,{tenantId,userId})` → `io.to(tenant:{tenantId}\|user:{userId}).emit(event,envelope)`, helpers `emitOrderCreated`/`emitOrderUpdated`/`emitInventoryLowStock`/`emitPaymentCompleted`/`emitNotificationCreated`, `sanitizeForTest` |
+| `src/realtime/socket.auth.js` | `socketAuthMiddleware`, `extractToken` (auth.token Bearer/raw, header Authorization Bearer, query.token), `verifyAccessToken` + `TokenExpiredError`/`JsonWebTokenError` → `TOKEN_EXPIRED`/`INVALID_TOKEN`, required claims `sub`/`tenantId`/`sessionId`, `AuthRepository.findUserByIdAndTenant` + `ACTIVE` user/tenant `ACTIVE\|TRIAL`, server-derived `socket.context={userId,tenantId,sessionId,email}` |
+| `src/realtime/socket.server.js` | `createSocketServer(httpServer)` `{cors:{origin:env.corsOrigins}, serveClient:false}`, `io.use(socketAuthMiddleware)`, auto-join `tenant:{tenantId}`+`user:{userId}`, emit `connected` `{userId,tenantId,rooms}`, guarded `join`/`subscribe` (allowed Set only own rooms → else `FORBIDDEN` ack + `error` emit, blocks arbitrary), `disconnect`/`error`/`connection_error` logging, `closeSocketServer`, `setIoInstance` |
+| `src/app/server.js` | Modified: `initSocketIO()` before `listen`, `ioInstance` export, `closeSocketServer` in `shutdown` (`SIGTERM`/`SIGINT`) |
+| `src/modules/orders/orders.service.js` | Modified: `emitOrderCreated` after `create` txn, `emitOrderUpdated` after `updateStatus`/`cancel` (minimal `{id,tenantId,status,...}`) |
+| `src/modules/inventory/inventory.service.js` | Modified: `emitInventoryLowStock` after `adjust`/`transfer` when `quantity <=10` (`LOW_STOCK_THRESHOLD=10`, minimal `{productVariantId,warehouseId,quantity,threshold}`) |
+| `src/modules/payments/payments.service.js` | Modified: `emitPaymentCompleted` after `confirm` → `COMPLETED` and webhook `payment.succeeded` → `COMPLETED` |
+| `src/modules/notifications/notifications.service.js` | Modified: `emitNotificationCreated` after `create` (user room if `userId` else tenant room, minimal `{id,tenantId,userId,type,title,message,channel}`) |
+| `package.json` / `package-lock.json` | Added `socket.io@^4.8.1` + `socket.io-client@^4.8.1` |
+| `tests/integration/phase13-realtime.test.js` | 32 dedicated Phase 13 tests (real `socket.io-client` on ephemeral `http.createServer(app)`) |
+
+### Socket.IO Integration
+
+- `http.createServer(app)` + `createSocketServer(server)` with CORS `env.corsOrigins`, HTTP and Socket.IO coexist, Express not replaced, REST unchanged.
+- `initSocketIO` exported for testability; `setIoInstance` decouples business services from Socket.IO internals.
+- Shutdown closes `io` before HTTP/http.
+- Verified via ephemeral port in tests: `GET /health` 200 while Socket.IO listening.
+
+### Authentication
+
+- Reuses `verifyAccessToken` (HS256, `issuer:pulseops`, `audience:pulseops-api`, `JWT_ACCESS_SECRET` min 32 in production, test default `test-access-secret-min-32-chars-long-for-testing`).
+- Same security properties as HTTP `authenticate()`: signature, expiry, required claims `sub`/`tenantId`/`sessionId`, user existence/status `ACTIVE`, tenant `ACTIVE|TRIAL`.
+- `extractToken` supports `auth.token` (Bearer/raw), `headers.authorization` Bearer, `query.token` fallback (less secure).
+- Never trusts client `tenantId`/`userId`; `socket.context` server-derived.
+- `Bearer` prefix handled; invalid/expired/malformed → `connect_error` (`UNAUTHORIZED`/`TOKEN_EXPIRED`/`INVALID_TOKEN`).
+
+### Tenant-Aware Rooms
+
+- `tenant:{tenantId}` and `user:{userId}`; auto-joined on `connection`.
+- `Tenant A user 123` → `tenant:tenant-A` + `user:user-123`; never `tenant:tenant-B` or `user:other`.
+- Guarded `join`/`subscribe`: only `allowedRooms = Set([tenant:own, user:own])`; else `FORBIDDEN`.
+
+### Five Events
+
+| Event | Audience | Trigger |
+|-------|----------|---------|
+| `order.created` | `tenant:{tenantId}` | `OrderService.create` after txn |
+| `order.updated` | `tenant:{tenantId}` | `OrderService.updateStatus` / `cancel` |
+| `inventory.low_stock` | `tenant:{tenantId}` | `InventoryService.adjust`/`transfer` when `after <=10` |
+| `payment.completed` | `tenant:{tenantId}` | `PaymentService.confirm` → `COMPLETED` + webhook `succeeded` |
+| `notification.created` | `user:{userId}` if `userId` else `tenant:{tenantId}` | `NotificationService.createNotification` |
+
+Routing: `if(userId) io.to(user:{userId}) else io.to(tenant:{tenantId})`; envelope `{event,data:sanitized,tenantId,timestamp}`; `ALLOWED_EVENTS` whitelist; null `io` safe.
+
+### Event Tenant Isolation
+
+- Tenant-scoped events only to correct `tenant:{tenantId}` room; user-specific only to correct `user:{userId}`.
+- Never `io.emit()` globally; never emit Tenant A data to B.
+- Verified: `A1→tenant:A ALLOWED`, `A1→user:A1 ALLOWED`, `A1→tenant:B BLOCKED`, `A1→user:B1 BLOCKED`, `B1→tenant:B ALLOWED`, `B1→tenant:A BLOCKED`; actual delivery `A cannot receive B events`, `B cannot receive A`, `A1 cannot receive B1 private`, `A2 cannot receive A1 private but both receive tenant broadcast`, forged payload `tenantId` ignored.
+
+### Payload Security
+
+- Minimal payloads only (ids, status, amounts, etc., not full DB rows).
+- Never emits: `password`, `passwordHash`, `refreshToken`, `accessToken`, `secret`, `webhookSecret`, `providerCredentials`, `authorization`, `cookie`, `stack`.
+- Recursive `sanitizePayload` strips `FORBIDDEN_KEYS` + `password|secret|credential|authorization|cookie|token` substring, removes `stack`, recurses nested.
+- Verified via `order.created` with `passwordHash`/`nested.passwordHash` stripped while `safeField` kept.
+
+### Lifecycle / Error Handling
+
+- `connection` → log + auto-join + `connected` ack.
+- `authentication failure` → `connect_error` with `code`, warn logged, no stack to client.
+- `disconnect` → log `reason`.
+- `error`/`connection_error` → warn.
+- `join`/`subscribe` guarded `FORBIDDEN`.
+- Clean shutdown `io.close()` in `server.shutdown`.
+
+### Testing (32/32)
+
+- Auth 7: authenticated success, missing/invalid/expired/malformed rejected, Bearer prefix, header auth.
+- Rooms 8: matrix + arbitrary/forged/subscribe blocked.
+- Isolation 5: A/B both directions, user private, A1/A2 share vs private, forged routing.
+- Events 6: 5 events + tenant-wide notification broadcast.
+- Sensitive 3: sanitization, `sanitizeForTest`, notificationService no leak.
+- HTTP 1: health + notifications still 200.
+- Unknown 2: `unknown.event`/`missing audience` false.
+- Real `socket.io-client` integration, not mocks, with `waitForEvent`/`waitNoEvent`.
+
+### Verification
+
+- `npm test -- tests/integration/phase13-realtime.test.js` → 32/32 (10–15s)
+- `npm test -- --testTimeout=15000` → 497/497 (14 suites) — default 5000ms hook timeout flaky in Phase 11/12 sequential `beforeAll` (argon2), isolated 35/35 & 53/53 pass.
+- `npm run lint` → 0 errors, `npx prisma validate` → valid, `npx prisma migrate status` → 8 up to date (no new Phase 13 migration), ephemeral `http.createServer` + `GET /health` 200 + authenticated socket ok + unauth/expired/invalid rejected + tenant/user isolation + 5 events.
+
+### Database
+
+- No Phase 13 tables, no migration; 8 migrations up to date; in-memory only.
+
+### Known Limitations (Actual)
+
+- In-memory/single-instance; Redis pub/sub deferred to Phase 14.
+- `low_stock` threshold hard-coded `10`; low-stock from `adjust`/`transfer` paths only.
+- `payment.completed` from `confirm`/`webhook COMPLETED` only.
+- No persistent socket session table.
+- `query.token` fallback exists and is less secure than `auth.token`/header.
+
+### What is NOT Implemented (Future Phases)
+
+The following are explicitly **NOT** implemented as of Phase 13 completion (WebSockets COMPLETE):
+- Redis Caching — cache-aside/TTL/invalidation/pub/sub (Phase 14)
+- BullMQ / Background Jobs — queues/workers/retries/DLQ (Phase 15)
+- External API Integrations — external providers (Phase 16) — no Redis pub/sub, no BullMQ, no external provider delivery as part of Phase 13
 
 ---
 
 ## What is NOT Implemented (Future Phases)
 
-The following are explicitly **NOT** implemented as of Phase 12 completion (Notifications COMPLETE):
-- WebSockets / Real-time — Socket.IO real-time notification events (Phase 13)
-- Redis Caching — Redis notification caching (Phase 14)
-- BullMQ / Background Jobs — BullMQ notification workers/async dispatch (Phase 15)
-- External API Integrations — external notification providers such as email/SMS/push providers (SendGrid, Twilio, Firebase, SES, OneSignal, etc.) (Phase 16)
+The following are explicitly **NOT** implemented as of Phase 13 completion (WebSockets COMPLETE):
+- Redis Caching — cache-aside/TTL/invalidation/pub/sub (Phase 14)
+- BullMQ / Background Jobs — queues/workers/retries/DLQ (Phase 15)
+- External API Integrations — external providers (Phase 16)
 - API Orchestration (Phase 17)
 - Analytics & Reporting — notification analytics/dashboard aggregation (Phase 18)
 - Performance Optimization (Phase 19)

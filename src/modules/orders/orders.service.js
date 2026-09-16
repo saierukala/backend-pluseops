@@ -2,6 +2,7 @@ import { getPrismaClient } from '../../config/database.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { OrderRepository } from './orders.repository.js';
 import { auditService } from '../audit/audit.service.js';
+import { emitOrderCreated, emitOrderUpdated } from '../../realtime/realtime.service.js';
 
 const ORDER_STATUS_TRANSITIONS = {
   DRAFT: ['PENDING', 'CANCELLED'],
@@ -273,6 +274,18 @@ export class OrderService {
     };
 
     const result = await execute();
+    // Emit realtime event with minimal payload after transaction success
+    try {
+      emitOrderCreated(tenantId, {
+        id: result.id,
+        tenantId,
+        customerId: result.customerId,
+        status: result.status,
+        total: result.total?.toString?.() ?? String(result.total),
+        currency: result.currency,
+        createdAt: result.createdAt,
+      });
+    } catch (_e) { void _e; }
     return result;
   }
 
@@ -331,6 +344,15 @@ export class OrderService {
         include: { customer: true, items: true, statusHistory: { orderBy: { createdAt: 'asc' } } },
       });
     });
+    try {
+      emitOrderUpdated(tenantId, {
+        id: updated.id,
+        tenantId,
+        status: updated.status,
+        previousStatus: order.status,
+        updatedAt: updated.updatedAt,
+      });
+    } catch (_e) { void _e; }
     return updated;
   }
 
@@ -440,6 +462,15 @@ export class OrderService {
       });
       return tx.order.findFirst({ where: { id, tenantId }, include: { customer: true, items: true, statusHistory: { orderBy: { createdAt: 'asc' } } } });
     });
+    try {
+      emitOrderUpdated(tenantId, {
+        id: result.id,
+        tenantId,
+        status: result.status,
+        previousStatus: order.status,
+        updatedAt: result.updatedAt,
+      });
+    } catch (_e) { void _e; }
     return result;
   }
 

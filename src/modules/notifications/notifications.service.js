@@ -1,6 +1,7 @@
 import { NotificationRepository, NotificationPreferenceRepository } from './notifications.repository.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { normalizePreferencePayload } from './notifications.validation.js';
+import { emitNotificationCreated } from '../../realtime/realtime.service.js';
 
 const notificationRepository = new NotificationRepository();
 const preferenceRepository = new NotificationPreferenceRepository();
@@ -54,7 +55,23 @@ export class NotificationService {
       referenceId: referenceId ? String(referenceId) : null,
       metadata: safeMetadata,
     };
-    return this.notificationRepository.create(data, tx);
+    const created = await this.notificationRepository.create(data, tx);
+    // Emit realtime event (minimal payload, tenant/user isolated)
+    try {
+      emitNotificationCreated(tenantId, userId || null, {
+        id: created.id,
+        tenantId: created.tenantId,
+        userId: created.userId,
+        type: created.type,
+        title: created.title,
+        message: created.message,
+        channel: created.channel,
+        referenceType: created.referenceType,
+        referenceId: created.referenceId,
+        createdAt: created.createdAt,
+      });
+    } catch (_e) { void _e; }
+    return created;
   }
 
   // Channel abstraction placeholder - future providers implement this interface

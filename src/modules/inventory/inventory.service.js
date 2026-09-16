@@ -1,6 +1,9 @@
 import { getPrismaClient } from '../../config/database.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { InventoryRepository } from './inventory.repository.js';
+import { emitInventoryLowStock } from '../../realtime/realtime.service.js';
+
+const LOW_STOCK_THRESHOLD = 10;
 
 export class InventoryService {
   constructor() {
@@ -117,6 +120,18 @@ export class InventoryService {
       throw new Error('Max retries exceeded');
     };
     const result = await execute();
+    // Emit low_stock if quantity dropped to/below threshold
+    try {
+      if (result.quantityAfter <= LOW_STOCK_THRESHOLD) {
+        emitInventoryLowStock(tenantId, {
+          productVariantId: variantId,
+          warehouseId,
+          quantity: result.quantityAfter,
+          threshold: LOW_STOCK_THRESHOLD,
+          quantityBefore: result.quantityBefore,
+        });
+      }
+    } catch (_e) { void _e; }
     return result;
   }
 
@@ -238,6 +253,27 @@ export class InventoryService {
       throw new Error('Max retries exceeded');
     };
     const result = await executeTransfer();
+    try {
+      // If source dropped into low stock after transfer, emit
+      if (result.sourceAfter <= LOW_STOCK_THRESHOLD) {
+        emitInventoryLowStock(tenantId, {
+          productVariantId: variantId,
+          warehouseId: sourceWarehouseId,
+          quantity: result.sourceAfter,
+          threshold: LOW_STOCK_THRESHOLD,
+          quantityBefore: result.sourceBefore,
+        });
+      }
+      if (result.destAfter <= LOW_STOCK_THRESHOLD) {
+        emitInventoryLowStock(tenantId, {
+          productVariantId: variantId,
+          warehouseId: destinationWarehouseId,
+          quantity: result.destAfter,
+          threshold: LOW_STOCK_THRESHOLD,
+          quantityBefore: result.destBefore,
+        });
+      }
+    } catch (_e) { void _e; }
     return result;
   }
 }

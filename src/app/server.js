@@ -7,7 +7,16 @@ import { logger } from '../config/logger.js';
 
 const app = createApp();
 const server = http.createServer(app);
+let ioInstance = null;
 let shuttingDown = false;
+
+async function initSocketIO() {
+  const { createSocketServer } = await import('../realtime/socket.server.js');
+  ioInstance = createSocketServer(server);
+  return ioInstance;
+}
+
+export { server, ioInstance, initSocketIO };
 
 async function start() {
   const dependencies = [
@@ -32,6 +41,8 @@ async function start() {
     ready: result.status === 'fulfilled' && result.value === true
   }));
 
+  await initSocketIO();
+
   server.listen(env.PORT, env.HOST, () => {
     logger.info({ port: env.PORT, host: env.HOST }, 'PulseOps API listening');
 
@@ -53,6 +64,12 @@ async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info({ signal }, 'Graceful shutdown started');
+  if (ioInstance) {
+    try {
+      const { closeSocketServer } = await import('../realtime/socket.server.js');
+      closeSocketServer(ioInstance);
+    } catch (_e) { void _e; }
+  }
   server.close(async () => {
     await Promise.all([disconnectRedis(), disconnectDatabase()]);
     logger.info('Graceful shutdown complete');

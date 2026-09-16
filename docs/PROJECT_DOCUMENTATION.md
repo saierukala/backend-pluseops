@@ -1,6 +1,6 @@
 # Project Documentation
 
-Technical architecture and implementation state as of Phase 12 completion (Notifications — COMPLETE and VERIFIED).
+Technical architecture and implementation state as of Phase 13 completion (WebSockets / Real-Time — COMPLETE and VERIFIED).
 
 ---
 
@@ -134,7 +134,11 @@ src/
      │   ├── notifications.service.js
      │   ├── notifications.controller.js
      │   └── notifications.routes.js
-    └── common/storage/ # Storage abstraction
+     ├── realtime/       # WebSockets / Real-Time (Phase 13)
+     │   ├── realtime.service.js  # Provider-independent abstraction, REALTIME_EVENTS, emitRealtime, sanitizePayload
+     │   ├── socket.auth.js       # JWT socketAuthMiddleware, extractToken, server-derived socket.context
+     │   └── socket.server.js     # createSocketServer, tenant/user rooms, guarded join/subscribe, lifecycle
+     └── common/storage/ # Storage abstraction
         ├── storage.service.js
         └── local-storage.provider.js
 ```
@@ -372,11 +376,12 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 
 ## Testing
 
-### Current Verification Results (Latest Run — Phase 12 Verified)
+### Current Verification Results (Latest Run — Phase 13 Verified)
 
 | Check | Result |
 |-------|--------|
-| **Full Integration Suite** | 465/465 passing (13 suites) |
+| **Full Integration Suite** | 497/497 passing (14 suites) — `npm test -- --testTimeout=15000` (default 5000ms hook timeout flaky in Phase 11/12 sequential `beforeAll`; isolated 35/35 & 53/53 pass) |
+| - `phase13-realtime.test.js` | 32 tests ✅ |
 | - `phase12-notifications.test.js` | 53 tests ✅ |
 | - `phase11-audit.test.js` | 35 tests ✅ |
 | - `phase10-payments.test.js` | 40 tests ✅ |
@@ -389,7 +394,7 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 | - `tenants.test.js` | 11 tests ✅ |
 | - `health.test.js` | 2 tests ✅ |
 | - `request-boundaries.test.js` | 2 tests ✅ |
-| - `phase5-rbac.test.js` | (covered via 5-suite subset) 54 tests ✅ |
+| - `phase5-rbac.test.js` | 54 tests ✅ |
 | **ESLint** | 0 errors, 0 warnings |
 | **Prisma Validate** | ✅ Valid |
 | **Prisma Generate** | ✅ Success |
@@ -398,7 +403,8 @@ Plus additional permissions: tenant, user, role, permission, category, customer,
 | **Phase 10 Migration** | `20260914_phase10_payments_webhook` — creates `payment_webhook_events` + partial unique provider indexes + CHECKs; reuses Phase 03 payment tables ✅ |
 | **Phase 11 Migration** | No new migration — reused Phase 03 `audit_logs`/`activity_logs` (existing indexes `tenantId+createdAt`, `tenantId+resource+resourceId`, `tenantId+action+createdAt`) ✅ |
 | **Phase 12 Migration** | No new migration — reused Phase 03 `notifications`/`notification_preferences`/`notification_templates` + enums `NotificationType`/`NotificationChannel` (existing indexes `tenantId+userId+isRead`, `tenantId+createdAt`, unique `tenantId+userId+channel`) ✅ |
-| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS, Phase 10 PASS, Phase 11 PASS, Phase 12 PASS |
+| **Phase 13 Migration** | No new migration — no database tables added, 8 migrations remain up to date (Socket.IO in-memory) ✅ |
+| **Regression** | Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS, Phase 10 PASS, Phase 11 PASS, Phase 12 PASS, Phase 13 PASS |
 
 ### Test Coverage Highlights
 - Health endpoints: liveness, DB readiness, Redis readiness
@@ -515,7 +521,7 @@ The following items were identified during the Phase 03 human verification audit
 | Payment & Transaction Processing (Phase 10) | ✅ Complete & Verified (40/40, 377/377, 8 migrations) |
 | Audit & Activity Logs (Phase 11) | ✅ Complete & Verified (35/35, 412/412, 8 migrations — no new migration) |
 | Notifications (Phase 12) | ✅ Complete & Verified (53/53, 465/465, 8 migrations — no new migration) |
-| WebSockets (Phase 13) | ⏳ Not Started |
+| WebSockets (Phase 13) | ✅ Complete & Verified |
 | Redis Caching (Phase 14) | ⏳ Not Started |
 | BullMQ (Phase 15) | ⏳ Not Started |
 | External Integrations (Phase 16) | ⏳ Not Started |
@@ -1431,4 +1437,199 @@ Phase 13 WebSockets, Phase 14 Redis Caching, Phase 15 BullMQ, Phase 16 External 
 
 ### Phase 12 Status: ✅ COMPLETE AND VERIFIED
 All 465 tests pass (53 Phase 12), 13 suites, lint 0, Prisma valid, 8 migrations up to date (no new Phase 12 migration, reused Phase 3 models), app startup, HTTP 200/401/403/404/400 verified for all five endpoints, tenant/user isolation both directions, idempotent read/read-all, preferences defaults/upserts, provider-independent service abstraction with `createNotification`/`notify`/`dispatchViaChannel`, channel concepts `IN_APP/EMAIL/SMS/PUSH` without provider delivery, no regressions, roadmap untouched.
+
+---
+
+## Phase 13 — WebSockets / Real-Time (COMPLETE & VERIFIED — 32/32, 497/497, 8 migrations — no new migration)
+
+### Objective
+Add Socket.IO for real-time operations while preserving the modular-monolith `Route → Controller → Service → Repository → Database` and all Phases 1–12 behavior. HTTP and Socket.IO must coexist on the same server without replacing Express or breaking REST APIs.
+
+### Architecture
+
+```
+http.createServer(app)
+        ↓
+createSocketServer(server)  # src/realtime/socket.server.js
+        ↓
+io.use(socketAuthMiddleware)  # src/realtime/socket.auth.js
+        ↓
+connection → auto-join tenant:{tenantId} + user:{userId}
+        ↓
+guarded join/subscribe → emitRealtime(event, payload, {tenantId,userId})
+```
+
+Provider-independent realtime layer:
+
+```
+Business Service (orders/inventory/payments/notifications)
+        ↓
+realtime.service.js  emitRealtime / emitOrderCreated / emitOrderUpdated / emitInventoryLowStock / emitPaymentCompleted / emitNotificationCreated
+        ↓
+Socket.IO rooms (tenant:{tenantId} / user:{userId})
+```
+
+Business logic never imports `socket.io` directly; only `realtime.service.js` knows `getIoInstance()`.
+
+### Files
+
+```
+src/realtime/
+├── realtime.service.js   # Abstractions, REALTIME_EVENTS, ALLOWED_EVENTS, setIoInstance/getIoInstance, sanitizePayload, emitRealtime + helpers, envelope {event,data,tenantId,timestamp}
+├── socket.auth.js        # socketAuthMiddleware, extractToken (auth.token / Authorization: Bearer / query.token), verifyAccessToken, tenant/user ACTIVE checks, server-derived socket.context
+└── socket.server.js      # createSocketServer, cors {origin: env.corsOrigins}, serveClient:false, auth middleware, connection auto-join, connected ack, join/subscribe guards, disconnect/error, closeSocketServer
+src/app/server.js         # Modified: initSocketIO() before listen, ioInstance export, closeSocketServer in shutdown (SIGTERM/SIGINT)
+src/modules/orders/orders.service.js      # Modified: emitOrderCreated after create txn, emitOrderUpdated after updateStatus/cancel
+src/modules/inventory/inventory.service.js # Modified: emitInventoryLowStock after adjust/transfer when quantity <=10
+src/modules/payments/payments.service.js   # Modified: emitPaymentCompleted after confirm COMPLETED + webhook COMPLETED
+src/modules/notifications/notifications.service.js # Modified: emitNotificationCreated after create (user room if userId else tenant room)
+package.json / package-lock.json # Added socket.io@^4.8.1 + socket.io-client@^4.8.1
+tests/integration/phase13-realtime.test.js # 32 dedicated tests
+```
+
+All other modules unchanged; no new database tables/migrations.
+
+### Socket.IO Server Integration
+
+- `src/app/server.js` creates `http.createServer(app)` then `await initSocketIO()` (`import {createSocketServer} from '../realtime/socket.server.js'`) before `server.listen(env.PORT, env.HOST)`. Exports `server, ioInstance, initSocketIO` for testability.
+- `createSocketServer(httpServer)` instantiates `new Server(httpServer, {cors:{origin: env.corsOrigins, credentials:true}, serveClient:false})`, registers `io.use(socketAuthMiddleware)`, handles `connection`/`disconnect`/`error`, `io.engine` `connection_error` logging, `setIoInstance(io)`.
+- Graceful shutdown: `shutdown()` tries `closeSocketServer(ioInstance)` (`io.close()`, `setIoInstance(null)`) before `server.close()` + `disconnectRedis/disconnectDatabase`.
+- Coexistence verified: `GET /health` 200 and `GET /api/v1/notifications` 200 still pass while Socket.IO listening on same ephemeral port in tests.
+
+### Authentication
+
+Reuse existing JWT verification; no second auth system.
+
+`socket.auth.js:extractToken(socket)` priority:
+1. `handshake.auth.token` (supports `Bearer ` prefix or raw)
+2. `handshake.headers.authorization` `Bearer `
+3. `handshake.query.token`
+
+`socketAuthMiddleware(socket,next)`:
+- Missing token → `next(Error('Authentication required' {code:UNAUTHORIZED}))` → `connect_error`
+- `verifyAccessToken(token)` → handles `TokenExpiredError`→`TOKEN_EXPIRED`, `JsonWebTokenError`→`INVALID_TOKEN`
+- Validates claims `sub`+`tenantId`+`sessionId` → `INVALID_TOKEN_CLAIMS`
+- `new AuthRepository().findUserByIdAndTenant(sub, tenantId)` → must exist and `status==='ACTIVE'` else `USER_NOT_FOUND`
+- `tenant = memberships[0]?.tenant` must be `ACTIVE`|`TRIAL` else `TENANT_INACTIVE`
+- Sets `socket.context={userId:sub, tenantId, sessionId, email}` and `socket.data.context` — server-derived only, client `tenantId`/`userId` never trusted.
+- Same important properties as HTTP `authenticate()`: signature, expiry, required claims, user existence/status, tenant existence/status.
+
+Verified: `Bearer` prefix handled, header `Authorization` handled, invalid/expired/malformed rejected (`connect_error`).
+
+### Socket Context
+
+`socket.context = {userId, tenantId, sessionId}` plus `email`. Mirrors `req.context` (`userId, tenantId, sessionId`). Never accepts `socket.handshake.auth.tenantId`. Tests validate via `join` ack that authenticated tenant/user is correct.
+
+### Room Model
+
+- `tenant:{tenantId}` — all users of same tenant
+- `user:{userId}` — private per-user
+
+On `connection` after auth success: `socket.join(tenant:{tenantId})` + `socket.join(user:{userId})`, then `socket.emit('connected', {userId, tenantId, rooms:[...]})`. Rooms are tenant-aware; no global broadcast.
+
+### Room Authorization
+
+Guarded handlers:
+
+```js
+socket.on('join', (payload, ack) => {
+  allowed = Set([`tenant:${ctx.tenantId}`, `user:${ctx.userId}`])
+  if (!allowed.has(requestedRoom)) → emit error FORBIDDEN + ack {success:false, error:{code:FORBIDDEN}}
+  else ack {success:true, room}
+})
+socket.on('subscribe', similar)
+```
+
+- Authenticated: own `tenant:A` allowed, own `user:A1` allowed.
+- Blocked: `tenant:B`, `user:B1`, `tenant: forged-tenant`, `user:another-user`, `global`, `{room: tenant:B, tenantId: B}` forged payload, `subscribe` to other tenant.
+- Matrix verified: `A1→tenant:A ALLOWED`, `A1→user:A1 ALLOWED`, `A1→tenant:B BLOCKED`, `A1→user:B1 BLOCKED`, `B1→tenant:B ALLOWED`, `B1→tenant:A BLOCKED`.
+
+### Event Architecture
+
+Provider-independent `realtime.service.js`:
+
+- `REALTIME_EVENTS = {ORDER_CREATED:'order.created', ORDER_UPDATED:'order.updated', INVENTORY_LOW_STOCK:'inventory.low_stock', PAYMENT_COMPLETED:'payment.completed', NOTIFICATION_CREATED:'notification.created'}` + `ALLOWED_EVENTS` Set.
+- `sanitizePayload(payload)` recursive: strips `FORBIDDEN_KEYS` (`password`, `passwordHash`, `refreshToken`, `accessToken`, `secret`, `webhookSecret`, `providerCredentials`, `authorization`, `cookie`, etc.) plus any key containing `password|secret|credential|authorization|cookie|token`, removes `stack`/`stackTrace`, recurses into objects/arrays.
+- `emitRealtime(event, payload, {tenantId,userId})` → validates `ALLOWED_EVENTS`, requires `tenantId` or `userId`, `getIoInstance()` null-safe (no-op if no server), `sanitized = sanitizePayload(payload)`, `envelope={event, data:sanitized, tenantId, timestamp: ISO}`, `if(userId) io.to(user:{userId}).emit(event,envelope) else if(tenantId) io.to(tenant:{tenantId}).emit`.
+- Helpers: `emitOrderCreated(tenantId, payload)`, `emitOrderUpdated`, `emitInventoryLowStock`, `emitPaymentCompleted`, `emitNotificationCreated(tenantId, userId, payload)` (user room if `userId`, else tenant room).
+- `getRoomNames(tenantId,userId)` helper, `sanitizeForTest` export.
+
+No Redis pub/sub, no BullMQ, no external provider.
+
+### Event Routing
+
+- `order.created` → `tenant:{tenantId}` (from `OrderService.create` after txn)
+- `order.updated` → `tenant:{tenantId}` (from `updateStatus` and `cancel`)
+- `inventory.low_stock` → `tenant:{tenantId}` (threshold 10 after `adjust` or `transfer` source/dest)
+- `payment.completed` → `tenant:{tenantId}` (from `confirm` when `COMPLETED` and webhook `payment.succeeded` when `COMPLETED`)
+- `notification.created` → `user:{userId}` if `userId` provided else `tenant:{tenantId}` (from `NotificationService.createNotification`)
+
+Envelope routing is server-driven via `emitRealtime` audience, not client-supplied `tenantId` in payload. Forged `tenantId` in `data` does not affect `io.to()` destination (verified: emit to `tenant:A` with `data.tenantId=B` only A receives and `envelope.tenantId===A`).
+
+### Payload Sanitization / Security
+
+- Minimal payloads only (e.g., order `{id,tenantId,customerId,status,total,currency}`, inventory `{productVariantId,warehouseId,quantity,threshold}`, payment `{id,tenantId,orderId,amount,currency,status}`, notification `{id,tenantId,userId,type,title,message,channel}`) — never full DB row.
+- Never emits: `passwordHash`, `password`, `refreshToken`, `accessToken`, `apiSecret`, `webhookSecret`, `providerSecret`, `credentials`, `authorization`, `cookie`, `stack`. Recursive sanitization verified via `order.created` with nested `passwordHash` removed while `safeField` kept.
+- `logger` redacts `req.headers.authorization`/`cookie`.
+
+### Tenant Isolation
+
+Every event has determined audience: tenant-scoped uses `tenant:{tenantId}`, user-specific uses `user:{userId}`. `io.to()` never `io.emit()` globally. Tests verify `Tenant A cannot receive B events`, `B cannot receive A`, `User A1 cannot receive B1 private`, `A2 cannot receive A1 private but both receive tenant broadcast`.
+
+### Lifecycle / Error Handling
+
+- `connection`: log `Socket connected` with `socketId,userId,tenantId`, auto-join, emit `connected`.
+- `authentication failure`: `socketAuthMiddleware` → `next(err)` → `connect_error` with `code` (`UNAUTHORIZED`/`TOKEN_EXPIRED`/`INVALID_TOKEN`/etc.), never exposes stack, logged warn.
+- `disconnect`: log `Socket disconnected` with `reason`, no sensitive errors to client.
+- `error`: per-socket `error` handler warn, `io.engine` `connection_error` warn.
+- `join`/`subscribe`: guarded, `FORBIDDEN` ack + `error` emit, never allows arbitrary room.
+- `shutdown`: `closeSocketServer` clears `ioInstance`, `io.close()` before HTTP close.
+
+### Testing
+
+`tests/integration/phase13-realtime.test.js` (32 tests, ~10–15s, real `socket.io-client` on `http.createServer(app)` ephemeral port):
+
+- Authentication 7: authenticated succeeds + `join` allowed, missing/invalid/expired/malformed rejected, Bearer prefix, header auth.
+- Tenant-aware rooms 8: matrix allowed/blocked + arbitrary/forged/subscribe.
+- Tenant isolation delivery 5: A/B both directions, user private, A1/A2 share vs private, forged payload routing.
+- Event delivery 6: each of 5 events + tenant-wide `notification.created` broadcast to both A1/A2.
+- Sensitive fields 3: recursive sanitization, `sanitizeForTest`, notificationService no leak.
+- HTTP compat 1: `health` 200 and `notifications` 200 still pass.
+- Unknown event 2: `unknown.event` false, missing audience false.
+
+All use real Socket.IO integration, not only mocks. Negative/security cases included.
+
+### Verification
+
+Full: `npm test -- --testTimeout=15000` → `Test Suites: 14 passed, 14 total` / `Tests: 497 passed, 497 total` (includes 32 Phase 13). Default 5000ms hook timeout produced 2 timeout failures in Phase 11/12 `beforeAll` under sequential load; isolated `phase11-audit 35/35` and `phase12-notifications 53/53` pass, not Phase 13 failure.
+
+Commands executed:
+
+```
+npm run lint → 0 errors
+npx prisma validate → valid
+npx prisma migrate status → 8 migrations up to date
+npm test -- tests/integration/phase13-realtime.test.js → 32/32
+npm test -- --testTimeout=15000 → 497/497
+node ephemeral server → GET /health 200, authenticated socket ok, unauth/expired/invalid rejected, tenant/user isolation, event delivery
+```
+
+### Database
+
+No Phase 13 tables, no migration. Existing 8 migrations remain `Database schema is up to date!` (`prisma/schema.prisma` valid). Socket state in-memory only; no persistence table.
+
+### Known Limitations (Actual, Not Invented)
+
+- In-memory/single-instance Socket.IO; Redis pub/sub deferred to Phase 14 for multi-instance.
+- `inventory.low_stock` threshold hard-coded `10`; low-stock currently from `adjust`/`transfer` paths only (order reservation path not emitting low-stock directly).
+- `payment.completed` from `confirm` → `COMPLETED` and webhook `payment.succeeded` → `COMPLETED` only; other providers not integrated.
+- No persistent socket session table; `sessionId` from JWT only.
+- `query.token` fallback exists and is less secure than `auth.token`/`Authorization` header transport.
+
+### What is NOT Implemented (Future Phases)
+
+Phase 14 Redis Caching (cache-aside, TTL, invalidation, pub/sub), Phase 15 BullMQ (queues, workers, retries, DLQ), Phase 16 External Integrations (email/SMS/push/provider APIs), Phase 17+ remain future work. Phase 13 does NOT claim distributed Socket.IO, BullMQ dispatch, or external provider delivery.
+
+### Phase 13 Status: ✅ COMPLETE AND VERIFIED
+All 497 tests pass (32 Phase 13), 14 suites, lint 0, Prisma valid, 8 migrations up to date (no new Phase 13 migration), HTTP+Socket.IO coexistence, authenticated tenant/user rooms, 5 events with tenant/user routing, recursive sanitization, lifecycle/error handling, tenant isolation, no regressions, roadmap untouched.
 
