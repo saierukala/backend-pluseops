@@ -23,8 +23,35 @@ export async function confirmPayment(req, res, next) {
 export async function webhookHandler(req, res, next) {
   try {
     const signature = req.headers['x-webhook-signature'] || req.headers['x-payment-signature'];
-    const result = await paymentService.handleWebhook(req.body, req.headers, signature);
-    res.status(200).json({ success: true, data: result.payment, duplicate: result.duplicate, message: result.duplicate ? 'Webhook already processed' : 'Webhook processed' });
+    // Phase 15: validate signature synchronously before enqueueing (do not weaken verification)
+    const { verifyWebhookSignature } = await import('./webhook.util.js');
+    const headerSig = signature || req.headers['x-webhook-signature'] || req.headers['x-payment-signature'];
+    const isValidSig = verifyWebhookSignature(req.body, headerSig);
+    if (!headerSig || !isValidSig) {
+      const { AppError } = await import('../../common/errors/app-error.js');
+      throw new AppError('Invalid webhook signature', { statusCode: 401, code: 'INVALID_WEBHOOK_SIGNATURE' });
+    }
+    // Enqueue to BullMQ for async processing; HTTP does not wait for slow DB work
+    // Fallback to synchronous processing if Redis/BullMQ unavailable
+    const { enqueueWebhook } = await import('../../jobs/queues/webhook.queue.js');
+    const eventId = req.body?.eventId;
+    const job = await enqueueWebhook({
+      tenantId: req.body?.tenantId || null,
+      eventId,
+      payload: req.body,
+      headers: req.headers,
+      signature: headerSig,
+    });
+    if (job?.fallback) {
+      const result = job.result;
+      res.status(200).json({ success: true, data: result.payment, duplicate: result.duplicate, message: result.duplicate ? 'Webhook already processed' : 'Webhook processed' });
+      return;
+    }
+    if (job?.duplicate) {
+      res.status(202).json({ success: true, data: null, enqueued: true, duplicate: true, message: 'Webhook already enqueued (idempotent)' });
+      return;
+    }
+    res.status(202).json({ success: true, data: null, enqueued: true, jobId: job.id, message: 'Webhook enqueued for processing' });
   } catch (error) { next(error); }
 }
 

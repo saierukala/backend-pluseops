@@ -1050,24 +1050,100 @@ No Phase 14 migration/tables; 8 migrations remain up to date. Reuses existing `T
 * Product pattern invalidation uses `SCAN MATCH COUNT 100` + `DEL`; may become more expensive for very large tenants with many distinct list hashes.
 * Single-instance Redis (single ioredis client, no cluster); no Redis pub/sub used (Phase 13 deferred pub/sub not expanded); no distributed locking; no stale-while-revalidate; no BullMQ.
 
-### What is NOT Implemented (Future Phases)
+### What is NOT Implemented (Future Phases as of Phase 14)
 
-Phase 15 BullMQ/background jobs (queues/workers/retries/DLQ), Phase 16 External Integrations (S3/storage, email/SMS/push providers, shipping/maps), Phase 17 API Orchestration (`dashboard/overview`), Phase 18 Analytics (`analytics/*`), Phase 19 Performance Optimization (strictly measuring not claiming broad gains), Phase 20 Security Hardening, Phase 21 Complete Testing, Phase 22 Swagger/OpenAPI, Phase 23 Docker/CI/CD remain future work. No BullMQ, no external provider SDKs, no dashboard metrics caching, no S3.
+Phase 15 BullMQ/background jobs (queues/workers/retries/DLQ) was NOT implemented as of Phase 14 — now COMPLETE in Phase 15 (see below). As of Phase 14, also NOT implemented: Phase 16 External Integrations (S3/storage, email/SMS/push providers, shipping/maps), Phase 17 API Orchestration (`dashboard/overview`), Phase 18 Analytics (`analytics/*`), Phase 19 Performance Optimization (strictly measuring not claiming broad gains), Phase 20 Security Hardening, Phase 21 Complete Testing, Phase 22 Swagger/OpenAPI, Phase 23 Docker/CI/CD. No BullMQ, no external provider SDKs, no dashboard metrics caching, no S3.
 
 ### Phase 14 Status: ✅ COMPLETE AND VERIFIED (HUMAN VERIFICATION: PASS)
-All 27 Phase 14 tests, 524/524 full, 15 suites, lint 0, Prisma valid, 8 migrations up to date (no new Phase 14 migration), app startup + Redis PONG + HTTP health + cache miss/hit + invalidation + tenant isolation + redis-down fallback + RBAC regression all verified, roadmap untouched. Phase 15 — Background Jobs / BullMQ is NEXT.
+All 27 Phase 14 tests, 524/524 full, 15 suites, lint 0, Prisma valid, 8 migrations up to date (no new Phase 14 migration), app startup + Redis PONG + HTTP health + cache miss/hit + invalidation + tenant isolation + redis-down fallback + RBAC regression all verified, roadmap untouched. Phase 15 — Background Jobs / BullMQ was NEXT at this point.
 
 ---
 
-## What is NOT Implemented (Future Phases)
+## Phase 15 — Background Jobs / BullMQ (COMPLETE and VERIFIED — 44/44, 568/568, 8 migrations — no new migration, HUMAN VERIFICATION: PASS)
 
-The following are explicitly **NOT** implemented as of Phase 14 completion (Redis Caching COMPLETE):
-- BullMQ / Background Jobs — queues/workers/retries/DLQ (Phase 15)
-- External API Integrations — external providers (Phase 16)
-- API Orchestration (Phase 17)
-- Analytics & Reporting — notification analytics/dashboard aggregation (Phase 18)
+### Objective
+Move slow/non-critical work outside HTTP requests using BullMQ and the existing Redis infrastructure. Architecture `API → Queue → Worker → Processor → Database / External Service`. HTTP validates → enqueues → returns `202` (or `200` fallback when Redis unavailable); worker processes asynchronously.
+
+### Queues (6 abstractions)
+- **Real:** `notificationQueue` (`notification`), `cleanupQueue` (`cleanup`), `webhookQueue` (`webhook`)
+- **DEFERRED/STUB:** `emailQueue` (`email` — provider deferred to Phase 16), `reportQueue` (`report` — Phase 18), `analyticsQueue` (`analytics` — Phase 18)
+- Prefix `pulseops:v1:queue` (`QUEUE_PREFIX`). Verified not separate Redis server or database.
+
+### Real Jobs (3)
+- `send-notification` (`notification` queue): `processSendNotification` reuses Phase 12 `NotificationService.createNotification` tenant-scoped; validates `tenantId` server-derived, sanitizes `metadata`, creates `notifications` row; supports `IN_APP`/`EMAIL`/`SMS`/`PUSH` channel, `INFO`/`SUCCESS`/`WARNING`/`ERROR` type.
+- `cleanup-expired-tokens` (`cleanup` queue): `processCleanupExpiredTokens` tenant-scoped `deleteMany` where `expiresAt < now` on `refresh_tokens`/`password_reset_tokens`/`email_verification_tokens` (plus old `usedAt` >30d); tenant `null` → global.
+- `process-webhook` (`webhook` queue): `processWebhook` preserves payment webhook verification/idempotency — HMAC verified before enqueue (controller `verifyWebhookSignature`) and re-verified in processor via `PaymentService.handleWebhook` with `PAYMENT_WEBHOOK_SECRET`; uses existing `payment_webhook_events` `@@unique([tenantId,eventId])`/`@@unique([eventId])` constraints.
+
+### BullMQ / Redis Architecture
+- `bullmq@^5.10.2` (`package.json:22`) + `ioredis@6.0.0`; reuses `REDIS_URL` (Zod url optional, `src/config/env.js`).
+- Dedicated connection `src/jobs/connection.js`: `new Redis(REDIS_URL, {maxRetriesPerRequest:null, enableReadyCheck:false})`, separate from cache client (`maxRetriesPerRequest:1` in `src/config/redis.js`).
+- Queue prefix `pulseops:v1:queue` (`jobs.config.js`), `DEFAULT_JOB_OPTIONS` per queue, `jobTimeoutMs`.
+- Worker lifecycle `src/jobs/workers/index.js`: 6 workers, concurrency webhook 10 / cleanup 1 / others 5, `lockDuration` 30s, handlers `completed`/`failed`/`error`/`stalled` with Pino logs, graceful `Worker.close()`.
+- Startup `src/jobs/index.js:initJobs()` → `startWorkers()` before `server.listen`; shutdown `shutdownJobs()` → `stopWorkers()` + `closeAllQueues()` + `disconnectBullMqRedis()` in `src/app/server.js` graceful shutdown (force exit 10s).
+
+### Retry and Backoff
+- notification: 3 attempts, exponential 1000ms
+- cleanup: 2 attempts, exponential 2000ms
+- webhook: 5 attempts, exponential 1000ms
+- email: 3/1000, report/analytics: 2/2000. `UnrecoverableError` for permanent 400/401/validation (no retry), transient DB/network retry with exponential backoff. Bounded (<6).
+
+### Failure Handling
+- BullMQ failed-job retention 24h (`removeOnFail:{age:86400}`) for all queues; **no separate DLQ** queue implemented.
+- Failed jobs observable via BullMQ `failed` state + Pino `Worker emitted failed` logs (`queue, jobId, tenantId, attemptsMade`).
+
+### Idempotency (at-least-once, NOT exactly-once)
+- Deterministic jobIds: `notif:<tenant>:<key>` (order `order:<id>`), `webhook:<eventId>`, `cleanup:<tenant>:<date>`. Duplicate `jobId` → `EEXIST` caught as `{duplicate:true}`.
+- Processor safeguards: notification recent `tenant+referenceType+referenceId+title` 60s skip; webhook DB unique constraints; cleanup re-delete no-op. Documented at-least-once with idempotent processing.
+
+### Tenant Isolation
+- `tenantId` server-derived from `req.context.tenantId` (JWT `authenticate`), never client-trusted; carried in job payload; processors scope all DB ops by `tenantId` (`tenantB` cannot read `tenantA` notification/cleanup/webhook). Cross-tenant isolation tested (44 tests).
+
+### Sensitive-Data Protection
+- Guards reject `password`/`passwordHash`/`secret`/`token`/`refreshToken`/`accessToken`/`authorization`/`cookie`/`webhookSecret` in `metadata`/`payload` (recursive check). JWT/refresh/provider secrets never enqueued. Logs via `sanitizeForLog` and `logger` redaction.
+
+### HTTP Behavior
+- `REDIS_URL` available → `queue.add` async, returns `202 Accepted` (`POST /payments/webhook` enqueues, `POST /jobs/notifications` 202, `POST /jobs/cleanup` 202).
+- Redis unavailable → synchronous fallback processor invoked, may return `200` (`{fallback:true}` or `{data:payment,duplicate}` for webhook). Correctness preserved, can reintroduce latency.
+
+### Payment Webhook Boundary
+- `POST /api/v1/payments/webhook` verifies HMAC before `enqueueWebhook`; invalid 401 no job; valid can be queued (`202`); processor re-verifies HMAC; existing `payment_webhook_events` unique constraints remain authoritative; no real external payment provider introduced.
+
+### Order → Notification Integration
+- `OrderService.create` after committed transaction fire-and-forget `enqueueNotification({tenantId,userId, orderId, idempotencyKey: 'order:<id>'})` type `SUCCESS`/`IN_APP`/`ORDER`; enqueue failure logged not rolled back.
+
+### Worker Behavior
+- 6 workers/queue registrations, concurrency webhook 10 / cleanup 1 / others 5, logging `queue, jobId, tenantId, attempt, durationMs`, `stalled`/`error` handling, graceful `stopWorkers()` allows active jobs to close.
+
+### Testing (Phase 15)
+- `tests/integration/phase15-background-jobs.test.js` 44 tests: queue creation (4), enqueueing (5), processor success (4), retry (4), failed/DLQ (2), idempotency (4), tenant isolation (4), sensitive (4), logging (2), shutdown (2), Redis failure (2), regression (3), HTTP (4) — 44/44.
+- Full regression 568/568 (16 suites, 524 Phase 1-14 (Phase 14 27/27 unchanged) +44).
+- Verification: `node --experimental-vm-modules jest --runInBand --forceExit` 568; `... phase15-background-jobs.test.js --runInBand` 44; `npm run lint` 0 errors; `npx prisma validate` valid; `npx prisma migrate status` 8 up to date (no Phase 15 migration).
+
+### Known Limitations (Actual, Phase 15)
+- `email`/`report`/`analytics` are deferred stubs (`{deferred:true}`; no provider SDKs).
+- No separate DLQ; failed retention 24h via BullMQ.
+- Redis outage → synchronous fallback, can reintroduce HTTP latency.
+- Order notification enqueue fire-and-forget; enqueue failure logged not affecting committed order.
+- Single-process workers; no horizontal scaling / Redis pub/sub cluster.
+- Cleanup manual/on-demand (`POST /jobs/cleanup` tenant-scoped, `cleanup:<tenant>:<date>` jobId); no repeatable/cron schedule.
+
+### What is NOT Implemented (Future as of Phase 15)
+Phase 16 (real email/SMS provider, S3/cloud storage provider, real external payment provider, shipping/maps APIs, provider secret management, external adapters) NOT implemented — only `emailQueue` stub. Phase 17 (`dashboard/overview` orchestration) NOT implemented — only `reportQueue` stub. Phase 18 (analytics/reporting `analytics/*`) NOT implemented — only `analyticsQueue` stub. Phase 19+ performance, security hardening, complete testing, Swagger/OpenAPI, Docker/CI/CD remain future. No real providers added to fake completeness.
+
+### Phase 15 Status: ✅ COMPLETE AND VERIFIED (HUMAN VERIFICATION: PASS)
+All 44 Phase 15 tests pass, 568/568 full (16 suites, 524 Phase 1-14 (Phase 14 27/27) +44), lint 0, Prisma valid, 8 migrations up to date (no new Phase 15 migration — jobs reuse existing tables), app startup + BullMQ PONG + HTTP health + queue enqueue 202/fallback 200 + worker graceful shutdown all verified, roadmap untouched. Phase 16 — External API Integrations is NEXT.
+
+---
+
+## What is NOT Implemented (Future Phases as of Phase 15 completion)
+
+The following are explicitly **NOT** implemented as of Phase 15 completion (Background Jobs / BullMQ COMPLETE):
+- External API Integrations — real email/SMS provider, S3/cloud storage provider, real external payment provider, shipping/maps APIs, provider secret management, external adapters (Phase 16) — only `emailQueue` stub exists
+- API Orchestration — `dashboard/overview` aggregation (Phase 17) — only `reportQueue` stub
+- Analytics & Reporting — `analytics/*` implementation (Phase 18) — only `analyticsQueue` stub
 - Performance Optimization (Phase 19)
 - Security Hardening (Phase 20)
 - Complete Testing (Phase 21)
 - Swagger/OpenAPI (Phase 22)
 - Docker / CI/CD / Deployment (Phase 23)
+Phase 15 BullMQ is COMPLETE; future phases remain NOT implemented as documented above.

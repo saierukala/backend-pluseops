@@ -19,6 +19,7 @@
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "argon2": "^0.45.1",
+    "bullmq": "^5.10.2",
     "compression": "^1.8.1",
     "cors": "^2.8.6",
     "express": "^5.2.1",

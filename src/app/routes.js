@@ -16,6 +16,7 @@ import { ordersRouter } from '../modules/orders/orders.routes.js';
 import { paymentsRouter } from '../modules/payments/payments.routes.js';
 import { auditRouter, activityRouter } from '../modules/audit/audit.routes.js';
 import { notificationsRouter, notificationPreferencesRouter } from '../modules/notifications/notifications.routes.js';
+import { jobsRouter } from '../modules/jobs/jobs.routes.js';
 
 export const apiRouter = Router();
 apiRouter.use('/health', healthRouter);
@@ -36,4 +37,5 @@ apiRouter.use('/audit-logs', auditRouter);
 apiRouter.use('/activity-logs', activityRouter);
 apiRouter.use('/notifications', notificationsRouter);
 apiRouter.use('/notification-preferences', notificationPreferencesRouter);
+apiRouter.use('/jobs', jobsRouter);
 apiRouter.use('/', productImagesRouter);

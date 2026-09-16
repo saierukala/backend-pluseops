@@ -4,6 +4,7 @@ import { env } from '../config/env.js';
 import { connectDatabase, disconnectDatabase } from '../config/database.js';
 import { connectRedis, disconnectRedis } from '../config/redis.js';
 import { logger } from '../config/logger.js';
+import { initJobs, shutdownJobs } from '../jobs/index.js';
 
 const app = createApp();
 const server = http.createServer(app);
@@ -42,6 +43,7 @@ async function start() {
   }));
 
   await initSocketIO();
+  await initJobs();
 
   server.listen(env.PORT, env.HOST, () => {
     logger.info({ port: env.PORT, host: env.HOST }, 'PulseOps API listening');
@@ -71,6 +73,7 @@ async function shutdown(signal) {
     } catch (_e) { void _e; }
   }
   server.close(async () => {
+    await shutdownJobs();
     await Promise.all([disconnectRedis(), disconnectDatabase()]);
     logger.info('Graceful shutdown complete');
   });

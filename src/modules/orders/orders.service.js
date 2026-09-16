@@ -286,6 +286,23 @@ export class OrderService {
         createdAt: result.createdAt,
       });
     } catch (_e) { void _e; }
+    // Phase 15: enqueue async notification for order creation (non-blocking, tenant-isolated)
+    // Do not await failure; HTTP should not block on notification delivery
+    try {
+      const { enqueueNotification } = await import('../../jobs/queues/notification.queue.js');
+      enqueueNotification({
+        tenantId,
+        userId,
+        type: 'SUCCESS',
+        title: 'Order created',
+        message: `Order ${result.id} created with total ${result.total}`,
+        channel: 'IN_APP',
+        referenceType: 'ORDER',
+        referenceId: result.id,
+        metadata: { orderId: result.id, total: result.total?.toString?.() ?? String(result.total) },
+        idempotencyKey: `order:${result.id}`,
+      }).catch(() => {});
+    } catch (_e) { void _e; }
     return result;
   }
 
