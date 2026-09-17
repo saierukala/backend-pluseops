@@ -10,6 +10,7 @@ import { requestContext } from '../common/middleware/request-context.js';
 import { createGlobalLimiter } from '../common/middleware/rate-limiters.js';
 import { apiRouter } from './routes.js';
 import { healthRouter } from '../modules/health/health.routes.js';
+import { setupSwagger } from '../docs/swagger.js';
 
 /**
  * Security hardening — Phase 20
@@ -62,6 +63,8 @@ export function createApp() {
   if (env.NODE_ENV !== 'test') {
     app.use(createGlobalLimiter());
   }
+
+  setupSwagger(app);
 
   app.use('/health', healthRouter);
   app.use('/api/v1', apiRouter);

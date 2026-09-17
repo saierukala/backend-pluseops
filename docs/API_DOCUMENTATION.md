@@ -1,6 +1,6 @@
 # API Documentation
 
-This document describes **only APIs that actually exist in the repository** as of Phase 04 completion.
+This document describes **only APIs that actually exist in the repository** as of Phase 22 completion (OpenAPI 3.0.3, 81 path keys, 115 operations, 115 unique operationIds, 26 schemas, Swagger UI at `/api-docs`, JSON at `/api-docs.json`/`/openapi.json`/`/api/v1/openapi.json`).
 
 ---
 
@@ -62,6 +62,39 @@ This document describes **only APIs that actually exist in the repository** as o
 
 ### Versioned Health Endpoints
 The same three endpoints are also exposed under `/api/v1/health`, `/api/v1/health/db`, `/api/v1/health/redis` for API-versioned access. Infrastructure probes should prefer the root `/health` routes.
+
+---
+
+## Swagger / OpenAPI Documentation (Phase 22 — OpenAPI 3.0.3)
+
+**Specification:** `src/docs/openapi.js` aggregates `src/docs/components/schemas.js` (26 schemas) + 10 path modules (`health`, `tenants`, `auth`, `rbac`, `catalog`, `inventory-warehouses`, `orders-payments`, `audit-notifications`, `jobs`, `analytics-storage`) into `openApiSpec: {openapi:3.0.3, info:{title:PulseOps API, version:1.0.0}, servers:[{url:http://localhost:3000}], tags:21, paths:81 keys → 115 operations, components:{securitySchemes:{bearerAuth:{type:http, scheme:bearer, bearerFormat:JWT}}, schemas, responses, parameters}}`.
+
+**Servers:** Single server `http://localhost:3000` (description: Local development). All `paths` already contain full `/api/v1` prefix (e.g., `/api/v1/auth/login`), so `SERVER BASE + PATH = ACTUAL EXPRESS ROUTE` (e.g., `http://localhost:3000` + `/api/v1/products` = `GET /api/v1/products`). No duplicated `/api/v1/api/v1`.
+
+**Security:** `bearerAuth` (`Authorization: Bearer <token>`). 19 public `security:[]` (health 6, tenants 4, auth 7 public, `POST /api/v1/payments/webhook` HMAC, `GET /api/v1/storage/signed` HMAC) — no `authenticate()`; 96 protected `security:[{bearerAuth:[]}]` — `authenticate()` + `authorize('resource:action')` per endpoint (e.g., `product:create`, `order:cancel`, `analytics:read`). 403 `FORBIDDEN` if missing permission, 401 if missing/invalid JWT.
+
+**Tags (21):** Health, Tenants, Auth, Roles, Permissions, Users, Categories, Products, Variants, Attributes, Product Images, Warehouses, Inventory, Orders, Payments, Audit, Notifications, Jobs, Dashboard, Analytics, Storage.
+
+**Schemas (26 reusable):** `ErrorResponse` (`success:false, error:{code,message,details}, requestId`), `SuccessResponse`, `PaginationMeta`, `Tenant`, `User`, `Role`, `Permission`, `Category`, `Product`, `ProductVariant`, `AttributeDefinition`, `AttributeValue`, `ProductImage`, `Warehouse`, `Inventory`, `InventoryMovement`, `Order`, `OrderItem`, `Payment`, `PaymentTransaction`, `Refund`, `Notification`, `AuditLog`, `ActivityLog`, `HealthStatus` — all with `type`, `format:uuid|email|date-time`, `enum`, `pattern`, `example`, no secrets.
+
+**Endpoints:**
+
+| Method | Endpoint | Auth | Description |
+|---|---|---|---|
+| GET | `/api-docs/` | none (public) | Swagger UI — `swagger-ui-express@5.0.1`, Try it out, persistAuthorization |
+| GET | `/api-docs.json` | none | OpenAPI JSON — `openapi:3.0.3`, 81 paths, 115 ops, 573 `$ref` (0 unresolved) |
+| GET | `/openapi.json` | none | Alias |
+| GET | `/api/v1/openapi.json` | none | Alias under prefix |
+
+All three JSON endpoints return `200` `content-type: application/json` with same `openApiSpec`. Setup via `src/docs/swagger.js:setupSwagger(app)` mounted in `src/app/app.js:67` before `/health`/`/api/v1` (only `requestContext`, `helmet`, `cors`, `compression`, `globalLimiter` before; no auth). No secrets exposed (`spec` contains only `user@example.com`, `3fa85f64`).
+
+**Coverage:** 115/115 production routes documented (0 undocumented, 0 phantom, 0 method mismatch, PUT only at `PUT /api/v1/products/{productId}/variants/{variantId}/attributes`), 115 unique `operationId` (e.g., `liveHealth`, `createTenant`, `register`, `listRoles`, `createVariant`, `setVariantAttributes`, `getSignedFile`), 573 `$ref` all `#/components/schemas/...` resolved.
+
+**Request/Response:** Path params `in:path, required:true, schema:{type:string, format:uuid}`, query `page/limit/search/status`, bodies from Zod (`createTenantSchema` etc.), multipart `image` binary, success `200/201` envelope `{success:true, data, message, meta}`, errors `400 VALIDATION_ERROR`, `401 TOKEN_EXPIRED`, `403 FORBIDDEN`, `404 NotFound`, `409 Conflict`, `429 RateLimited` via `ErrorResponse`.
+
+**Verification:** `GET /api-docs/` 200 html, `GET /api-docs.json` 200 `openapi:3.0.3`, 16 dedicated tests in `tests/integration/phase22-swagger.test.js` (JSON, UI, valid, all 115, no phantom, PUT only, bearerAuth, public, schemas, body, health).
+
+**Limitations:** Swagger UI is public (no auth) — acceptable for Phase 22 dev/docs; spec is static JS (manual update, guarded by test); synthetic examples; no Docker/CI/CD.
 
 ---
 
@@ -821,25 +854,15 @@ All permission endpoints are under `/api/v1/permissions` and require authenticat
 
 ## APIs NOT Implemented
 
-The following API groups are **NOT implemented** in the repository as of Phase 05 completion:
+The following API groups are **NOT implemented** in the repository as of Phase 22 completion:
 
 | Category | Status |
 |----------|--------|
-| User Management (`/api/v1/users` CRUD, search, filtering) | ⏳ Not started (Phase 06) |
-| Product Management (`/api/v1/products`, `/api/v1/categories`, `/api/v1/attributes`) | ⏳ Not started (Phase 07) |
-| Inventory (`/api/v1/inventory`) | ⏳ Not started (Phase 08) |
-| Orders (`/api/v1/orders`) | ⏳ Not started (Phase 09) |
-| Payments (`/api/v1/payments`) | ⏳ Not started (Phase 10) |
-| Notifications (`/api/v1/notifications`, `/api/v1/notification-preferences`) | ⏳ Not started (Phase 12) |
-| WebSockets / Real-Time | ⏳ Not started (Phase 13) |
-| Redis Caching APIs | ⏳ Not started (Phase 14) |
-| BullMQ / Job APIs | ⏳ Not started (Phase 15) |
-| External Integrations | ⏳ Not started (Phase 16) |
-| Analytics / Reporting | ⏳ Not started (Phase 18) |
-| Swagger / OpenAPI | ⏳ Not started (Phase 22) |
 | Docker / CI/CD / Deployment | ⏳ Not started (Phase 23) |
 
-Only the Health APIs, Tenant APIs, Authentication APIs, and RBAC Authorization APIs listed above are implemented and tested — Phase 21 adds no new endpoints, only testing coverage.
+All other API groups are implemented and documented via OpenAPI 3.0.3 (Health, Tenants, Auth, RBAC, Users, Categories, Products, Variants, Attributes, Images, Warehouses, Inventory, Orders, Payments, Audit, Notifications, Jobs, Dashboard, Analytics, Storage, Swagger) — 115 operations.
+
+Only Phase 23 (Docker/CI/CD) remains.
 
 ---
 

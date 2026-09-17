@@ -55,6 +55,8 @@ async function start() {
         'PulseOps API is running',
         `  API:    ${serviceUrl}/api/v1`,
         `  Health: ${serviceUrl}/health`,
+        `  Docs:   ${serviceUrl}/api-docs`,
+        `  OpenAPI:${serviceUrl}/api-docs.json`,
         ...dependencyStatus.map(({ name, ready }) => `  ${name}: ${ready ? 'connected' : 'unavailable (readiness: 503)'}`),
         ''
       ].join('\n')}\n`);

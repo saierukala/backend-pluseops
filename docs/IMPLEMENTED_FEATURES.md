@@ -1619,3 +1619,53 @@ authentication, authorization, tenant isolation, CRUD, variant/SKU, attributes &
 - Security regression 53/53 still PASS, Phase 1–20 preserved.
 
 ### Status: ✅ COMPLETE (tests committed, no migration, no roadmap change, Phase22/23 untouched)
+
+---
+
+## Phase 22 — Swagger / OpenAPI Documentation (COMPLETE — 16/16, 81 keys, 115 ops, 115 unique operationIds, 26 schemas, 573 $ref 0 unresolved)
+
+### Objective
+Document every existing production API accurately with OpenAPI 3.0.3 and Swagger UI, reflecting actual implementation (method, path, auth, permission, params, body, success/validation/authorization errors). No phantom endpoints, no business logic change.
+
+### Implementation
+
+**Tooling:** `swagger-ui-express@5.0.1` (only new dep; `swagger-ui-dist@5.33.0`), `src/docs/` modular spec (not giant file, not swagger-jsdoc JSDoc).
+
+**Structure:**
+```
+src/docs/
+├── openapi.js      # openapi 3.0.3, info, servers: [{url:http://localhost:3000}], tags 21, paths 81→115 ops
+├── swagger.js      # setupSwagger(app): GET /api-docs.json, GET /openapi.json, GET /api/v1/openapi.json, use /api-docs (swaggerUi)
+├── components/schemas.js # 26 schemas: ErrorResponse, PaginationMeta, Tenant, User, Role, Permission, Category, Product, ProductVariant, AttributeDefinition, AttributeValue, ProductImage, Warehouse, Inventory, InventoryMovement, Order, OrderItem, Payment, PaymentTransaction, Refund, Notification, AuditLog, ActivityLog, HealthStatus, SuccessResponse, PaginationQuery
+└── paths/          # 10 modules: health (6), tenants (4), auth (8), rbac (14), catalog (33), inventory-warehouses (11), orders-payments (11), audit-notifications (8), jobs (6), analytics-storage (8)
+```
+
+**Servers:** `[{url:http://localhost:3000, description:Local development}]` — paths already contain full `/api/v1` prefix, so `SERVER BASE + PATH = ACTUAL EXPRESS ROUTE` (verified `GET /api/v1/products` → `http://localhost:3000/api/v1/products`). Previously had extra `/api/v1` server causing `/api/v1/api/v1` duplication — corrected to single host.
+
+**Security:** `bearerAuth: {type:http, scheme:bearer, bearerFormat:JWT}` (`Authorization: Bearer <token>`). 19 public `security:[]` (health 6, tenants 4, auth 7 public, webhook, storage/signed) exactly matches no `authenticate()`; 96 protected `security:[{bearerAuth:[]}]` matches `authenticate()` + `authorize('resource:action')` (role:read etc.). No secrets exposed (spec Str `user@example.com`, `3fa85f64`).
+
+**Tags (21):** Health, Tenants, Auth, Roles, Permissions, Users, Categories, Products, Variants, Attributes, Product Images, Warehouses, Inventory, Orders, Payments, Audit, Notifications, Jobs, Dashboard, Analytics, Storage.
+
+**Endpoints:** 115 documented (81 path keys): health 6, tenants 4, auth 8, roles 6, permissions 2, users 6, categories 6, products 7, variants 7 (PUT only at `/variants/{variantId}/attributes`), attributes 10, product-images 9 (multipart `image` 10MB), warehouses 5, inventory 6, orders 6, payments 5, audit 3, notifications 5, jobs 5, dashboard 1, analytics 6, storage 2 — all with `operationId` unique.
+
+**Validation/Responses:** Zod validators (`createTenantSchema` slug `^[a-z0-9-]+$`, `registerSchema` password 8-128 regex, `createVariantSchema` sku/price `^\d+(\.\d{1,2})?$`, etc.) → documented `required`, `enum`, `format:uuid|email|date-time`, `pattern`. Success `200`/`201` envelope `{success:true, data, message, meta}`; Errors `400 VALIDATION_ERROR`, `401 TOKEN_EXPIRED/INVALID_TOKEN`, `403 FORBIDDEN`, `404 NotFound`, `409 Conflict`, `429 RateLimited`, `500` via `ErrorResponse` (`success:false, error:{code,message,details}, requestId`).
+
+**Coverage:** 115/115 (0 undocumented, 0 phantom, 0 method mismatch, PUT only at variant attributes), 573 `$ref` (0 unresolved, all `#/components/schemas/...`), `GET /api-docs/` 200 html, `GET /api-docs.json` 200 `openapi:3.0.3`.
+
+**Integration:** `src/app/app.js:67` `setupSwagger(app)` before `/health`/`/api/v1`, no auth; `src/app/server.js` logs `Docs: http://localhost:3000/api-docs` and `OpenAPI:http://localhost:3000/api-docs.json` in non-production.
+
+### Verification
+
+- **Dedicated:** 16/16 `tests/integration/phase22-swagger.test.js` (JSON 200, aliases, valid 3.x, UI 200, all 115 documented, no phantom, PUT only, bearerAuth, public, schemas, requestBody, health still works, public 400 not 401, protected 401, ErrorResponse, tags)
+- **Regression:** health + unit 55 passed; lint 0; `prisma validate` valid; `prisma migrate status` 9 migrations up-to-date (no new migration); startup `createApp()` + `GET /health` 200
+- **$refs:** 573 total, 0 unresolved
+- **Server/path:** `http://localhost:3000` + `/api/v1/products` = actual route, no `/api/v1/api/v1` duplication
+
+### Limitations
+
+- Swagger UI is public (no auth) — acceptable for Phase 22 dev/docs; can be gated via `NODE_ENV` if needed.
+- Spec is static JS, not auto-generated from router introspection — future route additions require manual spec update (guarded by Phase 22 test).
+- Example values synthetic, file upload examples binary placeholders.
+- No Docker/CI/CD (Phase 23).
+
+### Status: ✅ COMPLETE (16/16, 115/115 coverage, server corrected to http://localhost:3000, lint 0, Prisma valid, 9 migrations, no secrets, roadmap unchanged)
