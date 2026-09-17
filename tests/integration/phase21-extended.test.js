@@ -274,7 +274,16 @@ describe('Phase 21 – Transaction / Rollback', () => {
 
 describe('Phase 21 – Idempotency', () => {
   let tid, token, warehouse, variant, customer, orderIdForWebhook, paymentId;
+  let originalRedisUrl;
   beforeAll(async () => {
+    // Force synchronous webhook fallback for determinism (no worker in test process)
+    const { env } = await import('../../src/config/env.js');
+    originalRedisUrl = env.REDIS_URL;
+    env.REDIS_URL = '';
+    const { disconnectBullMqRedis } = await import('../../src/jobs/connection.js');
+    await disconnectBullMqRedis();
+    const { _resetWebhookQueueForTest } = await import('../../src/jobs/queues/webhook.queue.js');
+    _resetWebhookQueueForTest();
     const t=await createTenant(`idem-${Date.now()}`);
     tid=t.id;
     const u=await createUser(tid, `idem-${Date.now()}@a.com`);
@@ -316,6 +325,13 @@ describe('Phase 21 – Idempotency', () => {
     await prisma.tenantMembership.deleteMany({ where:{ tenantId: tid } }).catch(()=>{});
     await prisma.user.deleteMany({ where:{ tenantId: tid } }).catch(()=>{});
     await prisma.tenant.deleteMany({ where:{ id: tid } }).catch(()=>{});
+    // Restore Redis for subsequent suites
+    const { env } = await import('../../src/config/env.js');
+    env.REDIS_URL = originalRedisUrl;
+    const { disconnectBullMqRedis } = await import('../../src/jobs/connection.js');
+    await disconnectBullMqRedis();
+    const { _resetWebhookQueueForTest } = await import('../../src/jobs/queues/webhook.queue.js');
+    _resetWebhookQueueForTest();
     await disconnectDatabase();
   });
 

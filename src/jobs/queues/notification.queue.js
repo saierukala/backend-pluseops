@@ -74,7 +74,9 @@ export async function enqueueNotification({ tenantId, userId = null, type = 'INF
     }
   }
 
-  const jobId = idempotencyKey ? `notif:${tenantId}:${idempotencyKey}` : undefined;
+  // BullMQ Custom Id cannot contain `:` — use `-`
+  const rawJobId = idempotencyKey ? `notif-${tenantId}-${idempotencyKey}` : undefined;
+  const jobId = rawJobId ? rawJobId.replace(/:/g, '-') : undefined;
   try {
     const job = await queue.add(JOB_NAMES.SEND_NOTIFICATION, payload, {
       jobId,

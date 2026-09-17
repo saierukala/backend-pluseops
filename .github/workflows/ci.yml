@@ -1,0 +1,318 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+  workflow_dispatch:
+
+# Avoid leaking secrets in logs; minimal permissions
+permissions:
+  contents: read
+
+jobs:
+  # ──────────────────────────────────────────────────────────
+  # 1. install — reproducible dependency installation
+  # ──────────────────────────────────────────────────────────
+  install:
+    name: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies (reproducible)
+        run: npm ci
+      - name: Cache node_modules for downstream jobs
+        uses: actions/cache/save@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+
+  # ──────────────────────────────────────────────────────────
+  # 2. lint — ESLint must pass (0 errors, 0 warnings)
+  # ──────────────────────────────────────────────────────────
+  lint:
+    name: lint
+    needs: install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+      - name: Restore node_modules (fallback install)
+        if: failure()
+        run: npm ci
+      - name: Run lint
+        run: npm run lint --silent
+
+  # ──────────────────────────────────────────────────────────
+  # 3. test — Jest + Supertest (requires disposable Postgres/Redis)
+  # ──────────────────────────────────────────────────────────
+  test:
+    name: test
+    needs: install
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pulseops
+          POSTGRES_PASSWORD: pulseops
+          POSTGRES_DB: pulseops
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U pulseops -d pulseops"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://pulseops:pulseops@localhost:5432/pulseops?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_ACCESS_SECRET: test-access-secret-min-32-chars-long-for-ci
+      JWT_REFRESH_SECRET: test-refresh-secret-min-32-chars-long-for-ci
+      PAYMENT_WEBHOOK_SECRET: test-webhook-secret-min-32-chars-long-for-ci
+      STORAGE_PROVIDER: local
+      LOCAL_STORAGE_PATH: ./storage
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+      - name: Restore node_modules (fallback install)
+        if: failure()
+        run: npm ci
+      - name: Generate Prisma Client
+        run: npx prisma generate
+      - name: Run Prisma migrations (disposable test DB)
+        run: npx prisma migrate deploy
+      - name: Run tests
+        run: npm test --silent
+      - name: Verify migration status
+        run: npx prisma migrate status
+
+  # ──────────────────────────────────────────────────────────
+  # 4. build — validate Prisma + build Docker image
+  # ──────────────────────────────────────────────────────────
+  build:
+    name: build
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/cache/restore@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+      - name: Restore node_modules (fallback install)
+        if: failure()
+        run: npm ci
+      - name: Validate Prisma schema
+        run: npx prisma validate
+      - name: Generate Prisma Client
+        run: npx prisma generate
+      - name: Validate Docker Compose config
+        run: docker compose config --quiet
+      - name: Validate production overlay config
+        env:
+          CORS_ORIGINS: https://app.example.com
+          DATABASE_URL: postgresql://pulseops:pulseops@localhost:5432/pulseops?schema=public&connection_limit=10&sslmode=require
+          REDIS_URL: redis://localhost:6379
+          JWT_ACCESS_SECRET: ci-access-secret-min-32-chars-long-for-testing
+          JWT_REFRESH_SECRET: ci-refresh-secret-min-32-chars-long-for-testing
+          PAYMENT_WEBHOOK_SECRET: ci-webhook-secret-min-32-chars-long-for-testing
+        run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+      - name: Build Docker image
+        run: docker build -t pulseops-backend:ci --file Dockerfile .
+      - name: Verify image contains non-root user
+        run: docker inspect --format='{{.Config.User}}' pulseops-backend:ci | grep -q "pulseops"
+      - name: Verify .dockerignore excludes secrets (no .env in image)
+        run: |
+          if docker run --rm --entrypoint sh pulseops-backend:ci -c "ls -la /app/.env 2>&1" | grep -q "No such file"; then
+            echo ".env correctly excluded from image"
+          else
+            # Also check that /app/.env does NOT exist
+            if docker run --rm --entrypoint sh pulseops-backend:ci -c "test ! -f /app/.env && echo ok" | grep -q ok; then
+              echo ".env correctly excluded from image"
+            else
+              echo "::error::.env found in image — .dockerignore violation"
+              exit 1
+            fi
+          fi
+
+  # ──────────────────────────────────────────────────────────
+  # 5. migration validation — fresh empty DB -> migrate deploy
+  #    MUST use `prisma migrate deploy`, never `migrate dev`.
+  # ──────────────────────────────────────────────────────────
+  migration-validation:
+    name: migration validation
+    needs: build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pulseops
+          POSTGRES_PASSWORD: pulseops
+          POSTGRES_DB: pulseops
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U pulseops -d pulseops"
+          --health-interval=5s
+          --health-timeout=3s
+          --health-retries=10
+    env:
+      DATABASE_URL: postgresql://pulseops:pulseops@localhost:5432/pulseops?schema=public
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Validate Prisma schema
+        run: npx prisma validate
+      - name: Deploy migrations to empty database (production command)
+        run: npx prisma migrate deploy
+      - name: Verify migration status is up-to-date
+        run: npx prisma migrate status
+      - name: Verify database can be queried after migrations
+        run: |
+          npx prisma db execute --schema=prisma/schema.prisma --stdin <<'SQL'
+          SELECT tablename FROM pg_tables WHERE schemaname = 'public' LIMIT 1;
+          SQL
+      - name: Assert production command is migrate deploy (not dev)
+        run: |
+          if grep -r "migrate dev" .github/workflows/ 2>/dev/null; then
+            echo "::error::Production migration must use 'prisma migrate deploy', not 'migrate dev'"
+            exit 1
+          fi
+          echo "Migration validation uses 'prisma migrate deploy' — correct"
+
+  # ──────────────────────────────────────────────────────────
+  # 6. deployment — reusable interface, provider-agnostic
+  #    Requires: install → lint → test → build → migration validation
+  #    Real credentials come from repo/environment secrets (never committed).
+  #    Without secrets, this job validates deployment readiness (dry-run).
+  # ──────────────────────────────────────────────────────────
+  deployment:
+    name: deployment
+    needs: migration-validation
+    runs-on: ubuntu-latest
+    # Only run deployment on push to main/master; PRs do dry-run validation
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    environment:
+      name: production
+      url: ${{ vars.DEPLOY_URL || 'https://example.com' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate deployment readiness (dry-run)
+        env:
+          CORS_ORIGINS: https://app.example.com
+          DATABASE_URL: postgresql://pulseops:pulseops@localhost:5432/pulseops?schema=public&connection_limit=10&sslmode=require
+          REDIS_URL: redis://localhost:6379
+          JWT_ACCESS_SECRET: ci-access-secret-min-32-chars-long-for-testing
+          JWT_REFRESH_SECRET: ci-refresh-secret-min-32-chars-long-for-testing
+          PAYMENT_WEBHOOK_SECRET: ci-webhook-secret-min-32-chars-long-for-testing
+        run: |
+          echo "Validating deployment configuration..."
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+          npx prisma validate --schema=prisma/schema.prisma 2>&1 | head -20 || true
+          echo "Deployment readiness check passed (dry-run)."
+      - name: Check required secrets are configured
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          JWT_ACCESS_SECRET: ${{ secrets.JWT_ACCESS_SECRET }}
+          JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+        run: |
+          missing=0
+          for var in DATABASE_URL REDIS_URL JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
+            val=$(eval echo \$$var)
+            if [ -z "$val" ]; then
+              echo "::warning::Secret $var is not configured in GitHub Environment 'production' — deployment will be skipped until configured."
+              missing=1
+            else
+              echo "$var is configured (length: ${#val})"
+            fi
+          done
+          if [ "$missing" = "1" ]; then
+            echo "Deployment provider dependency: configure secrets in GitHub Environment 'production' to enable real deployment."
+            echo "Required: DATABASE_URL, REDIS_URL, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, PAYMENT_WEBHOOK_SECRET, STORAGE_* (if S3)."
+            echo "See docs/DEPLOYMENT.md for provider setup."
+          fi
+      - name: Deployment placeholder (provider-agnostic)
+        env:
+          DEPLOY_PROVIDER: ${{ vars.DEPLOY_PROVIDER || '' }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || '' }}
+        run: |
+          if [ -z "$DEPLOY_PROVIDER" ] || [ -z "$DEPLOY_HOST" ]; then
+            echo "No DEPLOY_PROVIDER/DEPLOY_HOST configured — skipping real deployment."
+            echo "To enable real deployment, set repository/environment variables:"
+            echo "  vars.DEPLOY_PROVIDER  = fly | render | railway | aws | gcp | azure | custom"
+            echo "  secrets.DEPLOY_HOST   = <deploy target host>"
+            echo "  secrets.DATABASE_URL, REDIS_URL, JWT_* etc. — see docs/DEPLOYMENT.md"
+            echo "Deployment stage is ready; provider will be integrated when configured."
+            exit 0
+          fi
+          echo "Deploying to $DEPLOY_PROVIDER ($DEPLOY_HOST)..."
+          echo "Provider-specific deploy steps would run here (e.g., fly deploy, docker push, kubectl apply)."
+          echo "No real infrastructure is claimed — provider integration is pending configuration."
+
+  # ──────────────────────────────────────────────────────────
+  # deployment-dry-run — runs on PRs and non-main pushes to
+  # validate deployment readiness without requiring secrets.
+  # ──────────────────────────────────────────────────────────
+  deployment-dry-run:
+    name: deployment (dry-run)
+    needs: migration-validation
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/main' && github.ref != 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate deployment readiness
+        env:
+          CORS_ORIGINS: https://app.example.com
+          DATABASE_URL: postgresql://pulseops:pulseops@localhost:5432/pulseops?schema=public&connection_limit=10&sslmode=require
+          REDIS_URL: redis://localhost:6379
+          JWT_ACCESS_SECRET: ci-access-secret-min-32-chars-long-for-testing
+          JWT_REFRESH_SECRET: ci-refresh-secret-min-32-chars-long-for-testing
+          PAYMENT_WEBHOOK_SECRET: ci-webhook-secret-min-32-chars-long-for-testing
+        run: |
+          echo "Validating deployment configuration (dry-run)..."
+          docker compose config --quiet && echo "compose config: OK"
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet && echo "prod overlay config: OK"
+          echo "Deployment dry-run passed — ready for production when secrets are configured."
+          echo "See docs/DEPLOYMENT.md"

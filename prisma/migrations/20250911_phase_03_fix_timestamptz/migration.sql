@@ -1,4 +1,4 @@
-﻿-- AlterTable
+-- AlterTable
 ALTER TABLE "activity_logs" ALTER COLUMN "created_at" SET DATA TYPE TIMESTAMPTZ(6);
 
 -- AlterTable

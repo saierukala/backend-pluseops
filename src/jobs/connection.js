@@ -26,7 +26,7 @@ export function getBullMqRedisConnection() {
       // Avoid log spam on repeated failures
       bullMqConnectionErrorLogged = true;
       logger.warn({ code: error.code, message: error.message }, 'BullMQ Redis connection error');
-      setTimeout(() => { bullMqConnectionErrorLogged = false; }, 30000);
+      setTimeout(() => { bullMqConnectionErrorLogged = false; }, 30000).unref();
     }
   });
   bullMqRedis.on('connect', () => logger.info('BullMQ Redis connection established'));

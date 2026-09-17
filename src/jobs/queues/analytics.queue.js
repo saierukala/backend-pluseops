@@ -26,7 +26,9 @@ export async function enqueueAnalytics({ tenantId, metric = 'generic', period = 
   if (!tenantId) throw new Error('tenantId is required');
   const queue = getQueue();
   const payload = { tenantId, metric, period, filters, enqueuedAt: new Date().toISOString() };
-  const jobId = idempotencyKey ? `analytics:${tenantId}:${idempotencyKey}` : undefined;
+  // BullMQ Custom Id cannot contain `:` — use `-`
+  const rawJobId = idempotencyKey ? `analytics-${tenantId}-${idempotencyKey}` : undefined;
+  const jobId = rawJobId ? rawJobId.replace(/:/g, '-') : undefined;
   if (!queue) {
     logger.warn({ queue: QUEUE_NAMES.ANALYTICS }, 'Redis unavailable; analytics job deferred');
     return { id: `deferred-${Date.now()}`, fallback: true, deferred: true };

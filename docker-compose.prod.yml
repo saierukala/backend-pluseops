@@ -1,0 +1,80 @@
+# Production compose overlay — use with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# In production, secrets and hosts MUST come from the deployment provider's
+# secret manager / env injection (never committed). This file only documents
+# the required shape; real values are supplied at deploy time.
+name: pulseops-prod
+
+services:
+  migrate:
+    environment:
+      # Production DATABASE_URL MUST use connection_limit and SSL when using managed Postgres.
+      # Example (DO NOT COMMIT REAL CREDS):
+      #   DATABASE_URL=postgresql://pulseops:${DB_PASSWORD}@managed-pg-host:5432/pulseops?schema=public&connection_limit=10&sslmode=require
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required in production}
+
+  api:
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS must be explicitly set in production (no wildcard)}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required (min 32 chars)}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required (min 32 chars)}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:?PAYMENT_WEBHOOK_SECRET is required}
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-s3}
+      # S3 contract — required when STORAGE_PROVIDER=s3
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+      TRUST_PROXY: "true"
+      FAIL_ON_DEPENDENCY_ERROR: "true"
+    ports:
+      # Behind reverse proxy (nginx/traefik/ALB) — expose only via proxy in production.
+      # Override externally if needed.
+      - "3000:3000"
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  worker:
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?JWT_ACCESS_SECRET is required}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?JWT_REFRESH_SECRET is required}
+      PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:?PAYMENT_WEBHOOK_SECRET is required}
+      STORAGE_PROVIDER: ${STORAGE_PROVIDER:-s3}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-false}
+    restart: always
+
+  postgres:
+    # In production, use a managed PostgreSQL (RDS, Cloud SQL, Neon, Supabase, etc.)
+    # and remove this service — documented here for completeness only.
+    # If self-hosting, keep this service but back it with persistent volumes + backups.
+    restart: always
+
+  redis:
+    # In production, use a managed Redis (ElastiCache, Upstash, Memorystore, etc.)
+    # and remove this service — documented here for completeness only.
+    restart: always

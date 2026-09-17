@@ -28,7 +28,9 @@ export async function enqueueEmail({ tenantId, to, subject, template = null, var
   if (!to) throw new Error('to is required');
   const queue = getQueue();
   const payload = { tenantId, to, subject, template, variables, enqueuedAt: new Date().toISOString() };
-  const jobId = idempotencyKey ? `email:${tenantId}:${idempotencyKey}` : undefined;
+  // BullMQ Custom Id cannot contain `:` — use `-`
+  const rawJobId = idempotencyKey ? `email-${tenantId}-${idempotencyKey}` : undefined;
+  const jobId = rawJobId ? rawJobId.replace(/:/g, '-') : undefined;
 
   if (!queue) {
     logger.warn({ queue: QUEUE_NAMES.EMAIL }, 'Redis unavailable; email job deferred (no provider)');

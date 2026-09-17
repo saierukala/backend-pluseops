@@ -26,7 +26,9 @@ export async function enqueueReport({ tenantId, userId = null, reportType = 'gen
   if (!tenantId) throw new Error('tenantId is required');
   const queue = getQueue();
   const payload = { tenantId, userId, reportType, filters, enqueuedAt: new Date().toISOString() };
-  const jobId = idempotencyKey ? `report:${tenantId}:${idempotencyKey}` : undefined;
+  // BullMQ Custom Id cannot contain `:` — use `-`
+  const rawJobId = idempotencyKey ? `report-${tenantId}-${idempotencyKey}` : undefined;
+  const jobId = rawJobId ? rawJobId.replace(/:/g, '-') : undefined;
   if (!queue) {
     logger.warn({ queue: QUEUE_NAMES.REPORT }, 'Redis unavailable; report job deferred');
     return { id: `deferred-${Date.now()}`, fallback: true, deferred: true };

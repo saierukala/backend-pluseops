@@ -28,7 +28,9 @@ export async function enqueueCleanup({ tenantId = null, idempotencyKey = null } 
   const queue = getQueue();
   const payload = { tenantId: tenantId || null, requestedAt: new Date().toISOString() };
   const today = new Date().toISOString().slice(0, 10);
-  const jobId = idempotencyKey ? `cleanup:${idempotencyKey}` : `cleanup:${tenantId || 'global'}:${today}`;
+  // BullMQ Custom Id cannot contain `:` — use `-`
+  const rawJobId = idempotencyKey ? `cleanup-${idempotencyKey}` : `cleanup-${tenantId || 'global'}-${today}`;
+  const jobId = rawJobId.replace(/:/g, '-');
 
   if (!queue) {
     logger.warn({ queue: QUEUE_NAMES.CLEANUP }, 'Redis unavailable; cleanup job will be processed synchronously fallback');

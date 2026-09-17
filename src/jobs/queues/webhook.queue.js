@@ -51,7 +51,9 @@ export async function enqueueWebhook({ tenantId, eventId, payload, rawBody = nul
 
   const queue = getQueue();
   const jobPayload = { tenantId: tenantId || null, eventId, payload, rawBody: rawBody || null, headers, signature, enqueuedAt: new Date().toISOString() };
-  const jobId = idempotencyKey ? `webhook:${idempotencyKey}` : `webhook:${eventId}`;
+  // BullMQ Custom Id cannot contain `:` — sanitize to `-`
+  const rawJobId = idempotencyKey ? `webhook-${idempotencyKey}` : `webhook-${eventId}`;
+  const jobId = rawJobId.replace(/:/g, '-');
 
   if (!queue) {
     logger.warn({ queue: QUEUE_NAMES.WEBHOOK, eventId }, 'Redis unavailable; webhook job will be processed synchronously fallback');
