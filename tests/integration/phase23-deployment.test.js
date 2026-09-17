@@ -359,9 +359,13 @@ describe('Phase 23 — Docker / CI/CD / Deployment', () => {
     test('.env is not present in Docker image (dockerignore) and not committed', () => {
       const di = read('.dockerignore');
       expect(di).toMatch(/\.env/);
-      expect(exists('.env')).toBe(true); // local file exists but should not be tracked
+      // .env is gitignored and not committed; it may not exist in CI (which only has .env.example)
       const tracked = execSync('git ls-files --cached', { encoding: 'utf8' });
       expect(tracked.split(/\r?\n/)).not.toContain('.env');
+      // If .env exists locally, verify it is not tracked; do not require it in CI
+      if (exists('.env')) {
+        expect(tracked.split(/\r?\n/)).not.toContain('.env');
+      }
     });
 
     test('.env.example documents STORAGE_PROVIDER and DATABASE_URL', () => {
