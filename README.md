@@ -2,52 +2,86 @@
 
 A production-minded, multi-tenant backend for PulseOps, built with Node.js, Express, PostgreSQL, Prisma, and Redis. The project follows a modular-monolith architecture and is being delivered incrementally so that every foundation layer is tested before business modules are introduced.
 
-**Current status:** Phase 22 — Swagger / OpenAPI Documentation is **COMPLETE (OpenAPI 3.0.3, 81 path keys, 115 operations, 115 unique operationIds, 26 schemas, bearerAuth, 21 tags, Swagger UI at `/api-docs`)**. Phase 21 — Complete Testing is **COMPLETE (87 new tests: 51 unit + 12 E2E + 24 extended)**. Phase 20 — Security Hardening is **COMPLETE and VERIFIED (HUMAN VERIFICATION: PASS)**. Phase 19 — Performance Optimization is **COMPLETE and VERIFIED (HUMAN VERIFICATION: PASS)**.
+**Current status:** Phase 23 — Docker / CI/CD / Deployment is **COMPLETE and HUMAN VERIFIED**. Phase 22 — Swagger / OpenAPI Documentation is **COMPLETE (OpenAPI 3.0.3, 81 path keys, 115 operations, 115 unique operationIds, 26 schemas, bearerAuth, 21 tags, Swagger UI at `/api-docs`)**. Phase 21 — Complete Testing is **COMPLETE (87 new tests: 51 unit + 12 E2E + 24 extended)**. Phase 20 — Security Hardening is **COMPLETE and VERIFIED (HUMAN VERIFICATION: PASS)**. Phase 19 — Performance Optimization is **COMPLETE and VERIFIED (HUMAN VERIFICATION: PASS)**. No work beyond Phase 23 is claimed.
 
 The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_Backend_Codex_Master_Roadmap.md`](docs/PulseOps_Backend_Codex_Master_Roadmap.md).
 
-## Implemented foundation
+## Quick Start — Docker
 
-- Express API with versioned routing (`/api/v1`)
-- Environment validation with Zod
-- Prisma/PostgreSQL and Redis connection configuration
-- Liveness and dependency health endpoints
-- Request IDs, Pino structured logging, centralized errors
-- Helmet, CORS allow-list, HPP, compression, JSON size limits, and rate limiting
-- Graceful shutdown for HTTP, Prisma, and Redis clients
-- Jest/Supertest integration coverage for health and error behavior
-- **Multi-tenant foundation: Tenant, TenantSettings, TenantDomain with CRUD APIs**
-- **Core relational schema: 31 Phase 03 models with tenant isolation, Decimal money, TIMESTAMPTZ(6)**
-- **Minimal idempotent seed for foundational roles/permissions**
-- **Authentication: JWT (HS256), refresh token rotation, password reset, email verification**
-- **Authorization / RBAC: role-based and permission-based access control with tenant isolation**
-- **User Management: tenant-scoped user CRUD with pagination, search, filter, sort, status/role filtering**
-- **Product Management: business-agnostic product catalog — categories, category hierarchy, products, product/category relationships, product variants (tenant-scoped SKUs/barcodes), flexible attributes/values, variant attribute assignment, product & variant images via local StorageService with tenant-scoped keys, product filtering (search, category, status, price, SKU/barcode, attribute), pagination, RBAC, tenant isolation, validation, 78 integration tests**
-- **Inventory Management: variant/SKU-level inventory (`product_variant_id` + `warehouse_id`), warehouse-specific quantities, stock adjustments (positive/negative with insufficient-stock protection), atomic transfers, movement history (`quantity_before`/`quantity_changed`/`quantity_after`), low-stock reporting (threshold default 10), PostgreSQL transactions with `SELECT ... FOR UPDATE` row locking, non-negative enforcement (DB CHECK), tenant isolation, RBAC (`inventory:read`/`inventory:update`), Zod validation, warehouse management supporting inventory, concurrency-safe updates, 36 integration tests**
-- **Order Management: order lifecycle management — variant/SKU-centric ordering (`product_variant_id`), immutable commercial snapshots (`product_name_snapshot`, `variant_name_snapshot`, `attribute_snapshot`, `sku_snapshot`, `unit_price`, `quantity`, `discount`, `tax`, `line_total`), server-authoritative Decimal pricing, atomic order creation (order + items + inventory `ORDER_RESERVATION` movements + status history `PENDING` in one transaction), PostgreSQL `SELECT ... FOR UPDATE` concurrency protection (10 concurrent qty 1 from 5 → 5 success), status lifecycle (DRAFT→PENDING→CONFIRMED→PROCESSING→SHIPPED→DELIVERED, terminal CANCELLED/REFUNDED), cancellation with atomic `ORDER_RELEASE` restoration, tenant isolation, RBAC (`order:create`/`order:read`/`order:update`/`order:cancel`), Zod validation, business-agnostic, 34 integration tests**
-- **Payment & Transaction Processing: business-agnostic payment architecture anchored to Orders (`Order → Payment → Payment Transaction → Refund`), processor-agnostic provider abstraction — no industry-specific catalog concepts. Order-derived server-authoritative Decimal amounts, duplicate pending guard, controlled state transitions (`PENDING`↔`PROCESSING`→`COMPLETED`/`FAILED`/`CANCELLED`, `COMPLETED`/`PARTIALLY_REFUNDED`→`REFUNDED`/`PARTIALLY_REFUNDED`), frontend cannot inject arbitrary status, `POST /payments/create`/`/confirm`/`/webhook` + `GET /payments/:id` + `POST /payments/:id/refund`, HMAC-SHA256 webhook signature (`x-webhook-signature`/`x-payment-signature`), database-enforced webhook idempotency (`payment_webhook_events` with `@@unique([tenantId, eventId])` + `@@unique([eventId])` + partial unique provider indexes, `INSERT` conflict → `P2002` → safely ignore), concurrent duplicate safe (5 parallel identical webhooks → 1 effect), refunds with refundable-balance check and audit-preserving transactions, `SELECT ... FOR UPDATE` row locking with Prisma `$transaction` rollback, tenant isolation via `req.context.tenantId`, RBAC (`payment:create`/`payment:confirm`/`payment:read`/`payment:refund`), 40 integration tests**
-- **Audit & Activity Logs: reusable audit/activity logging for important system actions. Existing Phase 3 models `audit_logs`/`activity_logs` reused (no duplicate tables, no new migration). Fields: `tenant_id`, `user_id`, `action`, `resource`, `resource_id`, `old_value`, `new_value`, `ip_address`, `user_agent`, `created_at` (audit) / `action`, `description`, `metadata` (activity). Reusable module `src/modules/audit/` (`sanitize`, `repository`, `service`, `controller`, `validation`, `routes`) via `auditService.logAudit`/`logActivity` abstraction for future modules. Sensitive-data protection via recursive sanitization (`[REDACTED]` for passwords/hashes/tokens/secrets). Tenant isolation via `req.context.tenantId`; cross-tenant access prevented (activity detail returns 404). APIs: `GET /audit-logs`, `GET /activity-logs`, `GET /activity-logs/:id` (authentication, RBAC `audit:read`/`activity:read`, pagination, filtering, validation). Integrated mutations: `PATCH /users/:id`, `DELETE /users/:id`, `POST /orders`, `PATCH /orders/:id/status`, `POST /orders/:id/cancel` each atomically creates audit/activity records in the same Prisma `$transaction` (mutation + log succeed together, rollback leaves no audit). 35 Phase 11 integration tests**
-- **Notifications: notification domain reusing existing Phase 3 models `notifications`/`notification_preferences`/`notification_templates` and enums `NotificationType`/`NotificationChannel` (no new tables, no Phase 12 migration). Module `src/modules/notifications/` (`repository`, `validation`, `service`, `controller`, `routes`) via provider-independent `NotificationService` abstraction (`createNotification`/`notify`/`dispatchViaChannel`). Tenant/user-scoped visibility (`tenant_id` + `user_id` or `null` tenant-wide), pagination (`page` default 1 `limit` 20 max 100), filtering (`isRead`/`type`/`channel`), newest-first ordering, RBAC `notification:read`/`notification:update`, tenant isolation, UUID/pagination/enum validation, mass-assignment protection, safe errors, no sensitive data. APIs: `GET /notifications`, `PATCH /notifications/:id/read` (idempotent), `POST /notifications/read-all` (idempotent), `GET /notification-preferences` (4 channels defaults), `PATCH /notification-preferences` (upsert). Channels: `IN_APP`/`EMAIL`/`SMS`/`PUSH` (concepts only, no external provider delivery). 53 Phase 12 integration tests**
-- **WebSockets / Real-Time: Socket.IO integrated with the existing HTTP server (`http.createServer(app)` + `createSocketServer(server)`), provider-independent `realtime.service.js` abstraction (`emitRealtime` + `REALTIME_EVENTS` + recursive sanitization), socket authentication reusing existing JWT verification (`verifyAccessToken`, `sub`/`tenantId`/`sessionId` required, `ACTIVE` user/tenant `ACTIVE|TRIAL` check), server-derived `socket.context={userId, tenantId, sessionId}`, tenant-aware rooms `tenant:{tenantId}` and `user:{userId}` auto-joined on connection, guarded `join`/`subscribe` (only own rooms allowed, another tenant/user/arbitrary blocked, client `tenantId`/`userId` never trusted), five events `order.created`/`order.updated`/`inventory.low_stock`/`payment.completed`/`notification.created` routed tenant-scoped (`tenant` room) or user-specific (`user` room when `userId` available), minimal payloads with recursive sensitive-field sanitization (no passwords/hashes/tokens/secrets/authorization/cookies/stack traces), lifecycle `connection`/`authentication failure`/`disconnect`/`error` with Pino logging and clean `io.close()` shutdown, dependencies `socket.io@^4.8.1` + `socket.io-client@^4.8.1` for tests. Integrations: `src/app/server.js` (`initSocketIO`), `src/modules/orders/orders.service.js` (`order.created`/`order.updated`), `src/modules/inventory/inventory.service.js` (`inventory.low_stock` threshold 10 on adjust/transfer), `src/modules/payments/payments.service.js` (`payment.completed` on confirm/webhook), `src/modules/notifications/notifications.service.js` (`notification.created`). 32 Phase 13 integration tests**
-- **Redis Caching: reusable cache abstraction `src/common/cache/` (`cache.config.js` TTL `TENANT 300s`/`TENANT_SETTINGS 300s`/`PERMISSIONS 300s`/`PERMISSIONS_USER 300s`/`PRODUCT_LIST 60s` + `CACHE_PREFIX pulseops:v1`, `cache.keys.js` tenant-safe keys `pulseops:v1:tenant:{tenantId}`/`pulseops:v1:tenant:{tenantId}:settings`/`pulseops:v1:tenant:{tenantId}:permissions:list`/`pulseops:v1:tenant:{tenantId}:permissions:user:{userId}`/`pulseops:v1:tenant:{tenantId}:products:list:{sha256(hash).slice(0,16)}` via `createHash` of normalized `{page,limit,search,status,categoryId,minPrice,maxPrice,sku,barcode,sortBy,sortOrder,attributeFilters(sorted)}`, `cache.service.js` `CacheService` `get`/`set`/`del`/`delByPattern`/`getOrSet` with JSON serialization, `stripSensitive` removing `password`/`passwordHash`/`token`/`secret` etc., graceful `logger.warn` fallback), existing `ioredis`/`src/config/redis.js` reused (no new dependency), cache-aside (GET → hit return / miss → DB via repository → SET), PostgreSQL remains authoritative, tenant-safe key structure (sanitizeId regex, no user-controlled arbitrary keys, no secrets in keys, attributeFilters sorted, hash 16 hex), invalidation after DB commit (`TenantService.update`/`delete` → `del(tenantKey)`+`del(tenantSettingsKey)`, `PermissionService` helpers `invalidateTenantPermissions`+`invalidateUserPermissionsCache`/`invalidateTenantPermissionsCache`, `ProductService` `invalidateProductListCache` via `delByPattern` after create/update/delete/setCategories, failures logged not rolled back), Redis failure fallback (GET fail → null → DB, SET fail → DB result, DEL fail → logged), tenant isolation preserved, RBAC preserved, 27 Phase 14 integration tests**
-- **Background Jobs / BullMQ: move slow/non-critical work outside HTTP requests using BullMQ and existing `REDIS_URL`. Architecture `API → Queue → Worker → Processor → Database / External Service`. Six queue abstractions (`src/jobs/`): `notificationQueue`, `cleanupQueue`, `webhookQueue` (real) and `emailQueue` (provider deferred to Phase 16), `reportQueue`/`analyticsQueue` (deferred to Phase 18 — stubs). Real jobs: `send-notification` (reuses Phase 12 `NotificationService.createNotification`, tenant-scoped, sanitized), `cleanup-expired-tokens` (tenant-scoped delete of expired `refresh_tokens`/`password_reset_tokens`/`email_verification_tokens`), `process-webhook` (preserves payment webhook HMAC verification/idempotency — HMAC verified before enqueue and re-verified in processor, uses existing `payment_webhook_events` unique constraints). BullMQ `^5.10.2` reuses `REDIS_URL` with dedicated connection `maxRetriesPerRequest: null`, `enableReadyCheck: false`, queue prefix `pulseops:v1:queue`; worker lifecycle via `src/jobs/workers/index.js` (webhook concurrency 10, cleanup 1, others 5, lock 30s, `completed`/`failed`/`stalled`/`error` logging, graceful `Worker.close()`), startup `initJobs()`/`startWorkers()` and shutdown `shutdownJobs()` → `stopWorkers()` + `closeAllQueues()` + `disconnectBullMqRedis()` in `src/app/server.js`. Job defaults: notification 3 attempts exponential 1000ms, cleanup 2 exponential 2000ms, webhook 5 exponential 1000ms; permanent (400/401/Validation `UnrecoverableError` no retry) vs transient (retry). Failure handling: BullMQ failed-job retention 24h (`removeOnFail: {age: 86400}`), no separate DLQ — failed jobs observable via BullMQ failed state + Pino logs. Idempotency: at-least-once with deterministic jobIds (`notif:<tenant>:<idempotencyKey>`, `webhook:<eventId>`, `cleanup:<tenant>:<YYYY-MM-DD>`) + processor safeguards (notification recent `tenant+referenceType+referenceId+title` 60s skip; webhook DB `@@unique([tenantId,eventId])`; cleanup re-delete no-op). Tenant isolation: `tenantId` server-derived from `req.context`, never trusted from client, carried in job payload, processors scope all DB ops by `tenantId` (`tenantB` cannot read `tenantA` notification/cleanup/webhook), cross-tenant tests 44. Sensitive-data guards reject `password`/`secret`/`token`/`authorization`/`cookie` in job payloads; JWT/refresh/provider secrets never enqueued; structured logs sanitized (`sanitizeForLog`). HTTP: `REDIS_URL` available → async `queue.add` and `202 Accepted` (`POST /payments/webhook` enqueues, `POST /jobs/notifications`/`/jobs/cleanup`), Redis unavailable → synchronous fallback processor and `200` (preserves correctness, can reintroduce latency). Order → notification: `OrderService.create` after committed transaction fire-and-forget `enqueueNotification({tenantId,userId, orderId, idempotencyKey: order:<id>})` logged not rolled back. 44 Phase 15 integration tests `tests/integration/phase15-background-jobs.test.js` (queue creation, enqueueing, processor success/retry/failed/idempotency/tenant/sensitive/log/shutdown/Redis failure/regression/HTTP), verification 44/44 and full regression 568/568 (16 suites, 524+44), lint 0, Prisma valid, 8 migrations up-to-date (no Phase 15 migration)**
-- **External API Integrations: provider-independent integration layer `Controller -> Service -> Integration Adapter -> External API` for Payment, Email, SMS, Shipping, Maps, Object Storage; Payment Mock/Http (charge/refund, idempotency-aware retry, state machine/HMAC preserved), Email Mock/Http via EmailService + BullMQ `queue processor -> service -> adapter` (retry-aware), SMS Mock/Http, Shipping Mock/Http (`getRate` idempotent retry vs `createShipment` no retry), Maps Mock/Http (`geocode`/reverse), Object Storage via StorageService (`LocalStorageProvider` + `S3StorageProvider` real S3 REST SigV4 + `MockS3StorageProvider` test-only, `STORAGE_PROVIDER` local/s3, tenant-scoped keys, traversal protection, timeout/retry/normalization); shared HTTP timeout via AbortController, idempotency-aware retry, normalized IntegrationError codes, response mapping, no secret leakage; 58 integration tests**
-- **API Orchestration (Phase 17): Dashboard orchestration `Dashboard Route → Controller → Service → 6 domain Services → Repositories → PostgreSQL` aggregating `orders/inventory/payments/users/notifications/products` via `Promise.allSettled`, tenant-scoped `dashboard:read`, `x-cache: HIT|MISS` with `CacheService` reuse `pulseops:v1:tenant:{tenantId}:dashboard:overview` TTL 60s, parallel + partial-failure handling, no direct Prisma, no internal HTTP, 22 integration tests**
-- **Analytics & Reporting (Phase 18 — COMPLETE and VERIFIED): Route → Controller → Service → Repository → PostgreSQL using existing transactional data (no separate analytics DB); 6 APIs `GET /api/v1/analytics/overview|sales|orders|inventory|customers|revenue` tenant-isolated via `req.context.tenantId` + `authorize('analytics:read')`, filters `from/to` (YYYY-MM-DD UTC) `groupBy=day|week|month` (UTC deterministic via `date_trunc(... AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'`), `category`/`product`/`status`/`warehouseId`, `page`/`limit`, client `tenantId` ignored; money `Decimal(12,2)` formatted `toFixed(2)`; revenue `grossRevenue` = completed payments `createdAt` in range, `totalRefunded` = completed refunds `createdAt` in range, `netRevenue = gross - refunded`; `CacheService` reuse tenant-scoped `pulseops:v1:tenant:{tenantId}:analytics:{endpoint}:{hash}` TTL 60s, miss/hit/fallback, `stripSensitive`; 45 dedicated + 693 full (19 suites) tests, 0 lint, 8 migrations**
-- **Performance Optimization (Phase 19 — COMPLETE and VERIFIED): DB indexes, N+1 elimination, pagination, compression, caching review; no new APIs, no schema changes, 693 full regression preserved**
-- **Security Hardening (Phase 20 — COMPLETE and VERIFIED): Helmet (`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, HSTS 31536000 production, CSP/COEP deliberately disabled for JSON API), CORS explicit allow-list (no `*` with credentials, production requires explicit `CORS_ORIGINS`), global (100/15m) + auth (20/15m) + webhook (100/1m) rate limiting with in-memory fallback, Zod strict validation, `SELECT ... FOR UPDATE` + allow-listed sort + `assertSafeTrunc` SQL injection protection, XSS JSON-only threat model (no HTML, frontend must sanitize), CSRF not applicable (Bearer-only, no cookies), request-size `1mb` JSON/urlencoded + 10MB multer, file upload (`image/jpeg|png|webp|gif`, 10MB, HMAC-signed storage keys `tenants/{tenantId}/products/{productId}/{uuid}_{sanitized}` with basename sanitization, executable rejection, tenant-scoped `assertTenantScopedKey`), Local PRIVATE (no `/storage` static, access only via `GET /api/v1/products/:productId/images/:imageId/file` + `GET /api/v1/storage/signed?key=&expires=&signature=` HMAC-SHA256 900s) + S3 PRIVATE-by-default (SigV4 pre-signed `getSignedUrl`, public `getUrl` only if bucket public), JWT HS256 pinned (`HS256` + `issuer:pulseops`/`audience:pulseops-api` + `sub/tenantId/sessionId` required, `exp` enforced, `none` rejected), refresh rotation atomic `revokedAt` + reuse revokes family, Argon2id, webhook raw-body HMAC-SHA256 `timingSafeEqual` over exact `req.rawBody` (whitespace-sensitive) before enqueue, BullMQ idempotency `@@unique([tenantId,eventId])`, audit sanitize `[REDACTED]`, logger redact, secrets never in responses/logs, 53 security tests + 746/746 full (20 suites)**
-- **Complete Testing (Phase 21 — COMPLETE): Full-system validation. New: 51 unit (validators auth/product/inventory/payment/attribute + services/utils JWT/password/storage/cache/webhook/rate-limit/authorization), 12 E2E (Register→Login→Define Attributes→Create Product→Create Variants+Images→Add Inventory→Create Order (SKU snapshots)→Process Payment (webhook idempotency)→Notifications→Audit→WebSocket), 24 extended integration (multi-tenant matrix A→A/A→B/B→A, transaction/rollback, concurrent webhook idempotency 5→1, cache tenant keys & fallback, queue tenant context, storage isolation, error handling 401/403/400/SQL injection, IntegrationError mapping). Total 87 new + 746 baseline = 833 per-suite evidence (controlled individual execution, not one combined 833 run). Phase 20 security regression 53/53 still PASS. Lint 0, Prisma valid, 9 migrations up-to-date, no schema change.**
-- **Swagger / OpenAPI Documentation (Phase 22 — COMPLETE): OpenAPI 3.0.3, `src/docs/` modular spec (openapi.js, swagger.js, components/schemas.js, 10 path modules), 81 path keys, 115 operations, 115 unique operationIds, 26 reusable schemas (Tenant, User, Role, Permission, Product, Variant, Attribute, Image, Inventory, Warehouse, Order, Payment, Notification, Audit, Activity, etc.), `bearerAuth` JWT security (`Authorization: Bearer <token>`), 21 tags, Swagger UI at `GET /api-docs/` (public, no auth, `swagger-ui-express@5.0.1`), OpenAPI JSON at `GET /api-docs.json` / `GET /openapi.json` / `GET /api/v1/openapi.json` (all 200), server `http://localhost:3000` (no `/api/v1` duplication — `SERVER BASE + PATH = ACTUAL ROUTE`), 100% production route coverage (115/115, PUT only at variant attributes), 573 `$ref` (0 unresolved), request/response/validation/authorization documented, no secrets exposed, 16 dedicated Phase 22 tests, lint 0, Prisma valid, 9 migrations up-to-date, no schema change.**
+The primary recommended local workflow is Docker Compose. It provides the full PulseOps stack with no manual PostgreSQL/Redis setup.
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+Normal PulseOps runtime consists of:
+
+* **api** — Express API on `http://localhost:3000` (`pulseops-api`)
+* **worker** — BullMQ background worker (`pulseops-worker`, no HTTP port)
+* **postgres** — PostgreSQL 16 (`pulseops-postgres`, `pgdata` volume)
+* **redis** — Redis 7 (`pulseops-redis`, `redisdata` volume)
+
+Plus a short-lived **migrate** service (`pulseops-migrate`) that runs `npx prisma migrate deploy` against the healthy PostgreSQL instance and then exits successfully (`service_completed_successfully`). The `api` and `worker` start only after `migrate` has completed and both `postgres` and `redis` report healthy.
+
+Verify after start:
+
+```bash
+curl -f http://localhost:3000/health
+curl -f http://localhost:3000/api-docs
+docker compose ps
+```
+
+See [Setup](#setup) for environment file setup and [Docker Operations](#docker-operations) for the full command reference.
+
+## Health Checks
+
+| Endpoint | URL | What it verifies |
+| --- | --- | --- |
+| Liveness | `http://localhost:3000/health` | Process is up. Works without PostgreSQL or Redis. Always returns 200 when the API is running. |
+| PostgreSQL readiness | `http://localhost:3000/health/db` | PostgreSQL connectivity (`SELECT 1`). Returns 200 when connected, 503 until connected. |
+| Redis readiness | `http://localhost:3000/health/redis` | Redis connectivity (`PING` → `PONG` and `status: ready`). Returns 200 when connected, 503 until connected. |
+
+The same checks are also exposed under the versioned prefix `/api/v1/health`, `/api/v1/health/db`, `/api/v1/health/redis`, but infrastructure probes should use the root `/health` routes.
+
+Docker Compose maps the API healthcheck to `wget -qO- http://127.0.0.1:3000/health` (liveness, no DB/Redis needed) and Postgres/Redis to `pg_isready` / `redis-cli ping` respectively.
+
+## Swagger / OpenAPI Documentation
+
+### Interactive UI
+
+```text
+http://localhost:3000/api-docs
+```
+
+The interactive Swagger UI (served by `swagger-ui-express@5.0.1`) is public, requires no authentication, and documents all 115 operations across 81 path keys with `bearerAuth` (`Authorization: Bearer <token>`). Use **Try it out** to execute requests.
+
+### Machine-readable OpenAPI specification
+
+```text
+http://localhost:3000/api-docs.json
+http://localhost:3000/openapi.json
+http://localhost:3000/api/v1/openapi.json
+```
+
+All three endpoints return the same OpenAPI 3.0.3 JSON document (`openapi: 3.0.3`, 81 paths, 115 operations, 115 unique `operationId`, 26 reusable schemas, `bearerAuth`, 21 tags). Server is `http://localhost:3000` — clients append the path as-is (no `/api/v1` duplication; `SERVER BASE + PATH = ACTUAL ROUTE`). `$ref` coverage is 573 with 0 unresolved. The `/api-docs` route serves the human UI; the `.json` routes expose the machine-readable spec for code generation and tooling.
+
+The endpoint table below lists the authoritative route inventory; Swagger is the interactive complement, not a duplicate listing.
 
 ## Prerequisites
 
 - Node.js 22 or newer
 - npm 10 or newer
-- PostgreSQL 16 or newer and Redis, if you want dependency health checks to report `up`
+- Docker & Docker Compose (recommended path) — provides PostgreSQL 16 and Redis 7 via containers
+- PostgreSQL 16 or newer and Redis, only if running the API natively without Docker
 
 ## Setup
 
-1. Install dependencies:
+### Recommended: Docker (full stack)
+
+Use Docker Compose for the full runtime — no local PostgreSQL/Redis installation required.
+
+1. Install dependencies (needed for local lint/tests and Prisma client generation even when running via Docker):
 
    ```bash
    npm install
@@ -59,40 +93,77 @@ The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_
    Copy-Item .env.example .env
    ```
 
-3. Update `DATABASE_URL` and `REDIS_URL` in `.env` for your local services.
+   Defaults in `.env.example` already match the compose services (`DATABASE_URL=postgresql://pulseops:pulseops@localhost:5432/pulseops?schema=public`, `REDIS_URL=redis://localhost:6379`, `STORAGE_PROVIDER=local`). No edits are required for local Docker.
 
-4. Generate Prisma Client:
+3. Start the full stack:
+
+   ```bash
+   docker compose up -d
+   docker compose ps
+   ```
+
+   Expected: `postgres` and `redis` report `healthy`, `migrate` runs `prisma migrate deploy` and exits `Exit 0`, `api` and `worker` show `healthy`/`running`. Persistent data lives in named volumes `pulseops_pgdata` and `pulseops_redisdata`.
+
+4. Access the API and docs:
+
+   ```text
+   http://localhost:3000/health
+   http://localhost:3000/api-docs
+   http://localhost:3000/api-docs.json
+   ```
+
+   The API is available at `http://localhost:3000` and Swagger UI at `http://localhost:3000/api-docs`.
+
+### Alternative: Native Node (when PostgreSQL/Redis are provided separately)
+
+Use this workflow when you manage PostgreSQL and Redis outside Docker (e.g., locally installed services or managed hosts). The Docker workflow above remains the recommended full-stack path.
+
+1. Install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+2. Create and configure `.env`:
+
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+   Update `DATABASE_URL` and `REDIS_URL` to point to your separately provided services.
+
+3. Generate Prisma Client:
 
    ```bash
    npm run prisma:generate
    ```
 
-5. Run database migrations:
+4. Run database migrations:
 
    ```bash
    npx prisma migrate deploy
    ```
 
-6. (Optional) Seed foundational roles/permissions:
+5. (Optional) Seed foundational roles/permissions:
 
    ```bash
    npm run db:seed
    ```
 
-7. Start the API:
+6. Start the API:
 
    ```bash
    npm run dev
    ```
 
-## Environment reference
+## Environment Reference
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `NODE_ENV` | No | `development`, `test`, or `production`; defaults to `development`. |
 | `PORT` / `HOST` | No | HTTP bind address; defaults to `3000` and `0.0.0.0`. |
-| `DATABASE_URL` | For DB checks | PostgreSQL Prisma connection string, e.g. `postgresql://user:pass@localhost:5432/pulseops?schema=public`. |
-| `REDIS_URL` | For Redis checks | Redis connection string. |
+| `DATABASE_URL` | For DB checks | PostgreSQL Prisma connection string, e.g. `postgresql://user:pass@localhost:5432/pulseops?schema=public`. **Required in production** (with `connection_limit` + `sslmode=require` for managed hosts — see `docs/DEPLOYMENT.md`). |
+| `REDIS_URL` | For Redis checks | Redis connection string. **Required in production**. |
 | `CORS_ORIGINS` | No in dev, **Yes in prod** | Comma-separated allow-list; `*` rejected with credentials, production requires explicit origins (default `http://localhost:5173` rejected in prod). |
 | `LOG_LEVEL` | No | Pino log threshold. |
 | `REQUEST_BODY_LIMIT` | No | Maximum JSON/urlencoded request size; defaults to `1mb` (multipart 10MB via multer). |
@@ -104,7 +175,7 @@ The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | Yes in prod | JWT secrets (min 32 chars); optional in test. |
 | `JWT_ACCESS_EXPIRY` / `JWT_REFRESH_EXPIRY` | No | JWT expiry; defaults `15m` / `7d`. |
 | `PASSWORD_RESET_EXPIRY` / `EMAIL_VERIFICATION_EXPIRY` | No | Token expiry; defaults `1h` / `24h`. |
-| `PAYMENT_WEBHOOK_SECRET` | No | HMAC secret for `x-webhook-signature`/`x-payment-signature`; defaults to test secret. |
+| `PAYMENT_WEBHOOK_SECRET` | No | HMAC secret for `x-webhook-signature`/`x-payment-signature`; defaults to test secret. **Required in production.** |
 | `PAYMENT_PROVIDER` | No | `mock` or `http` (or `stripe`, `adyen`); defaults to `mock`. |
 | `PAYMENT_PROVIDER_URL` | No | Base URL for HTTP payment provider; required when `PAYMENT_PROVIDER=http`. |
 | `PAYMENT_PROVIDER_API_KEY` | No | API key for HTTP payment provider; sent as `Authorization: Bearer`. |
@@ -137,7 +208,7 @@ The full phase-by-phase plan lives in a single source of truth: [`docs/PulseOps_
 | `MAPS_PROVIDER_API_KEY` | No | API key for HTTP maps provider. |
 | `MAPS_PROVIDER_TIMEOUT_MS` | No | Timeout for maps provider HTTP; defaults to `5000`. |
 
-Never commit `.env`. Use a secret manager or deployment-specific environment variables in production.
+Never commit `.env`. The repository `.gitignore` excludes `.env` and `.dockerignore` excludes `.env` from images; the `Dockerfile` does not `COPY .env`. Use a secret manager or deployment-specific environment variables in production. See `docs/DEPLOYMENT.md` for the full production contract (`DATABASE_URL` with `connection_limit`/`sslmode`, `S3_*`, `TRUST_PROXY`, etc.). Required production values (`DATABASE_URL`, `REDIS_URL`, `JWT_*`, `PAYMENT_WEBHOOK_SECRET`, `CORS_ORIGINS`) must come from the provider — do not commit them.
 
 ## Endpoints
 
@@ -261,67 +332,190 @@ The same health endpoints are also exposed under `/api/v1/health`, although infr
 
 Successful responses use `{ "success": true, "data": ..., "message": "..." }`. Errors include `{ "success": false, "error": ..., "requestId": "..." }`. Send an `X-Request-Id` header to supply your own trace identifier; otherwise one is generated.
 
-## Development commands
+## Docker Operations
+
+All commands run from the repository root (where `docker-compose.yml` lives).
+
+#### Start
 
 ```bash
-npm run dev
-npm start
-npm test
-npm run lint
-npm run prisma:validate
-npm run prisma:generate
-npx prisma migrate status
-npm run db:seed
+docker compose up -d
 ```
+
+Builds (if needed), creates the network/volumes, starts `postgres` and `redis`, waits for them to become healthy, runs `migrate` (`prisma migrate deploy`), then starts `api` and `worker`.
+
+#### Status
+
+```bash
+docker compose ps
+```
+
+Shows each service state. Expect `postgres` and `redis` `healthy`, `migrate` `Exit 0` (completed), `api` and `worker` `healthy`/`running`. Use `docker compose ps -a` to also show the completed `migrate` container.
+
+#### Logs
+
+```bash
+docker compose logs -f
+docker compose logs -f api
+docker compose logs -f worker
+docker compose logs -f postgres
+docker compose logs -f redis
+```
+
+Follow all services or a single service. For the one-shot migration output:
+
+```bash
+docker compose logs migrate
+```
+
+#### Rebuild
+
+After changing `Dockerfile`, dependencies, or `prisma/schema.prisma`:
+
+```bash
+docker compose build
+docker compose up -d
+```
+
+For a clean rebuild without cache (e.g., after base image or native dependency changes like `argon2`):
+
+```bash
+docker compose build --no-cache
+docker compose up -d
+```
+
+#### Stop
+
+```bash
+docker compose down
+```
+
+Stops and removes containers and the default network. **It does not remove persistent volumes** — PostgreSQL data (`pgdata`) and Redis data (`redisdata`) are retained.
+
+To also remove volumes (destructive):
+
+```bash
+docker compose down -v
+```
+
+**Warning:** `docker compose down -v` removes the named volumes and **destroys persisted PostgreSQL/Redis data**. Only use it when you intentionally want to reset the database. For a production host, prefer managed PostgreSQL/Redis or external volume backups (see `docs/DEPLOYMENT.md`). The CI `migration-validation` job tests a fresh empty DB via a disposable container, which is the safe pattern for validating `migrate deploy` without touching local volumes.
+
+## Local Node Development — Alternative Workflow
+
+**Docker workflow** = recommended full PulseOps stack (API + worker + PostgreSQL + Redis + migrations). Use [Quick Start — Docker](#quick-start--docker) and [Docker Operations](#docker-operations).
+
+**Native Node workflow** = alternative when PostgreSQL and Redis are provided separately (local installs or managed services). Use it only when you do not want the Docker-provided dependencies.
+
+All commands below are valid `package.json` scripts (or `npx` Prisma invocations). Only commands that actually exist in `package.json` are documented.
+
+```bash
+npm run dev              # start API with --watch (src/app/server.js)
+npm start                # start API (src/app/server.js)
+npm test                 # run Jest suite (node --experimental-vm-modules, --runInBand)
+npm run lint             # run ESLint (must be 0 errors, 0 warnings)
+npm run prisma:validate  # validate prisma/schema.prisma
+npm run prisma:generate  # generate Prisma Client
+npx prisma migrate status # check migration state (Database schema is up to date!)
+npm run db:seed           # seed foundational roles/permissions (idempotent)
+```
+
+Additional workflow notes:
+
+* `npx prisma migrate deploy` is the production migration command (never `migrate dev` in production or in compose). See `docs/DEPLOYMENT.md`.
+* `docker compose config --quiet` validates the compose files without starting services.
+* Native mode still requires `DATABASE_URL` and `REDIS_URL` in `.env` pointing to your separately provided services; degraded mode (`FAIL_ON_DEPENDENCY_ERROR=false`) keeps liveness available when a dependency is temporarily down, but production should use `FAIL_ON_DEPENDENCY_ERROR=true`.
+
+## CI/CD
+
+Pipeline (` .github/workflows/ci.yml`, `runs-on: ubuntu-latest`, Node 22):
+
+```text
+install
+→ lint
+→ test
+→ build
+→ migration validation
+→ deployment
+```
+
+| Stage | What it does |
+| --- | --- |
+| **install** | `npm ci` (reproducible, `package-lock.json` exact), caches `node_modules` for downstream jobs. |
+| **lint** | `npm run lint --silent` (0 errors, 0 warnings). Needs `install`. |
+| **test** | Disposable PostgreSQL 16 + Redis 7 services (`pg_isready` / `redis-cli ping` health checks). `npx prisma generate` → `npx prisma migrate deploy` → `npm test --silent` → `npx prisma migrate status`. Needs `install`. |
+| **build** | Needs `lint` + `test`. `npx prisma validate` (with `DATABASE_URL`) + `npx prisma generate` + `docker compose config --quiet` + `docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet` + `docker build -t pulseops-backend:ci` + verifies non-root user `pulseops` and `.dockerignore` excludes `.env`. |
+| **migration validation** | Needs `build`. Fresh empty PostgreSQL 16; `npm ci` + `npx prisma validate` + `npx prisma migrate deploy` (production command, never `dev`) + `npx prisma migrate status` + probe `SELECT tablename FROM pg_tables`; asserts no `npx prisma migrate dev` in workflow (guard uses `npx [p]risma` trick to avoid self-match). |
+| **deployment** | Needs `migration validation`. Runs only on `push` to `main`/`master` under `environment: production`. Validates `docker compose` configs and `prisma validate`, checks required secrets (`DATABASE_URL`, `REDIS_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` — plus `PAYMENT_WEBHOOK_SECRET`, `S3_*` when S3), then provider-agnostic placeholder gated on `vars.DEPLOY_PROVIDER` + `secrets.DEPLOY_HOST` (e.g., `fly`, `render`, `railway`, `aws`, `gcp`, `azure`, `custom`). **No real production deployment is claimed.** See `docs/DEPLOYMENT.md`. |
+| **deployment (dry-run)** | Needs `migration validation`. Runs on `pull_request` or non-`main` pushes. Validates compose configs without secrets. |
+
+**Last verified remote run:** All required checks **passed** (`install`, `lint`, `test`, `build`, `migration validation`). The `deployment` job was entered but the `deployment dry-run` variant was **SKIPPED** (expected — dry-runOnly runs on PRs/non-main pushes; the main push runs the `deployment` stage gated on secrets). The dry-run is not described as passed.
 
 ## Verification
 
-Latest verification results (all passing, Phase 20 independently verified — HUMAN VERIFICATION: PASS):
+Latest verified results (Phase 23 — HUMAN VERIFIED):
 
-- **Full test suite:** 746 passed, 0 failed (20 suites) — per-suite `node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand <file>` (693 Phase 1-19 +53 Phase 20 =746; Phase 20 53/53, Phase 19 preserved, Phase 18 45/45, Phase 17 22/22, Phase 16 58/58, Phase 15 44/44, Phase 14 27/27; combined `jest --runInBand` over all 20 suites exceeds 600s timeout due to DB load, so per-suite iteration used; no failures)
-- **Phase 7:** 78 passed, 0 failed (product management: categories, products, variants, attributes, images, filtering, RBAC, tenant isolation, storage)
-- **Phase 8:** 36 passed, 0 failed (inventory: adjustments, transfers, movements, low-stock, concurrency, tenant isolation, RBAC)
-- **Phase 9:** 34 passed, 0 failed (orders: creation, multi-item, snapshots, pricing/totals, insufficient/rollback, variant/warehouse isolation, status transitions, history, cancellation, inventory restoration, authorization, concurrency, business-agnostic)
-- **Phase 10:** 40 passed, 0 failed (payments: create with server amount truth, invalid/cross-tenant order 404, duplicate pending guard, confirm PENDING→COMPLETED/FAILED, invalid transition 400, frontend status injection rejected, webhook valid/invalid sig 401/malformed 400/duplicate safely ignored/concurrent duplicate 5→1 idempotent, refunds partial/full/excessive 400/invalid state 400/cross-tenant 404/audit-preserving, Decimal money, tenant isolation, rollback)
-- **Phase 11:** 35 passed, 0 failed (audit & activity logs: authentication 401, authorization 403, tenant isolation cross-tenant 404, validation malformed UUID/pagination/filters, pagination/meta, no sensitive data / sanitization `[REDACTED]`, mutation audit/activity creation for user update/delete and order create/status/cancel with correct tenant/user/action/resource/timestamps, rollback leaves no audit, API response format, safe 404)
-- **Phase 12:** 53 passed, 0 failed (notifications: authentication 401, authorization 403 `notification:read`/`notification:update`, tenant isolation cross-tenant 404 + client tenant override ignored, pagination/filtering newest-first, mark-one idempotent + 404/400, read-all idempotent tenant-isolated, preferences defaults/updates/upserts/validation 400, service `createNotification`/`notify`/`dispatchViaChannel` abstraction, channel `IN_APP`/`EMAIL`/`SMS`/`PUSH` concepts, mass-assignment protection, safe errors, no sensitive data)
-- **Phase 13:** 32 passed, 0 failed (websockets/real-time: authenticated `connect` + tenant `connected` ack 200, missing/invalid/expired/malformed JWT rejected, `Bearer` prefix + `Authorization` header, tenant `tenant:A` allowed/`tenant:B` blocked, `user:A1` allowed/`user:B1` blocked, arbitrary/`forged tenantId`/`subscribe` blocked, tenant A cannot receive B events and vice-versa, user private `notification.created` isolation, A1/A2 tenant-share vs private, forged `tenantId` in payload does not affect routing, five events `order.created`/`order.updated`/`inventory.low_stock`/`payment.completed`/`notification.created` (tenant + user) delivery, sensitive-field sanitization `passwordHash`/`refreshToken`/`accessToken`/`secret`/`webhookSecret`/`authorization`/`cookie`/`stack` stripped, `sanitizeForTest`, notificationService no leak, webhook/confirm/inventory low-stock integration, `unknown.event`/`missing tenantId` rejected, HTTP still 200/403)
-- **Phase 14:** 27 passed, 0 failed (redis caching: cache hit avoids DB, miss loads+sets, invalidation after tenant update/delete and product create/update/delete/setCategories, expiration TTL 1s → fresh, GET/SET/DEL failure fallback to DB without 500, tenant isolation distinct keys, product key includes page/limit/search/status/category/minPrice/maxPrice/sku/barcode/sortBy/sortOrder/attributeFilters, no secrets in keys/values, TTL constants valid, HTTP cache miss then hit, tenant isolation via API, mutation clears pattern, redis-down fallback 200)
-- **Phase 15:** 44 passed, 0 failed (background jobs / BullMQ: queue creation `pulseops:v1:queue` + job names, enqueue `notification`/`cleanup`/`webhook` with deterministic jobId + sensitive guards, processor success `send-notification` creates `notifications` row + `cleanup-expired-tokens` tenant-scoped delete + `process-webhook` HMAC re-verify + `email`/`report`/`analytics` deferred stubs, retry/backoff 3/2/5 exponential `UnrecoverableError` for 400/401 vs transient retry, failed retention 24h no DLQ, idempotency `notif:<tenant>:key`/`webhook:<eventId>`/`cleanup:<tenant>:date` + processor safeguards, tenant isolation, sensitive `password`/`secret`/`token`/`authorization`/`cookie` rejected, logging `queue`/`jobId`/`tenantId`/`durationMs`, graceful `stopWorkers`/`shutdownJobs`, Redis fallback sync preserves correctness, HTTP `POST /jobs/notifications`/`/jobs/cleanup` 202/200 + `POST /payments/webhook` HMAC before enqueue + `GET /jobs/status`, regression still 568, 27 Phase 14 unchanged)
-- **Phase 16:** 58 passed, 0 failed (external API integrations: StorageService `local`/`S3`/`MockS3` same interface `upload`/`delete`/`getUrl`/`exists`/`getStream` + `STORAGE_PROVIDER` local/s3 + tenant-scoped keys `tenants/{tenantId}/products/{productId}/{file}` + traversal protection + real S3 REST SigV4 via `S3StorageProvider` (PUT/GET/HEAD/DELETE + `x-amz-date`/`x-amz-content-sha256`/`Authorization` SigV4, timeout `STORAGE_TIMEOUT_MS`, retry idempotent PUT 503->retry, 401/404/429 normalized, no secret leakage) + `MockS3StorageProvider` test-only in-memory + local HTTP S3 test server (no cloud credentials, request log proves PUT/HEAD/GET/DELETE), payment Mock/Http `charge`/`refund` (idempotency-aware retry: charge retry on 503 when `idempotencyKey`, refund no retry, timeout 50ms->TIMEOUT 504 retryable, 401 AUTH 404 NOT_FOUND 429 RATE_LIMIT mapping, HMAC `verifyWebhookSignature` preserved, state machine `PENDING->COMPLETED/FAILED` unchanged, secrets not logged), email Mock/Http via `EmailService` (`sendEmail` -> `provider.send` adapter) + BullMQ `email` processor `processSendEmail` -> `EmailService` -> adapter (retry vs `UnrecoverableError` no-retry, queue `email` deferred from Phase 15 now real, no `fetch` in processor), SMS Mock/Http `send` (+ HTTP mapping `sid`/`id`), Shipping Mock/Http `getRate` (idempotent retry) vs `createShipment` (no retry, 503 1 call), Maps Mock/Http `geocode`/`reverseGeocode` (GET idempotent retry), shared HTTP `fetchWithTimeout` AbortController + `requestWithRetry` idempotency-aware + `IntegrationError` `TIMEOUT`/`UNAVAILABLE`/`AUTHENTICATION`/`VALIDATION`/`NOT_FOUND`/`RATE_LIMIT`/`CONFIGURATION` + `isRetryable` + `normalizeProviderError` + `mapProviderResponse` (never leak `apiKey`/`secret`), tenant isolation via `req.context.tenantId` (keys tenant-scoped, `assertTenantScopedKey` `tenants/` + no `..`/`//`/`\`/`\0`), webhook HMAC `PAYMENT_WEBHOOK_SECRET`, env secrets (`PAYMENT_PROVIDER*`, `STORAGE_PROVIDER`/`LOCAL_STORAGE_PATH`/`LOCAL_STORAGE_URL`/`S3_*`/`STORAGE_TIMEOUT_MS`, `EMAIL_PROVIDER*`, `SMS_PROVIDER*`, `SHIPPING_PROVIDER*`, `MAPS_PROVIDER*`), logger redact, no credentials in queue payload, normalized errors, 58 dedicated, 626 full, 17 suites)
-- **Lint:** `npm run lint` → 0 errors, 0 warnings
-- **Prisma validate:** `npx prisma validate` → ✅ Valid
-- **Prisma generate:** ✅ Success
-- **Migration status:** `npx prisma migrate status` → Database schema up to date (8 migrations applied; no Phase 15 migration)
-- **Phase 9 migration:** No new migration required — reused Phase 03 order tables (`orders`, `order_items`, `order_status_history`)
-- **Phase 10 migration:** `20260914_phase10_payments_webhook` — creates `payment_webhook_events` (idempotency) + partial unique provider indexes + non-negative CHECKs; reuses Phase 03 `payments`/`payment_transactions`/`refunds`
-- **Phase 11 migration:** No new migration — reused Phase 3 models `audit_logs`/`activity_logs` (existing indexes `tenantId+createdAt`, `tenantId+resource+resourceId`, `tenantId+action+createdAt`)
-- **Phase 12 migration:** No new migration — reused Phase 3 models `notifications`/`notification_preferences`/`notification_templates` and enums `NotificationType`/`NotificationChannel` (existing indexes `tenantId+userId+isRead`, `tenantId+createdAt`, unique `tenantId+userId+channel`)
-- **Phase 13 migration:** No new migration — no database tables added, existing 8 migrations remain up to date (Socket.IO in-memory, no persistence table)
-- **Phase 14 migration:** No new migration — Redis is cache/shared-state layer not a DB table, 8 migrations remain up to date (no new tables, PostgreSQL remains authoritative)
-- **Phase 15 migration:** No new migration — `npx prisma migrate status` 8 migrations up to date, no new tables; jobs use existing `notifications`/`refresh_tokens`/`password_reset_tokens`/`email_verification_tokens`/`payment_webhook_events`
-- **Phase 16 migration:** No new migration — `npx prisma migrate status` 8 migrations up to date, no new tables; integrations reuse existing `notifications`/`payments`/`product_images` and storage/filesystem (no new DB tables, S3 via REST, no cloud credentials)
-- **Storage:** StorageService (`tenants/{tenantId}/products/{productId}/{filename}` + `tenants/{tenantId}/products/{productId}/variants/{variantId}/{filename}`) with `LocalStorageProvider` (filesystem `./storage`, traversal check) + `S3StorageProvider` (real S3 REST SigV4 PUT/GET/HEAD/DELETE via `fetch`, `STORAGE_PROVIDER` local/s3, `S3_BUCKET`/`S3_REGION`/`S3_ENDPOINT`/`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`/`S3_PUBLIC_BASE_URL`/`S3_FORCE_PATH_STYLE`/`STORAGE_TIMEOUT_MS` 5000, tenant-scoped keys, traversal protection, timeout/retry/normalization) + `MockS3StorageProvider` test-only (in-memory Map, local HTTP S3 test server, no cloud credentials needed, request log proves PUT/HEAD/GET/DELETE, 503 retry, timeout 60ms->TIMEOUT)
-- **Regression:** Phase 1 PASS, Phase 2 PASS, Phase 3 PASS, Phase 4 PASS, Phase 5 PASS, Phase 6 PASS, Phase 7 PASS, Phase 8 PASS, Phase 9 PASS, Phase 10 PASS, Phase 11 PASS, Phase 12 PASS, Phase 13 PASS, Phase 14 PASS (27/27), Phase 15 PASS (44/44), Phase 16 PASS (58/58), Phase 17 PASS (22/22), Phase 18 PASS (45/45), Phase 19 PASS (preserved), Phase 20 PASS (53/53) — 693 +53 =746
-- **Phase 17:** 22 passed, 0 failed (API orchestration: GET /api/v1/dashboard/overview via Dashboard Route → Dashboard Controller → Dashboard Service → OrderService/InventoryService/PaymentService/UserService/NotificationService/ProductService → repositories → Prisma/PostgreSQL; DashboardService orchestration only — no direct Prisma; six domain services expose getOverview(tenantId); tenant-scoped aggregation, req.context.tenantId, dashboard:read, client tenantId override blocked, no HTTP calls, Promise.allSettled parallel, partial-failure error markers / all-fail error, {success,data,message} + x-cache: HIT|MISS, Redis CacheService reuse pulseops:v1:tenant:{tenantId}:dashboard:overview TTL 60s — miss/hit, tenant keys, invalidation, GET/SET fallback, no second Redis, stripSensitive; 0 migrations / 0 schema changes, 8 migrations current)
-- **Phase 18:** 45 passed, 0 failed (Analytics & Reporting: 6 APIs overview/sales/orders/inventory/customers/revenue; tenant-scoped via req.context.tenantId, analytics:read RBAC; date range from/to with UTC boundaries, groupBy day/week/month deterministic UTC grouping via date_trunc AT TIME ZONE 'UTC'; category/product/status/warehouseId filters; pagination page/limit; Decimal money formatted to 2dp; grossRevenue = completed payments createdAt in range; totalRefunded = completed refunds createdAt in range; netRevenue = gross - refunded; CacheService reuse tenant-scoped analytics keys TTL 60s; 0 migrations, 8 migrations current; validation/auth/authorization/tenant isolation/aggregation correctness/UTC grouping/revenue-refund semantics/cache hit-miss-fallback/Redis isolation/repository failure coverage)
-- **Order verification:** POST create 201 PENDING, multi-item totals (subtotal/discount/tax/shipping/total), snapshot write-once, insufficient 400 `INSUFFICIENT_STOCK` rollback (no orphan order/movement/history), valid status PENDING→CONFIRMED 200, invalid transition 400 `INVALID_STATUS_TRANSITION`, cancel PENDING→CANCELLED 200 + `ORDER_RELEASE` restoration, invalid cancel SHIPPED 400 `CANCELLATION_NOT_ALLOWED`, cross-tenant variant/warehouse/order 404, unauthorized 403, unauthenticated 401, concurrent 10× qty1 from 5 → 5 success/5 fail final 0 never negative
-- **Inventory verification:** adjust 25→30→27, transfer 27→22 / 14→19, insufficient 400 `INSUFFICIENT_STOCK`, same warehouse 400 `SAME_WAREHOUSE`, cross-tenant 404, unauthorized 403, unauthenticated 401, concurrent 10×-1 from 5 → 5 success/5 fail final 0
-- **Image PATCH/DELETE:** PATCH authorized owner → 200, DELETE authorized owner → 200 (DB + storage removed), cross-tenant PATCH/DELETE → 404, unauthorized PATCH/DELETE → 403, unauthenticated → 401
-- **Payment verification:** POST create 201 PENDING server amount `order.total` (client amount rejected strict), invalid order 404 `ORDER_NOT_FOUND`, cross-tenant order 404, duplicate pending 400 `PAYMENT_ALREADY_PENDING`; GET `/:id` 200 tenant-scoped, cross-tenant 404 `PAYMENT_NOT_FOUND`; POST confirm PENDING→COMPLETED 200 / `simulateFailure`→FAILED, double confirm 400 `INVALID_STATE_TRANSITION`, status injection strict 400; POST webhook valid `payment.succeeded`→COMPLETED 200 duplicate:false → second 200 duplicate:true no duplicate transaction, 5 concurrent identical → 1 effect, invalid signature 401 `INVALID_WEBHOOK_SIGNATURE`, malformed 400, DB unique `tenant_id+event_id` + `event_id`; POST refund partial `PARTIALLY_REFUNDED` → full `REFUNDED`, excessive 400 `EXCESSIVE_REFUND` no new refund, PENDING refund 400 `INVALID_REFUND_STATE`, history preserved (transactions appended)
-- **Audit verification:** GET `/audit-logs` 200 tenant-scoped pagination/meta, filters `action`/`resource`/`resourceId`/`userId`/`from`/`to`, invalid action/datetime 400, malformed UUID 400, invalid pagination 400, client `tenantId` override ignored, cross-tenant 404; GET `/activity-logs` 200, GET `/activity-logs/:id` 200 owner / 404 other tenant; `old_value`/`new_value` sanitized `[REDACTED]` for passwords/hashes/tokens/secrets; `ip_address`/`user_agent` captured from `req.ip`/`user-agent`
-- **Notification verification:** GET `/notifications` 200 tenant/user-scoped pagination/meta newest-first, filters `isRead`/`type`/`channel`, invalid pagination 400, invalid type/channel 400, client tenant override ignored; PATCH `/:id/read` 200 idempotent second 200, 404 not-found/cross-tenant, 400 invalid UUID, forged tenant/body ignored, unauthorized 403 unauth 401; POST `/read-all` 200 `{updated:n}` 0 repeated idempotent tenant-isolated; GET `notification-preferences` 200 4 channels defaults tenant-scoped; PATCH `preferences` 200 upsert `EMAIL`/`SMS`/`IN_APP`/`PUSH` via flat or `{preferences:{}}`, invalid/empty 400, unknown channel 400, tenant injection ignored; service creates tenant-scoped, validates required, channel/type enums, provider-independent `notify`/`dispatchViaChannel`
-- **WebSockets verification:** Socket.IO authenticated `connect` succeeds with `connected` `{userId, tenantId, rooms:[tenant:...,user:...]}` and `join tenant:A/user:A1` allowed, `tenant:B/user:B1/arbitrary/global/forged tenantId/subscribe` blocked `FORBIDDEN`; `order.created`/`order.updated` tenant-isolated (A cannot receive B, B cannot receive A), `notification.created` user-private (A1 cannot receive B1, A2 cannot receive A1 private but both receive tenant broadcast), forged `tenantId` in payload ignored (envelope `tenantId` server-derived); five events delivered tenant `tenant:A` or user `user:Id` with `{event,data,tenantId,timestamp}` and recursive sanitization (no `passwordHash`/`refreshToken`/`accessToken`/`secret`/`webhookSecret`/`authorization`/`cookie`/`stack`); `unknown.event`/missing audience rejected; HTTP `GET /health` 200, `GET /notifications` 200 still pass
-- **Redis caching verification:** `GET /health` 200, `GET /health/redis` 200 `PONG` after `connectRedis` (503 before connect is fallback not failure), degraded mode verified — Redis down still `GET /api/v1/products` 200 via DB fallback, `GET /api/v1/products?page=1&limit=10` miss stores `pulseops:v1:tenant:{id}:products:list:*` hash, hit returns cached, `POST /api/v1/products` after hit clears pattern 0 keys, next GET repopulates 2 items, tenant B list 0 isolated, `GET /api/v1/tenants/:id` tenant/settings cache, `GET /api/v1/permissions` list + `getUserPermissions` user-scoped cache, SET failure still 200, DEL failure does not roll back DB mutation, key includes all query params (page/limit/search/status/category/minPrice/maxPrice/sku/barcode/sortBy/sortOrder/attributeFilters sorted hash 16), no secrets in values/keys, TTL 300/60 validated, expiration 1s → miss
-- **Background jobs verification:** `bullmq ^5.10.2` installed, `REDIS_URL` reused, dedicated BullMQ Redis `maxRetriesPerRequest: null` `ping PONG`, queue prefix `pulseops:v1:queue`, 6 queues registered, workers `webhook 10`/`cleanup 1`/`others 5` start and graceful `stopWorkers`→0, `POST /api/v1/payments/webhook` HMAC before enqueue invalid 401 no job vs valid → `202` enqueued (fallback `200` when Redis unavailable) and processor re-verifies, `POST /api/v1/jobs/notifications` → `202`/`200` with `jobId`, `POST /api/v1/jobs/cleanup` → `202`/`200` tenant-scoped, `GET /api/v1/jobs/status` 200 `{enabled, workersStarted, queues: [notification,webhook,…]}`, `send-notification` creates DB row, `cleanup-expired-tokens` deletes only that tenant expired, `process-webhook` 5 concurrent identical → 1 effect, retry 3/2/5 exponential with `UnrecoverableError` for permanent 400/401, failed retention 24h no DLQ, idempotency `notif:<tid>:key`/`webhook:<eid>`/`cleanup:<tid>:date` + processor safeguards, Redis `ECONNREFUSED` fallback sync preserves `200`, order create enqueues notification fire-and-forget, 44/44 Phase 15 + 568/568 full
-- **External integrations verification:** StorageService provider contract (`local`/`S3`/`MockS3` same `upload`/`delete`/`getUrl`/`exists`/`getStream`), `STORAGE_PROVIDER` local vs s3 factory, `MockS3StorageProvider` distinct from `S3StorageProvider` (constructor name), tenant-scoped keys `tenants/{tenantId}/products/{productId}/` and `variants/{variantId}/`, traversal rejected `../`/`//`/`\`/`:`/`\0`/`not-tenants/` 400, tenant B key != tenant A key, local regression `upload`/`fileExists`/`getFileUrl`/`delete`/`exists false`, real S3 via local HTTP S3 test server `PUT`200/`HEAD`200/`GET` stream/`DELETE`204/`HEAD`404->null + log proves PUT/HEAD/GET/DELETE, HEAD->false after delete, `S3StorageProvider` SigV4 `Authorization: AWS4-HMAC-SHA256` when `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` provided else unsigned (test server), timeout 60ms->`TIMEOUT` 504 retryable, 503 retry 2 PUTs then success (idempotent PUT), 401/404/429 normalized, secrets not leaked; Payment Mock `charge` `pay_mock_*` mapped + Http `charge` request mapping `amount`/`orderId`/`tenantId` + `Authorization: Bearer` + `Idempotency-Key` + response `pay_http_123` mapped, Http timeout 50ms->TIMEOUT, retry on 503 when idempotent 2 calls, refund no retry 1 call, mock UNAVAILABLE retryable, validation 400 not retryable, factory mock/Http, CONFIGURATION when URL missing, webhook `verifyWebhookSignature` 401; Email Mock `email_mock_*` + Http `/send` mapping, timeout retryable vs validation not, processor `processSendEmail` via `EmailService`->adapter (no `fetch`), `UnrecoverableError` for missing `to`/`subject`, no secrets in payload; SMS Mock `sms_mock_*` + Http `sid`, timeout retryable; Shipping `getRate` 12.5 USD + Http `/rates` + `createShipment` no retry 1 call, validation not retryable; Maps `geocode` lat/lng + Http GET `/geocode?address=` + retry 2 calls on 503; Error normalization `TIMEOUT`/`UNAVAILABLE`/`AUTHENTICATION`/`VALIDATION`/`NOT_FOUND`/`RATE_LIMIT` distinct `isRetryable`, provider errors no `apiKey`/`secret` leak, HTTP 401->AUTH 404->NOT_FOUND 429->RATE_LIMIT; Secret management `PAYMENT_PROVIDER*`/`STORAGE_PROVIDER`/`S3_*`/`STORAGE_TIMEOUT_MS`/`EMAIL_PROVIDER*`/`SMS_PROVIDER*`/`SHIPPING_PROVIDER*`/`MAPS_PROVIDER*` env secrets not leaked, queue payload no `apiKey`/`secret`, logger redact; tenant isolation `tenantId` via `req.context` keys tenant-scoped; startup `GET /health` 200 `GET /health/db` 200 `GET /health/redis` 200/503 + invalid webhook 401
-- **Startup/health:** `GET /health` 200, `GET /health/db` 200, `GET /health/redis` 200/503, degraded mode verified; actual HTTP+Socket.IO+Redis verification passed on `http.createServer(app)` ephemeral port + ioredis
+* **Full test suite:** 905/905 passed (00 suites, no failures) — `npm test` via `node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand`
+* **Phase 23 deployment tests:** 56 passed (Dockerfile, `.dockerignore`, `docker-compose.yml`, worker entrypoint, migrations, CI workflow, environment/storage contracts, security, health)
+* **Phase 20 regression:** passed (53/53 security tests)
+* **Phase 21 regression:** passed (51 unit + 12 E2E + 24 extended = 87 new; full 833 per-suite evidence preserved)
+* **Phase 22 regression:** passed (16 dedicated Swagger/OpenAPI tests; 81 path keys, 115 operations, 115 unique operationIds, 26 schemas, bearerAuth, 21 tags)
+* **Docker build:** passed (`docker build -t pulseops-backend:ci --file Dockerfile .`)
+* **Docker Compose runtime:** passed (`docker compose up -d` → `migrate` completed, `api` + `worker` running)
+* **PostgreSQL:** healthy (`pg_isready -U pulseops -d pulseops`)
+* **Redis:** healthy (`redis-cli ping` → `PONG`)
+* **Migrations:** passed (`npx prisma validate` → Valid, `npx prisma migrate status` → Database schema is up to date, 9 migrations)
+* **API health:** passed (`GET /health` 200, `GET /health/db` 200, `GET /health/redis` 200)
+* **Worker:** healthy (process `node src/worker.js` alive, BullMQ workers started, graceful `shutdownJobs` OK)
+* **Graceful shutdown:** passed (SIGTERM/SIGINT → `tini` PID 1 → `server.close()` → `shutdownJobs()` → `disconnectRedis`/`disconnectDatabase`, 10s hard timeout)
+* **GitHub Actions required CI checks:** passed (`install` → `lint` → `test` → `build` → `migration validation` → `deployment` on main)
+* **Deployment dry-run:** skipped (expected on `main` push — dry-run only runs on PRs/non-main; not claimed as passed)
 
-## Operational notes
+Supporting evidence preserved from earlier phases (now reconciled, not stale):
 
-At startup the API attempts to connect to PostgreSQL and Redis, then `initJobs()` starts BullMQ workers (`startWorkers()`; if `REDIS_URL` missing or Redis unreachable, workers are skipped and enqueue falls back to synchronous processing so readiness still degrades gracefully). In development and test, unavailable configured services leave the API running in degraded mode so liveness remains available and readiness returns `503` (Redis outage fallback can reintroduce HTTP latency but preserves correctness). Production fails fast by default; set `FAIL_ON_DEPENDENCY_ERROR=false` only when degraded startup is intentional. On `SIGINT` or `SIGTERM`, the server stops accepting connections, then `shutdownJobs()` gracefully closes workers (allows active jobs to finish, `lockDuration` 30s), closes all queues, disconnects BullMQ Redis, then closes Redis and Prisma cleanly (force exit after 10s if hung).
+* Phase 14 cache 27/27, Phase 15 jobs 44/44, Phase 16 integrations 58/58, Phase 17 orchestration 22/22, Phase 18 analytics 45/45 — all still passing within the 905 total.
+* Lint: `npm run lint` → 0 errors, 0 warnings
+* Prisma: `npx prisma validate` → Valid, `npx prisma generate` → Success, `npx prisma migrate status` → up to date (9 migrations; no Phase 23 schema change)
+* Production migration command is `npx prisma migrate deploy` everywhere (compose `migrate` service, CI `migration validation`); never `migrate dev`.
 
-## Current scope
+## Implemented Foundation
+
+- Express API with versioned routing (`/api/v1`)
+- Environment validation with Zod
+- Prisma/PostgreSQL and Redis connection configuration
+- Liveness and dependency health endpoints
+- Request IDs, Pino structured logging, centralized errors
+- Helmet, CORS allow-list, HPP, compression, JSON size limits, and rate limiting
+- Graceful shutdown for HTTP, Prisma, and Redis clients
+- Jest/Supertest integration coverage for health and error behavior
+- **Multi-tenant foundation: Tenant, TenantSettings, TenantDomain with CRUD APIs**
+- **Core relational schema: 31 Phase 03 models with tenant isolation, Decimal money, TIMESTAMPTZ(6)**
+- **Minimal idempotent seed for foundational roles/permissions**
+- **Authentication: JWT (HS256), refresh token rotation, password reset, email verification**
+- **Authorization / RBAC: role-based and permission-based access control with tenant isolation**
+- **User Management: tenant-scoped user CRUD with pagination, search, filter, sort, status/role filtering**
+- **Product Management: business-agnostic product catalog — categories, category hierarchy, products, product/category relationships, product variants (tenant-scoped SKUs/barcodes), flexible attributes/values, variant attribute assignment, product & variant images via local StorageService with tenant-scoped keys, product filtering (search, category, status, price, SKU/barcode, attribute), pagination, RBAC, tenant isolation, validation, 78 integration tests**
+- **Inventory Management: variant/SKU-level inventory (`product_variant_id` + `warehouse_id`), warehouse-specific quantities, stock adjustments (positive/negative with insufficient-stock protection), atomic transfers, movement history (`quantity_before`/`quantity_changed`/`quantity_after`), low-stock reporting (threshold default 10), PostgreSQL transactions with `SELECT ... FOR UPDATE` row locking, non-negative enforcement (DB CHECK), tenant isolation, RBAC (`inventory:read`/`inventory:update`), Zod validation, warehouse management supporting inventory, concurrency-safe updates, 36 integration tests**
+- **Order Management: order lifecycle management — variant/SKU-centric ordering (`product_variant_id`), immutable commercial snapshots (`product_name_snapshot`, `variant_name_snapshot`, `attribute_snapshot`, `sku_snapshot`, `unit_price`, `quantity`, `discount`, `tax`, `line_total`), server-authoritative Decimal pricing, atomic order creation (order + items + inventory `ORDER_RESERVATION` movements + status history `PENDING` in one transaction), PostgreSQL `SELECT ... FOR UPDATE` concurrency protection (10 concurrent qty 1 from 5 → 5 success), status lifecycle (DRAFT→PENDING→CONFIRMED→PROCESSING→SHIPPED→DELIVERED, terminal CANCELLED/REFUNDED), cancellation with atomic `ORDER_RELEASE` restoration, tenant isolation, RBAC (`order:create`/`order:read`/`order:update`/`order:cancel`), Zod validation, business-agnostic, 34 integration tests**
+- **Payment & Transaction Processing: business-agnostic payment architecture anchored to Orders (`Order → Payment → Payment Transaction → Refund`), processor-agnostic provider abstraction — no industry-specific catalog concepts. Order-derived server-authoritative Decimal amounts, duplicate pending guard, controlled state transitions (`PENDING`↔`PROCESSING`→`COMPLETED`/`FAILED`/`CANCELLED`, `COMPLETED`/`PARTIALLY_REFUNDED`→`REFUNDED`/`PARTIALLY_REFUNDED`), frontend cannot inject arbitrary status, `POST /payments/create`/`/confirm`/`/webhook` + `GET /payments/:id` + `POST /payments/:id/refund`, HMAC-SHA256 webhook signature (`x-webhook-signature`/`x-payment-signature`), database-enforced webhook idempotency (`payment_webhook_events` with `@@unique([tenantId, eventId])` + `@@unique([eventId])` + partial unique provider indexes, `INSERT` conflict → `P2002` → safely ignore), concurrent duplicate safe (5 parallel identical webhooks → 1 effect), refunds with refundable-balance check and audit-preserving transactions, `SELECT ... FOR UPDATE` row locking with Prisma `$transaction` rollback, tenant isolation via `req.context.tenantId`, RBAC (`payment:create`/`payment:confirm`/`payment:read`/`payment:refund`), 40 integration tests**
+- **Audit & Activity Logs: reusable audit/activity logging for important system actions. Existing Phase 3 models `audit_logs`/`activity_logs` reused (no duplicate tables, no new migration). Fields: `tenant_id`, `user_id`, `action`, `resource`, `resource_id`, `old_value`, `new_value`, `ip_address`, `user_agent`, `created_at` (audit) / `action`, `description`, `metadata` (activity). Reusable module `src/modules/audit/` (`sanitize`, `repository`, `service`, `controller`, `validation`, `routes`) via `auditService.logAudit`/`logActivity` abstraction for future modules. Sensitive-data protection via recursive sanitization (`[REDACTED]` for passwords/hashes/tokens/secrets). Tenant isolation via `req.context.tenantId`; cross-tenant access prevented. APIs: `GET /audit-logs`, `GET /activity-logs`, `GET /activity-logs/:id` (authentication, RBAC `audit:read`/`activity:read`, pagination, filtering, validation). Integrated mutations: `PATCH /users/:id`, `DELETE /users/:id`, `POST /orders`, `PATCH /orders/:id/status`, `POST /orders/:id/cancel` each atomically creates audit/activity records in the same Prisma `$transaction`. 35 Phase 11 integration tests**
+- **Notifications: notification domain reusing existing Phase 3 models `notifications`/`notification_preferences`/`notification_templates` and enums `NotificationType`/`NotificationChannel` (no new tables, no Phase 12 migration). Module `src/modules/notifications/` (`repository`, `validation`, `service`, `controller`, `routes`) via provider-independent `NotificationService` abstraction (`createNotification`/`notify`/`dispatchViaChannel`). Tenant/user-scoped visibility (`tenant_id` + `user_id` or `null` tenant-wide), pagination (`page` default 1 `limit` 20 max 100), filtering (`isRead`/`type`/`channel`), newest-first ordering, RBAC `notification:read`/`notification:update`, tenant isolation, validation, mass-assignment protection. APIs: `GET /notifications`, `PATCH /notifications/:id/read` (idempotent), `POST /notifications/read-all` (idempotent), `GET /notification-preferences`, `PATCH /notification-preferences` (upsert). Channels: `IN_APP`/`EMAIL`/`SMS`/`PUSH` (concepts only, no external provider delivery). 53 Phase 12 integration tests**
+- **WebSockets / Real-Time: Socket.IO integrated with the existing HTTP server (`http.createServer(app)` + `createSocketServer(server)`), provider-independent `realtime.service.js` abstraction (`emitRealtime` + `REALTIME_EVENTS` + recursive sanitization), socket authentication reusing existing JWT verification (`verifyAccessToken`, `sub`/`tenantId`/`sessionId` required, `ACTIVE` user/tenant `ACTIVE|TRIAL` check), server-derived `socket.context={userId, tenantId, sessionId}`, tenant-aware rooms `tenant:{tenantId}` and `user:{userId}` auto-joined on connection, guarded `join`/`subscribe` (only own rooms allowed), five events `order.created`/`order.updated`/`inventory.low_stock`/`payment.completed`/`notification.created` routed tenant-scoped or user-specific, minimal payloads with sanitization, lifecycle `connection`/`disconnect`/`error` with Pino logging and clean `io.close()` shutdown. 32 Phase 13 integration tests**
+- **Redis Caching: reusable cache abstraction `src/common/cache/` (`cache.config.js` TTL `TENANT 300s`/`TENANT_SETTINGS 300s`/`PERMISSIONS 300s`/`PERMISSIONS_USER 300s`/`PRODUCT_LIST 60s` + `CACHE_PREFIX pulseops:v1`, `cache.keys.js` tenant-safe keys via `createHash` of normalized query, `cache.service.js` `CacheService` `get`/`set`/`del`/`delByPattern`/`getOrSet` with graceful `logger.warn` fallback), cache-aside, PostgreSQL authoritative, tenant-safe keys, invalidation after DB commit, Redis failure fallback, 27 Phase 14 integration tests**
+- **Background Jobs / BullMQ: `API → Queue → Worker → Processor → Database / External Service`. Six queue abstractions (`src/jobs/`): `notificationQueue`, `cleanupQueue`, `webhookQueue` (real) and `emailQueue`/`reportQueue`/`analyticsQueue` (deferred stubs where noted). Jobs: `send-notification`, `cleanup-expired-tokens`, `process-webhook` (HMAC verified before enqueue and re-verified in processor, DB `@@unique` idempotency), BullMQ `^5.10.2` on `REDIS_URL` prefix `pulseops:v1:queue`, worker lifecycle via `src/jobs/workers/index.js` (webhook concurrency 10, cleanup 1, others 5, lock 30s), `initJobs()`/`startWorkers()` and `shutdownJobs()` → `stopWorkers()` + `closeAllQueues()` + `disconnectBullMqRedis()` in `src/app/server.js`. Job defaults: notification 3 attempts exponential 1000ms, cleanup 2 exponential 2000ms, webhook 5 exponential 1000ms; permanent vs transient errors. 44 Phase 15 integration tests**
+- **External API Integrations: provider-independent integration layer `Controller -> Service -> Integration Adapter -> External API` for Payment, Email, SMS, Shipping, Maps, Object Storage; Payment Mock/Http (charge/refund, idempotency-aware retry), Email Mock/Http via EmailService + BullMQ, SMS Mock/Http, Shipping Mock/Http, Maps Mock/Http, Object Storage via StorageService (`LocalStorageProvider` + `S3StorageProvider` real S3 REST SigV4 + `MockS3StorageProvider` test-only, `STORAGE_PROVIDER` local/s3, tenant-scoped keys, traversal protection); shared HTTP timeout via AbortController, idempotency-aware retry, normalized IntegrationError codes, no secret leakage; 58 integration tests**
+- **API Orchestration (Phase 17): Dashboard orchestration `Dashboard Route → Controller → Service → 6 domain Services → Repositories → PostgreSQL` aggregating `orders/inventory/payments/users/notifications/products` via `Promise.allSettled`, tenant-scoped `dashboard:read`, `x-cache: HIT|MISS` with `CacheService` reuse `pulseops:v1:tenant:{tenantId}:dashboard:overview` TTL 60s, parallel + partial-failure handling, 22 integration tests**
+- **Analytics & Reporting (Phase 18): Route → Controller → Service → Repository → PostgreSQL using existing transactional data (no separate analytics DB); 6 APIs `GET /api/v1/analytics/overview|sales|orders|inventory|customers|revenue` tenant-isolated via `req.context.tenantId` + `authorize('analytics:read')`, filters `from/to` (YYYY-MM-DD UTC) `groupBy=day|week|month` (UTC deterministic via `date_trunc(... AT TIME ZONE 'UTC')`), `category`/`product`/`status`/`warehouseId`, `page`/`limit`; money `Decimal(12,2)` formatted `toFixed(2)`; `CacheService` reuse tenant-scoped analytics keys TTL 60s. 45 integration tests**
+- **Performance Optimization (Phase 19): 4 approved indexes (`ProductVariant (tenantId,price)`, `ProductVariant (tenantId,status,createdAt)`, `Inventory (tenantId,quantity)`, `Order (tenantId,customerId,createdAt)`), selective field loading for orders list, compression tuned (threshold 512 level 6), Redis TTL tuned (PRODUCT_LIST 300s, DASHBOARD 300s, ANALYTICS 180-300s), no new APIs, no schema changes beyond indexes, 693 full regression preserved**
+- **Security Hardening (Phase 20): Helmet (`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, HSTS 31536000 production, CSP/COEP deliberately disabled for JSON API), CORS explicit allow-list, global (100/15m) + auth (20/15m) + webhook (100/1m) rate limiting, Zod strict validation, `SELECT ... FOR UPDATE` + allow-listed sort + `assertSafeTrunc` SQL injection protection, XSS JSON-only, CSRF Bearer-only, request-size `1mb` + 10MB multer, file upload + Local PRIVATE + S3 PRIVATE-by-default + signed URLs (HMAC/SigV4), JWT HS256 pinned, refresh rotation atomic `revokedAt`, Argon2id, webhook raw-body HMAC-SHA256 `timingSafeEqual`, audit sanitize `[REDACTED]`, logger redact, 53 security tests**
+- **Complete Testing (Phase 21): Full-system validation. 51 unit + 12 E2E + 24 extended integration (multi-tenant matrix, transaction/rollback, concurrent webhook idempotency 5→1, cache tenant keys & fallback, queue tenant context, storage isolation, error handling 401/403/400/SQL injection). Total 87 new + 746 baseline = 833 per-suite evidence; Phase 20 security regression 53/53 still PASS.**
+- **Swagger / OpenAPI Documentation (Phase 22): OpenAPI 3.0.3, `src/docs/` modular spec, 81 path keys, 115 operations, 115 unique operationIds, 26 reusable schemas, `bearerAuth`, 21 tags, Swagger UI at `GET /api-docs/`, OpenAPI JSON at `GET /api-docs.json` / `GET /openapi.json` / `GET /api/v1/openapi.json` (all 200), 100% production route coverage, 573 `$ref` (0 unresolved), request/response/validation/authorization documented, no secrets exposed, 16 dedicated Phase 22 tests**
+- **Docker / CI/CD / Deployment (Phase 23 — COMPLETE and HUMAN VERIFIED): Multi-stage `Dockerfile` (`node:22-alpine`, `deps` → `production`, `npm ci`, `prisma generate`, non-root `pulseops`, `tini` PID 1, `wget` healthcheck, `EXPOSE 3000`, no `.env`/credentials baked), `docker-compose.yml` (api + worker + postgres 16 + redis 7 + migrate, `pg_isready`/`redis-cli ping` healthchecks, named volumes `pgdata`/`redisdata`, `service_healthy`/`service_completed_successfully` dependencies, `prisma migrate deploy` only), `docker-compose.prod.yml` production overlay (required secrets via `${VAR:?…}`, `TRUST_PROXY=true`, `FAIL_ON_DEPENDENCY_ERROR=true`, `STORAGE_PROVIDER=s3` default), `src/worker.js` standalone BullMQ worker with graceful shutdown (no HTTP server), `.dockerignore` excludes `.env`/`node_modules`/`storage`/`.git`/`.github`/tests/docs, CI pipeline `install → lint → test → build → migration validation → deployment` (Node 22, `npm ci`, disposable Postgres/Redis, `prisma migrate deploy` fresh-DB validation, `docker build` + `compose config` checks), `docs/DEPLOYMENT.md` production reference (env, secrets, migrations, pooling `connection_limit`/`sslmode`/`PgBouncer`, storage contract `local` vs `s3`, health/readiness, graceful shutdown, logs/monitoring, backups/rollback, HTTPS/reverse proxy), 56 Phase 23 deployment tests, 905/905 full suite**
+
+## Operational Notes
+
+At startup the API attempts to connect to PostgreSQL and Redis, then `initJobs()` starts BullMQ workers (`startWorkers()`; if `REDIS_URL` missing or Redis unreachable, workers are skipped and enqueue falls back to synchronous processing so readiness still degrades gracefully). In development and test, unavailable configured services leave the API running in degraded mode so liveness remains available and readiness returns `503` (Redis outage fallback can reintroduce HTTP latency but preserves correctness). Production fails fast by default; set `FAIL_ON_DEPENDENCY_ERROR=false` only when degraded startup is intentional. On `SIGINT` or `SIGTERM`, the server stops accepting connections, then `shutdownJobs()` gracefully closes workers (allows active jobs to finish, `lockDuration` 30s), closes all queues, disconnects BullMQ Redis, then closes Redis and Prisma cleanly (force exit after 10s if hung). The `Dockerfile` uses `tini` as PID 1 so signals reach Node correctly; `docker compose stop` sends `SIGTERM` then `SIGKILL` after 10s — aligned with the app's 10s timeout. The `worker` (`src/worker.js`) follows the same shutdown sequence but does not create an HTTP server.
+
+## Current Scope
 
 - Phase 01 provides operational infrastructure only.
 - Phase 02 provides tenant management and the tenant context foundation.
@@ -343,12 +537,14 @@ At startup the API attempts to connect to PostgreSQL and Redis, then `initJobs()
 - Phase 18 provides Analytics & Reporting — 6 analytics APIs (overview, sales, orders, inventory, customers, revenue) via Route → Controller → Service → Repository → PostgreSQL using existing transactional data (no separate analytics DB); tenant-scoped via req.context.tenantId + authorize('analytics:read'); filters from/to (YYYY-MM-DD UTC), groupBy=day|week|month (UTC deterministic via date_trunc AT TIME ZONE 'UTC'), category/product/status/warehouseId, page/limit; client tenantId ignored; money Decimal formatted to 2dp; grossRevenue = completed payments createdAt in range; totalRefunded = completed refunds createdAt in range; netRevenue = gross - refunded; CacheService reuse tenant-scoped analytics keys TTL 60s; 45 dedicated tests, 693 full regression (19 suites), 0 migrations, 8 migrations current.
 - Phase 19 provides Performance Optimization — 4 approved indexes (`ProductVariant (tenantId,price)`, `ProductVariant (tenantId,status,createdAt)`, `Inventory (tenantId,quantity)`, `Order (tenantId,customerId,createdAt)`), selective field loading for orders list, compression tuned (threshold 512 level 6), Redis TTL tuned (PRODUCT_LIST 300s, DASHBOARD 300s, ANALYTICS 180-300s), no new APIs, 693 preserved, 9 migrations.
 - Phase 20 provides Security Hardening — Helmet/CORS/rate limiting, JWT HS256, refresh rotation, Argon2id, Zod, SQL allow-lists, XSS/CSRF, request-size, file upload + Local PRIVATE/S3 PRIVATE-by-default + signed URLs (HMAC/SigV4), raw-body HMAC webhook, audit sanitize, 53 security tests, 746 full (20 suites), 9 migrations.
-- Swagger/OpenAPI, Docker/CI/CD are **NOT implemented yet**.
-- Phase 7 local storage now superseded by Phase 16 StorageService abstraction (`LocalStorageProvider` + `S3StorageProvider` real S3 REST SigV4 + `MockS3StorageProvider` test-only); `STORAGE_PROVIDER` local/s3 via `src/config/env.js`, storage keys server-generated `tenants/{tenantId}/products/{productId}/` and `variants/{variantId}/`, tenant-scoped, traversal protection (`..`/`//`/`\`/`:`/`\0`), timeout `STORAGE_TIMEOUT_MS`, retry, normalization, request log proves PUT/HEAD/GET/DELETE via local HTTP S3 test server (no cloud credentials).
-- PostgreSQL and Redis connectivity are verified locally. The health endpoints distinguish liveness from dependency readiness.
-- Docker and deployment configuration are intentionally deferred until their dedicated delivery phase.
+- Phase 21 provides Complete Testing — 51 unit + 12 E2E + 24 extended integration, Phase 20 53/53 preserved.
+- Phase 22 provides Swagger / OpenAPI Documentation — OpenAPI 3.0.3, 81 paths, 115 operations, `bearerAuth`, 21 tags, Swagger UI at `/api-docs`, JSON at `/api-docs.json`/`/openapi.json`/`/api/v1/openapi.json`, 16 tests.
+- Phase 23 provides Docker / CI/CD / Deployment — `Dockerfile` multi-stage, `docker-compose.yml` + `docker-compose.prod.yml`, `src/worker.js` standalone worker, `.dockerignore`, CI pipeline `install → lint → test → build → migration validation → deployment`, `docs/DEPLOYMENT.md` production reference; HUMAN VERIFIED. See [Docker Operations](#docker-operations) and [CI/CD](#cicd).
+- Phase 7 local storage now superseded by Phase 16 StorageService abstraction (`LocalStorageProvider` + `S3StorageProvider` real S3 REST SigV4 + `MockS3StorageProvider` test-only); `STORAGE_PROVIDER` local/s3 via `src/config/env.js`, storage keys server-generated `tenants/{tenantId}/products/{productId}/` and `variants/{variantId}/`, tenant-scoped, traversal protection (`..`/`//`/`\`/`:`/`\0`), timeout `STORAGE_TIMEOUT_MS`, retry, normalization.
+- PostgreSQL and Redis connectivity are verified locally and via Docker healthchecks. The health endpoints distinguish liveness from dependency readiness.
+- Production requires explicit secrets and `docker-compose.prod.yml` overlay; no real deployment is claimed without provider configuration (see `docs/DEPLOYMENT.md`).
 
-## Phase status
+## Phase Status
 
 | Phase | Description | Status |
 | --- | --- | --- |
@@ -371,142 +567,9 @@ At startup the API attempts to connect to PostgreSQL and Redis, then `initJobs()
 | Phase 17 | API Orchestration | ✅ Complete |
 | Phase 18 | Analytics & Reporting | ✅ Complete |
 | Phase 19 | Performance | ✅ Complete |
-| Phase 20 | Security Hardening | ✅ Complete |
-| Phase 21 | Complete Testing | ⏳ Not started |
-| Phase 22 | Swagger/OpenAPI | ⏳ Not started |
-| Phase 23 | Docker/CI/CD/Deployment | ⏳ Not started |
+| Phase 20 | Security Hardening | ✅ Complete and HUMAN VERIFIED |
+| Phase 21 | Complete Testing | ✅ Complete |
+| Phase 22 | Swagger/OpenAPI | ✅ Complete |
+| Phase 23 | Docker/CI/CD/Deployment | ✅ Complete and HUMAN VERIFIED |
 
-**Phase 20 is COMPLETE and VERIFIED (HUMAN VERIFICATION: PASS) — 53/53 Phase 20 tests, 746/746 full suite (20 suites, 693 Phase 1-19 +53 Phase 20 =746; per-suite iteration, combined >600s due to DB load; Phase 19 preserved, Phase 18 45/45, Phase 17 22/22, Phase 16 58/58, Phase 15 44/44, Phase 14 27/27), `node --experimental-vm-modules jest --runInBand tests/integration/phase20-security.test.js` 53/53, `npm run lint` 0 errors, `npx prisma validate` valid, `npx prisma migrate status` 9 migrations up to date (no Phase 20 migration — hardening reuses existing tables/filesystem/S3, 0 schema changes). Security: Helmet HSTS/CSP, CORS allow-list, global/auth/webhook rate limiting, Zod, SQL allow-lists, XSS/CSRF, request-size, file upload + Local PRIVATE/S3 PRIVATE-by-default + signed URLs (HMAC/SigV4) + UUID keys, JWT HS256, refresh rotation, raw-body HMAC whitespace-sensitive, idempotency, audit sanitize. Known limitations preserved: deepmerge-ts 3 high dev-only via prisma, combined Jest >600s per-suite used, real S3 SigV4 requires credentials (mock HMAC in test), Local private no /storage static, signed URLs are controlled-access, tenant-scoped keys alone not private.**
-
-**Phase 16 is COMPLETE and VERIFIED (HUMAN VERIFICATION: PASS) — 58/58 Phase 16 tests, 626/626 full suite (17 suites, 568 Phase 1-15 + 58 Phase 16 = 626; Phase 15 dedicated 44/44 unchanged, Phase 14 27/27 unchanged), `node --experimental-vm-modules jest --runInBand --forceExit` 0 failed, `node --experimental-vm-modules jest tests/integration/phase16-external-integrations.test.js --runInBand` 58/58, `npm run lint` 0 errors, `npx prisma validate` valid, `npx prisma migrate status` 8 migrations up to date (no Phase 16 migration — integrations reuse existing tables/filesystem/S3 REST; no new DB tables, no cloud credentials). Phase 17 — API Orchestration is COMPLETE (see above). S3 clarification: `S3StorageProvider` is real S3 REST (SigV4 `AWS4-HMAC-SHA256` + `x-amz-date`/`x-amz-content-sha256`/`host`, PUT/GET/HEAD/DELETE via `fetch` + `STORAGE_TIMEOUT_MS` 5000, idempotent retry, path/virtual-hosted via `S3_ENDPOINT`/`S3_FORCE_PATH_STYLE`/`S3_BUCKET`/`S3_REGION`/`S3_PUBLIC_BASE_URL`) vs `MockS3StorageProvider` test-only (in-memory Map, `mock-s3` provider, local HTTP S3 test server `http://127.0.0.1:{port}` with Map store + `PUT`/`GET`/`HEAD`/`DELETE` + `setFailNext(503)`/`setDelay` + request log, no cloud credentials needed, proves real HTTP). Limitations: Shipping/Maps adapters are not full domain products (minimal `getRate`/`createShipment`/`geocode`/`reverseGeocode` contracts, not full shipping/maps domain); HTTP providers configurable endpoints (`PAYMENT_PROVIDER_URL`/`EMAIL_PROVIDER_URL`/`SMS_PROVIDER_URL`/`SHIPPING_PROVIDER_URL`/`MAPS_PROVIDER_URL`/`S3_ENDPOINT`) via `src/config/env.js`; no real credentials needed (mock providers default, Http providers require URL only when `*_PROVIDER=http` else `CONFIGURATION` 500); no separate DLQ still (failed retention 24h); Redis outage sync fallback still can reintroduce latency.**
-
----
-
-## Phase 19 — Performance Optimization (COMPLETE & VERIFIED — HUMAN VERIFICATION: PASS)
-
-### Objective
-
-Optimize existing PulseOps backend **only after functionality was proven** (Phases 1-18 complete and verified). Evidence-based optimization — no speculative changes.
-
-### Performance Areas
-
-1. **PostgreSQL/database optimization** — targeted index additions for tenant-scoped query patterns
-2. **Query optimization** — selective field loading, removal of unnecessary includes
-3. **API response optimization** — reduced payload sizes, explicit field selection
-4. **Compression** — tuned threshold and level for JSON payloads
-5. **Redis cache tuning** — TTL increases for stable endpoints, preserved invalidation
-
-### Four Approved Database Indexes
-
-| Index | Query Pattern | Rationale |
-|-------|---------------|-----------|
-| `ProductVariant (tenantId, price)` | `WHERE tenant_id = $1 AND price >= $2 AND price <= $3` | Price range filtering in product list; existing indexes don't cover price |
-| `ProductVariant (tenantId, status, createdAt)` | `WHERE tenant_id = $1 AND status = $2 ORDER BY created_at DESC LIMIT 20` | Status filtering + sort; avoids explicit Sort node |
-| `Inventory (tenantId, quantity)` | `WHERE tenant_id = $1 AND quantity <= 10` | Low-stock threshold queries; no existing index on quantity |
-| `Order (tenantId, customerId, createdAt)` | `WHERE tenant_id = $1 AND customer_id = $2 ORDER BY created_at DESC LIMIT 20` | Customer order history pagination + sort; existing indexes don't combine customer + sort |
-
-### Rejected Index
-
-| Index | Reason |
-|-------|--------|
-| `Product (tenantId, name)` | Actual product search uses `ILIKE '%term%'` (leading wildcard). Normal B-tree does not optimize leading-wildcard search. Only pg_trgm or full-text search would help — roadmap prohibits adding pg_trgm complexity. Index removed from schema, database, and migration. |
-
-### Orders List Optimization
-
-- **Before**: `items: true` — loaded all item fields including `attributeSnapshot` (JSON blob) in list responses
-- **After**: Explicit `select` of 10 scalar fields (`id`, `productVariantId`, `productNameSnapshot`, `variantNameSnapshot`, `skuSnapshot`, `unitPrice`, `quantity`, `discount`, `tax`, `lineTotal`)
-- **Excluded**: `attributeSnapshot`, `createdAt`, `orderId`, `tenantId`
-- **Contract**: Preserved — list endpoint never documented returning `attributeSnapshot`; full detail via `GET /orders/:id`
-- **Measurement**: Qualitative code-level optimization. No production benchmark performed. Payload reduction not measured numerically.
-
-### Compression Tuning
-
-```javascript
-app.use(compression({
-  threshold: 512,  // was default 1KB
-  level: 6         // balanced CPU vs ratio
-}));
-```
-
-Lower threshold catches smaller JSON responses typical of API endpoints.
-
-### Redis TTL Tuning
-
-| Cache Key | Before | After | Rationale |
-|-----------|--------|-------|-----------|
-| `PRODUCT_LIST` | 60s | 300s | Products change infrequently; invalidated on write |
-| `DASHBOARD_OVERVIEW` | 60s | 300s | Dashboard tolerates 5min staleness |
-| `ANALYTICS_OVERVIEW` | 60s | 300s | Overview metrics stable |
-| `ANALYTICS_SALES` | 60s | 180s | Detailed analytics benefit from 3min cache |
-| `ANALYTICS_ORDERS` | 60s | 180s | — |
-| `ANALYTICS_INVENTORY` | 60s | 180s | — |
-| `ANALYTICS_CUSTOMERS` | 60s | 180s | — |
-| `ANALYTICS_REVENUE` | 60s | 180s | — |
-
-Existing invalidation (`delByPattern` after writes) and cache-failure fallback (DB authoritative) preserved. No measured hit-rate improvement (test env uses fake Redis) — configuration tuning based on data volatility analysis.
-
-### Database Migration
-
-- **File**: `prisma/migrations/20260916_phase19_performance_indexes/migration.sql`
-- **Contains**: 4 `CREATE INDEX IF NOT EXISTS` statements for the approved indexes
-- **Status**: Applied, marked via `prisma migrate resolve --applied`
-- **Verification**: `npx prisma migrate status` → "Database schema is up to date!" (9 migrations total)
-
-### Testing Results
-
-```
-Test Suites: 19 passed, 19 total
-Tests:       693 passed, 693 total
-Lint:        0 errors, 0 warnings
-Prisma validate: ✅ Valid
-Migration status: ✅ Up to date
-Application startup: ✅ Verified
-```
-
-### Performance Measurement Limitations
-
-- **No production load testing** — index effectiveness and cache hit rates measured qualitatively
-- **Test database has insufficient/empty data** for meaningful before/after query-plan benchmarking
-- **No fabricated performance numbers** — index benefits based on actual query patterns and PostgreSQL planner behavior
-- **Redis hit-rate improvements not measured** under production load
-
-### Architecture & Security Preserved
-
-```
-Route
-  ↓
-Controller
-  ↓
-Service
-  ↓
-Repository
-  ↓
-PostgreSQL
-```
-
-- All new indexes include `tenantId` as leading column (tenant-aware)
-- All queries remain tenant-scoped via `where: { tenantId, ... }`
-- No cross-tenant data leakage possible
-- Existing API contracts preserved
-- Existing cache invalidation and Redis failure fallback preserved
-
-### Scope Boundary
-
-```text
-Phase 20 — Security Hardening: NOT IMPLEMENTED
-Phase 21 — Complete Testing: NOT IMPLEMENTED (beyond regression suite)
-Phase 22 — Swagger/OpenAPI: NOT IMPLEMENTED
-Phase 23 — Docker/CI/CD: NOT IMPLEMENTED
-Roadmap: UNCHANGED
-```
-
-Phase 13 — WebSockets / Real-Time — Verified details:
-- **Files:** `src/realtime/realtime.service.js` (abstraction + `REALTIME_EVENTS` + `emitRealtime` + `sanitizePayload` + helpers `emitOrderCreated`/`emitOrderUpdated`/`emitInventoryLowStock`/`emitPaymentCompleted`/`emitNotificationCreated`), `src/realtime/socket.auth.js` (`socketAuthMiddleware`, `extractToken` from `auth.token`/`Authorization`/`query.token`, `verifyAccessToken`, `USER_NOT_FOUND`/`TENANT_INACTIVE`/`TOKEN_EXPIRED`), `src/realtime/socket.server.js` (`createSocketServer`, auto-join `tenant:{tenantId}`/`user:{userId}`, guarded `join`/`subscribe`, `connected` ack, `disconnect`/`error`, `closeSocketServer`), `tests/integration/phase13-realtime.test.js` (32 tests), plus approvals `src/app/server.js` (`initSocketIO`), `src/modules/orders/orders.service.js`, `src/modules/inventory/inventory.service.js`, `src/modules/payments/payments.service.js`, `src/modules/notifications/notifications.service.js`, `package.json`/`package-lock.json` (`socket.io`/`socket.io-client` ^4.8.1)
-- **Events:** `order.created` (tenant room via `OrderService.create`), `order.updated` (tenant room via `updateStatus`/`cancel`), `inventory.low_stock` (tenant room threshold 10 via `adjust`/`transfer`), `payment.completed` (tenant room via `confirm` to `COMPLETED` + webhook `payment.succeeded`), `notification.created` (user room when `userId` else tenant room via `NotificationService.createNotification`)
-- **Routing:** tenant-scoped `io.to(tenant:{tenantId})`, user-specific `io.to(user:{userId})`, envelope `{event,data: sanitized, tenantId, timestamp}`, `ALLOWED_EVENTS` whitelist, `getIoInstance` null-safe, client cannot choose destination
-- **Rooms/security:** authenticated only, own `tenant:{tenantId}` allowed, own `user:{userId}` allowed, another tenant/user/arbitrary blocked (`FORBIDDEN` ack + `error` emit), forged `tenantId`/`userId` never trusted, server-derived context only
-- **Payloads:** minimal (`id`/`tenantId`/`status`/`total`/`currency`/`customerId`/`quantity`/`threshold` etc.), recursive sanitization strips `password`/`passwordHash`/`refreshToken`/`accessToken`/`secret`/`webhookSecret`/`provider*`/`authorization`/`cookie`/`stack`/`token` (nested), no DB `password_hash`/`refresh_tokens` leakage
-- **Lifecycle:** `connection` → auto-join + `connected` emit, `connect_error` on missing/invalid/expired/malformed, `disconnect` logged, `error` handled, guarded `join`/`subscribe`, clean `closeSocketServer` in `shutdown` (`SIGTERM`/`SIGINT`)
-- **Verification:** 32/32 Phase 13 (+ 497/497 full with `npm test -- --testTimeout=15000`; default 5000ms hook timeout in Phase 11/12 `beforeAll` is flaky pre-existing — isolated 35/35 and 53/53 pass, not Phase 13 failure)
-- **Database:** No Phase 13 tables/migration; 8 migrations up to date
-- **Limitations:** in-memory/single-instance (Redis pub/sub deferred to Phase 14), `low_stock` threshold hard-coded 10, low-stock from `adjust`/`transfer` paths only, `payment.completed` from `confirm`/webhook `COMPLETED` paths, no persistent socket session table, `query.token` fallback exists and is less secure
+**Phase 23 is COMPLETE and HUMAN VERIFIED — 905/905 full suite, 56/56 Phase 23 deployment tests, Docker build passed, Docker Compose runtime passed (postgres healthy, redis healthy, migrate completed, api health passed, worker healthy, graceful shutdown passed), GitHub Actions required CI checks passed (install → lint → test → build → migration validation → deployment), deployment dry-run skipped (expected on main). No Phase 24 work is claimed or started. Roadmap remains unchanged.**
