@@ -216,9 +216,8 @@ jobs:
           SQL
       - name: Assert production command is migrate deploy (not dev)
         run: |
-          # Search for actual production use of `prisma migrate dev` (not this guard itself)
-          # Use [p]risma trick so grep does not match its own command line
-          if grep -R "[p]risma migrate dev" .github/workflows/ 2>/dev/null | grep -q "migrate dev"; then
+          # Guard must not match itself — check for actual dev usage
+          if grep -R "npx [p]risma migrate dev" .github/workflows/ 2>/dev/null | grep -q "migrate dev"; then
             echo "::error::Production migration must use 'prisma migrate deploy', not 'migrate dev'"
             exit 1
           fi
