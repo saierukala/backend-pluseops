@@ -137,6 +137,8 @@ jobs:
         if: failure()
         run: npm ci
       - name: Validate Prisma schema
+        env:
+          DATABASE_URL: postgresql://pulseops:pulseops@localhost:5432/pulseops?schema=public
         run: npx prisma validate
       - name: Generate Prisma Client
         run: npx prisma generate
