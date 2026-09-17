@@ -6,6 +6,13 @@ const GROUP_BY_MAP = {
   month: 'month',
 };
 
+function assertSafeTrunc(trunc) {
+  if (!['day', 'week', 'month'].includes(trunc)) {
+    throw new Error('Invalid groupBy trunc value');
+  }
+  return trunc;
+}
+
 function parseDateBound(str, isEnd) {
   if (!str) return null;
   const d = new Date(str);
@@ -219,6 +226,8 @@ export class AnalyticsRepository {
     }
     const whereClause = conditions.join(' AND ');
 
+    // SQL injection protection: trunc is allowlisted via GROUP_BY_MAP and re-validated; whereClause uses positional params ($1,$2...)
+    assertSafeTrunc(trunc);
     // Need total buckets count for pagination - UTC deterministic
     const countRows = await this.prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int as cnt FROM (SELECT date_trunc('${trunc}', o."created_at" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' as bucket FROM "orders" o WHERE ${whereClause} GROUP BY bucket) s`,
@@ -280,6 +289,7 @@ export class AnalyticsRepository {
       };
     }
 
+    assertSafeTrunc(trunc);
     const conditions = [`o."tenant_id" = $1`];
     const params = [tenantId];
     let idx = 2;
@@ -490,6 +500,7 @@ export class AnalyticsRepository {
     let buckets = [];
     let bucketMeta = null;
     if (trunc) {
+      assertSafeTrunc(trunc);
       const cond = [`c."tenant_id" = $1`];
       const params = [tenantId];
       let idx = 2;
@@ -564,6 +575,7 @@ export class AnalyticsRepository {
       };
     }
 
+    assertSafeTrunc(trunc);
     const conditions = [`p."tenant_id" = $1`, `p."status" = $2::"PaymentStatus"`];
     const params = [tenantId, status];
     let idx = 3;

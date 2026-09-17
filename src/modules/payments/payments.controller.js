@@ -23,10 +23,11 @@ export async function confirmPayment(req, res, next) {
 export async function webhookHandler(req, res, next) {
   try {
     const signature = req.headers['x-webhook-signature'] || req.headers['x-payment-signature'];
-    // Phase 15: validate signature synchronously before enqueueing (do not weaken verification)
+    // Phase 20: verify over exact raw bytes (provider signs raw request body), not reconstructed JSON
     const { verifyWebhookSignature } = await import('./webhook.util.js');
     const headerSig = signature || req.headers['x-webhook-signature'] || req.headers['x-payment-signature'];
-    const isValidSig = verifyWebhookSignature(req.body, headerSig);
+    const rawBody = req.rawBody || (req.body ? JSON.stringify(req.body) : '');
+    const isValidSig = verifyWebhookSignature(rawBody, headerSig);
     if (!headerSig || !isValidSig) {
       const { AppError } = await import('../../common/errors/app-error.js');
       throw new AppError('Invalid webhook signature', { statusCode: 401, code: 'INVALID_WEBHOOK_SIGNATURE' });
@@ -39,6 +40,7 @@ export async function webhookHandler(req, res, next) {
       tenantId: req.body?.tenantId || null,
       eventId,
       payload: req.body,
+      rawBody,
       headers: req.headers,
       signature: headerSig,
     });

@@ -33,7 +33,7 @@ function isRetryableError(err) {
 
 export async function processWebhook(payload, opts = {}) {
   const start = Date.now();
-  const { tenantId, eventId, payload: webhookPayload, headers = {}, signature = null } = payload;
+  const { tenantId, eventId, payload: webhookPayload, rawBody = null, headers = {}, signature = null } = payload;
   const jobId = opts.jobId || 'unknown';
   const attemptNumber = opts.attempt ?? 1;
 
@@ -49,7 +49,8 @@ export async function processWebhook(payload, opts = {}) {
     const { PaymentService } = await import('../../modules/payments/payments.service.js');
     const service = new PaymentService();
     const sig = signature || headers?.['x-webhook-signature'] || headers?.['x-payment-signature'];
-    const result = await service.handleWebhook(webhookPayload, headers, sig);
+    // Prefer rawBody for HMAC verification (exact bytes provider signed); service falls back to payload JSON if rawBody missing (backwards compat for older enqueued jobs)
+    const result = await service.handleWebhook(rawBody, webhookPayload, headers, sig);
 
     logger.info({
       queue: QUEUE_NAMES.WEBHOOK, jobId, tenantId: result?.payment?.tenantId || tenantId, eventId, duplicate: result?.duplicate, paymentId: result?.payment?.id, status: result?.payment?.status, durationMs: Date.now() - start, attemptNumber,

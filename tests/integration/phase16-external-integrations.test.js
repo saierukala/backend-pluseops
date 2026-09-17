@@ -157,7 +157,7 @@ describe('Phase 16 - External API Integrations', () => {
       const productId = crypto.randomUUID();
       const file = { originalname: 'photo.jpg', buffer: Buffer.from('fake-image'), mimetype: 'image/jpeg', size: 1024 };
       const result = await svc.uploadProductImage(tenantId, productId, file);
-      expect(result.storageKey).toBe(`tenants/${tenantId}/products/${productId}/photo.jpg`);
+      expect(result.storageKey).toMatch(new RegExp(`^tenants/${tenantId}/products/${productId}/[a-f0-9]{8}_photo\\.jpg$`));
       expect(result.url).toContain(result.storageKey);
       await svc.deleteFile(result.storageKey);
     });
@@ -219,7 +219,7 @@ describe('Phase 16 - External API Integrations', () => {
       const variantId = crypto.randomUUID();
       const file = { originalname: 'variant.webp', buffer: Buffer.from('v'), mimetype: 'image/webp', size: 1 };
       const result = await svc.uploadVariantImage(tenantId, productId, variantId, file);
-      expect(result.storageKey).toBe(`tenants/${tenantId}/products/${productId}/variants/${variantId}/variant.webp`);
+      expect(result.storageKey).toMatch(new RegExp(`^tenants/${tenantId}/products/${productId}/variants/${variantId}/[a-f0-9]{8}_variant\\.webp$`));
       await svc.deleteFile(result.storageKey);
     });
 

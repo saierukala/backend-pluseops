@@ -6,7 +6,7 @@ export function computeSignature(payloadString, secret) {
 }
 
 export function verifyWebhookSignature(rawBody, signature, secret = env.PAYMENT_WEBHOOK_SECRET) {
-  if (!signature) return false;
+  if (!signature || typeof signature !== 'string') return false;
   if (!secret) return false;
   // rawBody can be object or string; normalize to JSON string
   let payloadStr;

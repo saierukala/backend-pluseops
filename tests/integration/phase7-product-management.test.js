@@ -1020,7 +1020,7 @@ describe('Phase 07 - Product Management', () => {
         .post(`/api/v1/products/${productId}/images`)
         .set('Authorization', `Bearer ${tokenA}`)
         .attach('image', Buffer.from('tenant-scope'), 'scoped.jpg');
-      expect(resp.body.data.storageKey).toBe(`tenants/${tenantAId}/products/${productId}/scoped.jpg`);
+      expect(resp.body.data.storageKey).toMatch(new RegExp(`^tenants/${tenantAId}/products/${productId}/[a-f0-9]{8}_scoped\\.jpg$`));
       await request(app).delete(`/api/v1/products/${productId}/images/${resp.body.data.id}`).set('Authorization', `Bearer ${tokenA}`);
     });
   });

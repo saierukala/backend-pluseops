@@ -5,6 +5,8 @@ import {
   createProductImage,
   createVariantImage,
   getProductImage,
+  getProductImageFile,
+  getProductImageSignedUrl,
   listProductImages,
   listVariantImages,
   updateProductImage,
@@ -105,4 +107,18 @@ productImagesRouter.delete(
   validate(deleteImageSchema),
   authorize('product:delete'),
   deleteProductImage
+);
+
+productImagesRouter.get(
+  '/products/:productId/images/:imageId/file',
+  validate(getImageSchema),
+  authorize('product:read'),
+  getProductImageFile
+);
+
+productImagesRouter.get(
+  '/products/:productId/images/:imageId/signed-url',
+  validate(getImageSchema),
+  authorize('product:read'),
+  getProductImageSignedUrl
 );

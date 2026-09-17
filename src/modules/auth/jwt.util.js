@@ -23,6 +23,7 @@ export function signAccessToken(payload) {
     expiresIn: env.JWT_ACCESS_EXPIRY,
     issuer: 'pulseops',
     audience: 'pulseops-api',
+    algorithm: 'HS256',
   });
 }
 
@@ -31,6 +32,7 @@ export function signRefreshToken(payload) {
     expiresIn: env.JWT_REFRESH_EXPIRY,
     issuer: 'pulseops',
     audience: 'pulseops-api',
+    algorithm: 'HS256',
   });
 }
 
@@ -38,6 +40,7 @@ export function verifyAccessToken(token) {
   return jwt.verify(token, accessSecret, {
     issuer: 'pulseops',
     audience: 'pulseops-api',
+    algorithms: ['HS256'],
   });
 }
 
@@ -45,6 +48,7 @@ export function verifyRefreshToken(token) {
   return jwt.verify(token, refreshSecret, {
     issuer: 'pulseops',
     audience: 'pulseops-api',
+    algorithms: ['HS256'],
   });
 }
 

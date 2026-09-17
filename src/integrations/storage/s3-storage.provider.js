@@ -183,6 +183,8 @@ export class S3StorageProvider {
     this._enforceTenantKey(storageKey);
     this._simulateTimeoutIfNeeded();
     // For S3, public URL is deterministic; we optionally HEAD to verify existence but return null if 404
+    // NOTE: This is a PUBLIC URL. For private buckets, use getSignedUrl() which returns SigV4 pre-signed URL.
+    // Tenant isolation alone does NOT make object private — bucket ACL + signed URL does.
     const url = this._buildUrl(storageKey);
     const payloadHash = sha256Hex('');
     const headers = this._buildHeaders('HEAD', storageKey, payloadHash, null);
@@ -198,6 +200,46 @@ export class S3StorageProvider {
       if (err instanceof IntegrationError) throw err;
       throw normalizeProviderError(err, { provider: 's3' });
     }
+  }
+
+  // Private objects: SigV4 pre-signed URL (query param signing), 15min expiry, secret never in URL
+  getSignedUrl(storageKey, expiresInSec = 900) {
+    this._enforceTenantKey(storageKey);
+    if (!this.accessKeyId || !this.secretAccessKey) {
+      // No credentials configured (test/mock) — return deterministic mock signed URL with HMAC
+      const secret = env.PAYMENT_WEBHOOK_SECRET || 'test-storage-secret';
+      const expires = Math.floor(Date.now() / 1000) + expiresInSec;
+      const sig = crypto.createHmac('sha256', secret).update(`${storageKey}:${expires}`).digest('hex');
+      return `${this.baseUrl.replace(/\/$/, '')}/${storageKey}?X-Mock-Expires=${expires}&X-Mock-Signature=${sig}`;
+    }
+    // Real SigV4 pre-signed URL
+    const amzDate = new Date().toISOString().replace(/[:-]|\.\d{3}/g, '').slice(0, 15) + 'Z';
+    const dateStamp = amzDate.slice(0, 8);
+    const credentialScope = `${dateStamp}/${this.region}/s3/aws4_request`;
+    const credential = `${this.accessKeyId}/${credentialScope}`;
+    const signedHeaders = 'host';
+    const urlObj = new URL(this._buildUrl(storageKey));
+    const host = urlObj.host;
+    const uri = `/${this.forcePathStyle || this.endpoint ? `${this.bucket}/${storageKey}` : storageKey}`;
+    // Query params for pre-signed
+    const queryParams = {
+      'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
+      'X-Amz-Credential': credential,
+      'X-Amz-Date': amzDate,
+      'X-Amz-Expires': String(expiresInSec),
+      'X-Amz-SignedHeaders': signedHeaders,
+    };
+    const queryString = Object.keys(queryParams).sort().map(k => `${encodeURIComponent(k)}=${encodeURIComponent(queryParams[k])}`).join('&');
+    const canonicalHeaders = `host:${host}\n`;
+    const payloadHash = 'UNSIGNED-PAYLOAD';
+    const canonicalRequest = ['GET', uri, queryString, canonicalHeaders, signedHeaders, payloadHash].join('\n');
+    const stringToSign = ['AWS4-HMAC-SHA256', amzDate, credentialScope, sha256Hex(canonicalRequest)].join('\n');
+    const kDate = hmacSha256(`AWS4${this.secretAccessKey}`, dateStamp);
+    const kRegion = hmacSha256(kDate, this.region);
+    const kService = hmacSha256(kRegion, 's3');
+    const kSigning = hmacSha256(kService, 'aws4_request');
+    const signature = hmacSha256Hex(kSigning, stringToSign);
+    return `${this._buildUrl(storageKey)}?${queryString}&X-Amz-Signature=${signature}`;
   }
 
   async exists(storageKey) {
@@ -283,6 +325,7 @@ export class MockS3StorageProvider {
   }
   async delete(storageKey) { this._enforceTenantKey(storageKey); this._simulateTimeoutIfNeeded(); this._simulateFailureIfNeeded(); if (!this.store.has(storageKey)) return false; this.store.delete(storageKey); return true; }
   async getUrl(storageKey) { this._enforceTenantKey(storageKey); this._simulateTimeoutIfNeeded(); const entry = this.store.get(storageKey); return entry ? entry.url : null; }
+  getSignedUrl(storageKey, expiresInSec = 900) { this._enforceTenantKey(storageKey); const secret = 'mock-storage-secret'; const expires = Math.floor(Date.now()/1000)+expiresInSec; const sig = crypto.createHmac('sha256', secret).update(`${storageKey}:${expires}`).digest('hex'); return `${this.baseUrl}/${storageKey}?expires=${expires}&signature=${sig}`; }
   async exists(storageKey) { this._enforceTenantKey(storageKey); return this.store.has(storageKey); }
   async getStream(storageKey) { this._enforceTenantKey(storageKey); const entry = this.store.get(storageKey); if (!entry) return null; const { Readable } = await import('node:stream'); return Readable.from(entry.buffer); }
   _clear() { this.store.clear(); }

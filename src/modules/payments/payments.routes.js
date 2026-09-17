@@ -4,6 +4,10 @@ import { createPayment, confirmPayment, webhookHandler, getPayment, refundPaymen
 import { createPaymentSchema, confirmPaymentSchema, getPaymentSchema, refundPaymentSchema, webhookSchema } from './payments.validation.js';
 import { authenticate } from '../auth/auth.middleware.js';
 import { authorize } from '../auth/authorization.middleware.js';
+import { createWebhookLimiter } from '../../common/middleware/rate-limiters.js';
+import { env } from '../../config/env.js';
+
+const webhookLimiter = env.NODE_ENV !== 'test' ? createWebhookLimiter() : (req, res, next) => next();
 
 function validate(schema) {
   return (req, res, next) => {
@@ -29,8 +33,8 @@ function validateWebhook(schema) {
 
 export const paymentsRouter = Router();
 
-// Webhook is public but signature validated in service - no authenticate
-paymentsRouter.post('/webhook', validateWebhook(webhookSchema), webhookHandler);
+// Webhook is public but signature validated in service - no authenticate; rate-limited to mitigate abuse
+paymentsRouter.post('/webhook', webhookLimiter, validateWebhook(webhookSchema), webhookHandler);
 
 // All other routes require authentication
 paymentsRouter.post('/create', authenticate(), validate(createPaymentSchema), authorize('payment:create'), createPayment);

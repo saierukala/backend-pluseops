@@ -19,6 +19,7 @@ import { notificationsRouter, notificationPreferencesRouter } from '../modules/n
 import { jobsRouter } from '../modules/jobs/jobs.routes.js';
 import { dashboardRouter } from '../modules/dashboard/dashboard.routes.js';
 import { analyticsRouter } from '../modules/analytics/analytics.routes.js';
+import { storageRouter } from '../modules/storage/storage.routes.js';
 
 export const apiRouter = Router();
 apiRouter.use('/health', healthRouter);
@@ -42,4 +43,5 @@ apiRouter.use('/notification-preferences', notificationPreferencesRouter);
 apiRouter.use('/jobs', jobsRouter);
 apiRouter.use('/dashboard', dashboardRouter);
 apiRouter.use('/analytics', analyticsRouter);
+apiRouter.use('/storage', storageRouter);
 apiRouter.use('/', productImagesRouter);

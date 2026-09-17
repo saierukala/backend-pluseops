@@ -1,6 +1,6 @@
 # Project Documentation
 
-Technical architecture and implementation state as of Phase 17 completion (API Orchestration — COMPLETE and VERIFIED, HUMAN VERIFICATION: PASS).
+Technical architecture and implementation state as of Phase 20 completion (Security Hardening — COMPLETE and VERIFIED, HUMAN VERIFICATION: PASS).
 
 ---
 
@@ -557,9 +557,9 @@ The following items were identified during the Phase 03 human verification audit
 | Background Jobs / BullMQ (Phase 15) | ✅ Complete & Verified (44/44, 568/568, 8 migrations — no new migration) |
 | External Integrations (Phase 16) | ✅ Complete & Verified (58/58, 626/626, 8 migrations — no new migration, HUMAN VERIFICATION: PASS) |
 | API Orchestration (Phase 17) | ✅ Complete & Verified (22/22, 648/648, 8 migrations — no new migration, HUMAN VERIFICATION: PASS) |
-| Analytics (Phase 18) | ✅ Complete & Verified |
-| Performance (Phase 19) | ✅ Complete & Verified |
-| Security Hardening (Phase 20) | ⏳ Not Started |
+| Analytics (Phase 18) | ✅ Complete & Verified (45/45, 693/693) |
+| Performance (Phase 19) | ✅ Complete & Verified (no new APIs, 693 preserved) |
+| Security Hardening (Phase 20) | ✅ Complete & Verified (53/53, 746/746, 9 migrations — no new migration, HUMAN VERIFICATION: PASS) |
 | Complete Testing (Phase 21) | ⏳ Not Started |
 | Swagger/OpenAPI (Phase 22) | ⏳ Not Started |
 | Docker/CI/CD (Phase 23) | ⏳ Not Started |
@@ -2362,3 +2362,41 @@ Roadmap: UNCHANGED
 
 Phase 19 delivers targeted performance optimizations only. All 693/693 regression tests pass, lint clean, Prisma valid, 9 migrations up to date (Phase 19 migration added), application startup verified.
 
+
+---
+
+## Phase 20 — Security Hardening (COMPLETE & VERIFIED — 53/53, 746/746, 9 migrations — no new migration, HUMAN VERIFICATION: PASS)
+
+### Objective
+Full security review and hardening without architecture change.
+
+### Hardening
+- **Helmet** nosniff/no-referrer/DENY/HSTS prod, CSP/COEP false documented.
+- **CORS** explicit allow-list, * rejected with credentials, production requires explicit CORS_ORIGINS.
+- **Rate limiting** global 100/15m + auth 20/15m + webhook 100/1m, draft-8, in-memory fallback.
+- **Request size** json/urlencoded 1mb + multer 10MB.
+- **JWT** HS256 pinned, issuer/audience, required claims, exp enforced, none rejected, secrets min32 prod.
+- **Refresh** SHA-256 hash, expiry/revoked, rotation atomic, reuse revokes family.
+- **Password** Argon2id.
+- **Validation** Zod strict, 400 without stack.
+- **SQL** parameterized, allow-listed sort, assertSafeTrunc for date_trunc.
+- **XSS** JSON-only, frontend must sanitize; **CSRF** Bearer-only no cookies.
+- **File upload** jpeg/png/webp/gif 10MB, magic-byte prod strict, basename + uuid_ prefix, tenant-scoped.
+- **Storage** Local PRIVATE (no static, file via .../file Bearer or .../signed HMAC 900s), S3 PRIVATE-by-default (SigV4 pre-signed), provider abstraction getSignedUrl.
+- **Webhook** raw-body HMAC-SHA256 timingSafeEqual over exact req.rawBody (whitespace-sensitive) before enqueue, idempotency @@unique([tenantId,eventId]).
+- **Audit** sanitize [REDACTED], logger redact, secrets never in responses.
+- **Tenant isolation** JWT→context→authorize→validate→tenant-scoped query.
+
+### Tests
+- 53 dedicated phase20-security.test.js + 746 full per-suite (combined >600s, per-suite used).
+- No new migration, 9 migrations up to date.
+
+### Known limitations (preserved)
+1. deepmerge-ts 3 high dev-only via prisma.
+2. Combined Jest >600s, per-suite 746/746.
+3. Real S3 SigV4 requires credentials; test uses mock HMAC.
+4. Local storage private, no /storage static.
+5. Signed URLs are controlled-access mechanism.
+6. Tenant-scoped keys alone not private.
+
+### Status: ✅ COMPLETE AND VERIFIED (HUMAN VERIFICATION: PASS)

@@ -40,7 +40,7 @@ function containsSensitive(payload) {
  * worker re-verifies via PaymentService.handleWebhook which also handles idempotency.
  * Tenant context is server-resolved (from DB lookup or payload) and propagated.
  */
-export async function enqueueWebhook({ tenantId, eventId, payload, headers = {}, signature = null, idempotencyKey = null }) {
+export async function enqueueWebhook({ tenantId, eventId, payload, rawBody = null, headers = {}, signature = null, idempotencyKey = null }) {
   if (!eventId) throw new Error('eventId is required for webhook job');
   if (!payload) throw new Error('payload is required');
   // Do not allow secrets beyond signature (which is validated, not stored long-term)
@@ -50,7 +50,7 @@ export async function enqueueWebhook({ tenantId, eventId, payload, headers = {},
   }
 
   const queue = getQueue();
-  const jobPayload = { tenantId: tenantId || null, eventId, payload, headers, signature, enqueuedAt: new Date().toISOString() };
+  const jobPayload = { tenantId: tenantId || null, eventId, payload, rawBody: rawBody || null, headers, signature, enqueuedAt: new Date().toISOString() };
   const jobId = idempotencyKey ? `webhook:${idempotencyKey}` : `webhook:${eventId}`;
 
   if (!queue) {

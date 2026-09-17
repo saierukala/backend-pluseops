@@ -840,3 +840,24 @@ The following API groups are **NOT implemented** in the repository as of Phase 0
 | Docker / CI/CD / Deployment | ⏳ Not started (Phase 23) |
 
 Only the Health APIs, Tenant APIs, Authentication APIs, and RBAC Authorization APIs listed above are implemented and tested.
+---
+
+## Phase 20 — Security Hardening APIs (added)
+
+### GET /api/v1/products/:productId/images/:imageId/file
+Stream product image bytes (private). Auth Bearer + product:read, tenant-scoped, 403 cross-tenant, 401 unauth. Direct /storage/... 404.
+
+### GET /api/v1/products/:productId/images/:imageId/signed-url
+Generate signed URL (private). Auth Bearer + product:read, HMAC 900s or SigV4, no credentials in URL.
+
+### GET /api/v1/storage/signed?key=&expires=&signature=
+Stream via HMAC/SigV4 signed URL (no auth, 403 tampered/expired).
+
+### GET /api/v1/storage/file?key=
+Stream via authenticated tenant check (Bearer, 403 cross-tenant).
+
+### Security hardening
+Helmet, CORS allow-list, global/auth/webhook rate limiting, request-size, webhook raw-body HMAC whitespace-sensitive, Local PRIVATE + S3 PRIVATE-by-default + signed URLs.
+
+### Known limitations
+Local private no static; signed URLs are controlled-access; tenant-scoped keys alone not private.

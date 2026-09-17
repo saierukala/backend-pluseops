@@ -29,6 +29,10 @@ const envSchema = z.object({
   REQUEST_BODY_LIMIT: z.string().default('1mb'),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
   RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
+  AUTH_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(900000),
+  AUTH_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(20),
+  WEBHOOK_RATE_LIMIT_WINDOW_MS: z.coerce.number().int().positive().default(60000),
+  WEBHOOK_RATE_LIMIT_MAX: z.coerce.number().int().positive().default(100),
   TRUST_PROXY: booleanFromString.default(false),
   FAIL_ON_DEPENDENCY_ERROR: booleanFromString.optional(),
   JWT_ACCESS_SECRET: isTestEnv ? z.string().optional() : z.string().min(32),
@@ -77,8 +81,21 @@ if (!parsed.success) {
   throw new Error(`Invalid environment configuration: ${issues}`);
 }
 
+const corsOrigins = parsed.data.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean);
+
+// Production CORS safety: require explicit origins, reject wildcard with credentials
+if (parsed.data.NODE_ENV === 'production') {
+  if (corsOrigins.includes('*')) {
+    throw new Error('CORS_ORIGINS must not contain wildcard "*" when credentials are enabled');
+  }
+  // If default localhost remains in production, warn via strict validation
+  if (parsed.data.CORS_ORIGINS === 'http://localhost:5173') {
+    throw new Error('CORS_ORIGINS must be explicitly configured in production');
+  }
+}
+
 export const env = {
   ...parsed.data,
-  corsOrigins: parsed.data.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean),
+  corsOrigins,
   failOnDependencyError: parsed.data.FAIL_ON_DEPENDENCY_ERROR ?? parsed.data.NODE_ENV === 'production'
 };

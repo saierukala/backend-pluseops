@@ -38,13 +38,19 @@ export class MockPaymentProvider {
     return { providerRefundId, status: 'COMPLETED', raw: { id: providerRefundId, status: 'succeeded' }, mapped: mapProviderResponse('payment', { id: providerRefundId }) };
   }
 
-  async verifyWebhook(payload, signature) {
-    // delegation to existing webhook util but via provider boundary
+  async verifyWebhook(rawBodyOrPayload, signature) {
+    // delegation to existing webhook util but via provider boundary — verify over exact raw bytes
     const { verifyWebhookSignature } = await import('../../modules/payments/webhook.util.js');
-    const valid = verifyWebhookSignature(payload, signature);
+    const valid = verifyWebhookSignature(rawBodyOrPayload, signature);
     if (!valid) throw new IntegrationError('Invalid webhook signature', { code: IntegrationErrorCode.AUTHENTICATION, statusCode: 401, provider: 'mock' });
-    // map provider event to domain
-    const type = payload.type;
+    // map provider event to domain — parse if string
+    let payload = rawBodyOrPayload;
+    if (typeof payload === 'string') {
+      try { payload = JSON.parse(payload); } catch { payload = {}; }
+    } else if (Buffer.isBuffer(payload)) {
+      try { payload = JSON.parse(payload.toString('utf8')); } catch { payload = {}; }
+    }
+    const type = payload?.type;
     let targetStatus = null;
     if (type === 'payment.succeeded' || type === 'charge.succeeded') targetStatus = 'COMPLETED';
     else if (type === 'payment.failed' || type === 'charge.failed') targetStatus = 'FAILED';
@@ -110,9 +116,9 @@ export class HttpPaymentProvider {
     }
   }
 
-  async verifyWebhook(payload, signature) {
+  async verifyWebhook(rawBodyOrPayload, signature) {
     const { verifyWebhookSignature } = await import('../../modules/payments/webhook.util.js');
-    const valid = verifyWebhookSignature(payload, signature);
+    const valid = verifyWebhookSignature(rawBodyOrPayload, signature);
     if (!valid) throw new IntegrationError('Invalid webhook signature', { code: IntegrationErrorCode.AUTHENTICATION, statusCode: 401, provider: 'http-payment' });
     return { verified: true };
   }

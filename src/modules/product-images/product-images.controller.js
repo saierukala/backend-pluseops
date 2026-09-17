@@ -138,3 +138,29 @@ export async function deleteProductImage(req, res, next) {
     next(error);
   }
 }
+
+export async function getProductImageFile(req, res, next) {
+  try {
+    const tenantId = req.context.tenantId;
+    const { imageId, productId } = req.params;
+    const image = await productImageService.getImage(imageId, tenantId, productId);
+    // Tenant isolation already enforced via getImage (checks tenantId)
+    const stream = await productImageService.storageService.getFileStream(image.storageKey);
+    if (!stream) {
+      return res.status(404).json({ success: false, error: { code: 'FILE_NOT_FOUND', message: 'File not found', details: null }, requestId: req.id });
+    }
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    stream.pipe(res);
+  } catch (error) { next(error); }
+}
+
+export async function getProductImageSignedUrl(req, res, next) {
+  try {
+    const tenantId = req.context.tenantId;
+    const { imageId, productId } = req.params;
+    const image = await productImageService.getImage(imageId, tenantId, productId);
+    const signedUrl = await productImageService.storageService.getSignedUrl(image.storageKey);
+    res.status(200).json({ success: true, data: { storageKey: image.storageKey, url: image.url, signedUrl, expiresIn: 900 }, message: 'Signed URL generated' });
+  } catch (error) { next(error); }
+}

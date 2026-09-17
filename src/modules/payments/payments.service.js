@@ -286,11 +286,37 @@ export class PaymentService {
     return result;
   }
 
-  async handleWebhook(rawBody, headers, signature) {
-    // rawBody is parsed JSON body object
-    // headers may contain signature
-    const payload = rawBody;
-    const eventId = payload.eventId;
+  async handleWebhook(rawBodyOrPayload, payloadOrHeaders, headersOrSig, sigMaybe) {
+    // Phase 20: raw-body verification — provider signs exact HTTP bytes
+    // Support both: handleWebhook(rawBodyString, payloadObject, headers, signature) and legacy handleWebhook(payloadObject, headers, signature)
+    let rawBody;
+    let payload;
+    let headers;
+    let signature;
+    const isFourArg = sigMaybe !== undefined || (payloadOrHeaders && typeof payloadOrHeaders === 'object' && payloadOrHeaders.eventId !== undefined && headersOrSig && typeof headersOrSig === 'object' && !headersOrSig.eventId);
+    if (isFourArg) {
+      // 4-arg new style: (rawBody, payload, headers, sig) — rawBody may be null (fallback to payload JSON)
+      rawBody = rawBodyOrPayload;
+      payload = payloadOrHeaders;
+      headers = headersOrSig;
+      signature = sigMaybe;
+      if (!rawBody && payload) rawBody = JSON.stringify(payload);
+    } else if (typeof rawBodyOrPayload === 'string' || Buffer.isBuffer(rawBodyOrPayload)) {
+      rawBody = rawBodyOrPayload;
+      payload = payloadOrHeaders;
+      headers = headersOrSig;
+      signature = sigMaybe;
+    } else {
+      payload = rawBodyOrPayload;
+      headers = payloadOrHeaders;
+      signature = headersOrSig;
+      // Legacy call without rawBody: reconstruct via JSON.stringify for verification (not as secure as rawBody, but backwards compat)
+      rawBody = payload ? JSON.stringify(payload) : '';
+    }
+    // Ensure rawBody is string for HMAC
+    if (Buffer.isBuffer(rawBody)) rawBody = rawBody.toString('utf8');
+    if (typeof rawBody !== 'string') rawBody = JSON.stringify(payload || {});
+    const eventId = payload?.eventId;
     const type = payload.type;
     const paymentId = payload.paymentId || null;
     const providerPaymentId = payload.providerPaymentId || null;
@@ -304,12 +330,13 @@ export class PaymentService {
     // Preserve existing HMAC verification semantics; adapter normalizes auth failures to IntegrationError
     const headerSig = signature || headers?.['x-webhook-signature'] || headers?.['x-payment-signature'];
     try {
-      await this.paymentProvider.verifyWebhook(payload, headerSig);
+      // Adapter verifies over rawBody string (exact bytes provider signed); mock provider delegates to same HMAC util
+      await this.paymentProvider.verifyWebhook(rawBody, headerSig);
     } catch (err) {
       if (err instanceof IntegrationError) {
         throw new AppError('Invalid webhook signature', { statusCode: 401, code: 'INVALID_WEBHOOK_SIGNATURE' });
       }
-      const isValidSig = verifyWebhookSignature(payload, headerSig);
+      const isValidSig = verifyWebhookSignature(rawBody, headerSig);
       if (!headerSig || !isValidSig) {
         throw new AppError('Invalid webhook signature', { statusCode: 401, code: 'INVALID_WEBHOOK_SIGNATURE' });
       }

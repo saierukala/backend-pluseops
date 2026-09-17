@@ -20,6 +20,10 @@ import {
   verifyEmailSchema,
 } from './auth.validation.js';
 import { authenticate } from './auth.middleware.js';
+import { createAuthLimiter } from '../../common/middleware/rate-limiters.js';
+import { env } from '../../config/env.js';
+
+const authLimiter = env.NODE_ENV !== 'test' ? createAuthLimiter() : (req, res, next) => next();
 
 function validate(schema) {
   return (req, res, next) => {
@@ -40,14 +44,14 @@ function validate(schema) {
 
 export const authRouter = Router();
 
-// Public endpoints
-authRouter.post('/register', validate(registerSchema), register);
-authRouter.post('/login', validate(loginSchema), login);
-authRouter.post('/refresh', validate(refreshSchema), refresh);
+// Public endpoints — authLimiter protects against brute force / credential stuffing
+authRouter.post('/register', authLimiter, validate(registerSchema), register);
+authRouter.post('/login', authLimiter, validate(loginSchema), login);
+authRouter.post('/refresh', authLimiter, validate(refreshSchema), refresh);
 authRouter.post('/logout', validate(logoutSchema), logout);
-authRouter.post('/forgot-password', validate(forgotPasswordSchema), forgotPassword);
-authRouter.post('/reset-password', validate(resetPasswordSchema), resetPassword);
-authRouter.post('/verify-email', validate(verifyEmailSchema), verifyEmail);
+authRouter.post('/forgot-password', authLimiter, validate(forgotPasswordSchema), forgotPassword);
+authRouter.post('/reset-password', authLimiter, validate(resetPasswordSchema), resetPassword);
+authRouter.post('/verify-email', authLimiter, validate(verifyEmailSchema), verifyEmail);
 
 // Protected endpoints
 authRouter.get('/me', authenticate(), me);
