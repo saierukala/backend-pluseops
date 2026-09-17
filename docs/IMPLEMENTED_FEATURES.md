@@ -1589,3 +1589,33 @@ Full security review and hardening without architecture change, preserving modul
 1. deepmerge-ts 3 high dev-only via prisma. 2. Combined Jest >600s per-suite used. 3. Real S3 SigV4 requires credentials; test mock HMAC. 4. Local private no static. 5. Signed URLs controlled-access. 6. Tenant-scoped keys alone not private.
 
 ### Status: ✅ COMPLETE AND VERIFIED (HUMAN VERIFICATION: PASS)
+
+---
+
+## Phase 21 — Complete Testing (COMPLETE — 51 unit + 12 E2E + 24 extended = 87 new, 746 + 87 = 833 per-suite)
+
+### Objective
+Full-system validation without modifying production behavior unless a genuine testing defect required minimal correction. Covers unit (services/rules/validators/permission/utils) + integration (API→Service→Repository→PostgreSQL) + E2E main workflow.
+
+### New Tests
+- **Unit 51/51** (`tests/unit/validators.test.js` 22 + `tests/unit/services-and-utils.test.js` 29): auth/product/inventory/payment/attribute validators, boundary/negative cases, permission middleware, JWT/password/storage/cache/webhook/rate-limit/audit sanitizers.
+- **E2E 12/12** (`tests/integration/phase21-e2e.test.js`): Register → Login → Define Attributes (Color/Size + values) → Create Product → Create Variants (SKUs) + attribute assignment → Create Product/Variant Images (tenant-scoped keys) → Create Warehouse + Add Inventory (50/30) → Create Order (snapshots, inventory 48/29) → Process Payment (create 201 webhook HMAC + duplicate idempotency) → Notification + Audit → WebSocket tenant join allowed / cross-tenant blocked + event delivery + cross-tenant order 404.
+- **Extended 24/24** (`tests/integration/phase21-extended.test.js`): Multi-tenant matrix (products/orders/payments/inventory/notifications/audit/cache/queue/websocket), Transaction/rollback (insufficient order, excessive refund, transfer insufficient), Idempotency (5 concurrent webhook →1), Cache/storage/queue (tenant keys, Redis failure fallback, sensitive reject), Error handling (401/403/400/SQL injection), Rate-limit config, IntegrationError mapping.
+- **Total new 87**, **baseline 746 (693 Phase1-19 +53 Phase20) = 833 per-suite evidence** — controlled individual execution, not one combined 833 run due to DB load timeout >600s.
+
+### Coverage Areas Verified
+authentication, authorization, tenant isolation, CRUD, variant/SKU, attributes & filtering, image upload/storage isolation, transactions/rollback, idempotency (webhooks/jobs), Redis cache (hit/miss/invalidation/TTL/tenancy/fallback), BullMQ (enqueue/processor/retry/fallback/tenant context), WebSockets (auth/rooms/events/cross-tenant rejection), external integrations (storage/payment/email via adapters, timeout/retry/normalization), error handling (malformed/negative/boundary/forbidden/cross-tenant), rate limiting (config verified, stress not fully exercised).
+
+### Limitations Honestly Reported
+- 833 is per-suite sum; full combined Jest not completed due to documented DB/runtime timeout.
+- Unit-only coverage ~4% (Statements 3.94/Branches 4.35/Functions 3.98/Lines 4.22) — do not claim 50% project-wide.
+- Rate-limit stress not fully performed (config unit); npm audit 3 high dev-chain deepmerge-ts→Prisma remains.
+- No schema migration; Phase 22/23 not claimed.
+
+### Verification
+- `npm run lint` → 0 errors, 0 warnings
+- `npx prisma validate` → Valid
+- `npx prisma migrate status` → 9 migrations up to date (no Phase21 migration)
+- Security regression 53/53 still PASS, Phase 1–20 preserved.
+
+### Status: ✅ COMPLETE (tests committed, no migration, no roadmap change, Phase22/23 untouched)
