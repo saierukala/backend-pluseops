@@ -1,5 +1,6 @@
 import { IntegrationError, IntegrationErrorCode, normalizeProviderError } from '../errors/integration-error.js';
 import { logger } from '../../config/logger.js';
+import { recordExternalMetric } from '../../config/metrics.js';
 
 const DEFAULT_TIMEOUT_MS = 5000;
 const DEFAULT_RETRIES = 2;
@@ -22,14 +23,18 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-export async function fetchWithTimeout(url, options = {}, { timeoutMs = DEFAULT_TIMEOUT_MS, provider = 'http' } = {}) {
+export async function fetchWithTimeout(url, options = {}, { timeoutMs = DEFAULT_TIMEOUT_MS, provider = 'http', operation = 'request' } = {}) {
+  const start = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(url, { ...options, signal: controller.signal });
+    recordExternalMetric(provider, operation, response.ok, Date.now() - start, response.ok ? null : 'http_error');
     return response;
   } catch (err) {
+    const durationMs = Date.now() - start;
     if (err.name === 'AbortError') {
+      recordExternalMetric(provider, operation, false, durationMs, 'timeout');
       throw new IntegrationError(`Provider ${provider} timed out after ${timeoutMs}ms`, {
         code: IntegrationErrorCode.TIMEOUT,
         statusCode: 504,
@@ -37,23 +42,27 @@ export async function fetchWithTimeout(url, options = {}, { timeoutMs = DEFAULT_
         cause: err,
       });
     }
+    recordExternalMetric(provider, operation, false, durationMs, err?.code || 'error');
     throw normalizeProviderError(err, { provider });
   } finally {
     clearTimeout(timeout);
   }
 }
 
-export async function requestWithRetry(url, options = {}, { timeoutMs = DEFAULT_TIMEOUT_MS, retries = DEFAULT_RETRIES, provider = 'http', retryDelayMs = 200, idempotent = true } = {}) {
+export async function requestWithRetry(url, options = {}, { timeoutMs = DEFAULT_TIMEOUT_MS, retries = DEFAULT_RETRIES, provider = 'http', retryDelayMs = 200, idempotent = true, operation = 'request' } = {}) {
   let lastError = null;
+  let retryCount = 0;
   const maxAttempts = idempotent ? retries + 1 : 1;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const start = Date.now();
     try {
-      const res = await fetchWithTimeout(url, options, { timeoutMs, provider });
+      const res = await fetchWithTimeout(url, options, { timeoutMs, provider, operation });
       if (!res.ok) {
         const status = res.status;
         if (isRetryableStatus(status) && attempt < maxAttempts) {
           logger.warn({ provider, url, status, attempt }, 'Retryable HTTP status, will retry');
           await sleep(retryDelayMs * attempt);
+          retryCount += 1;
           continue;
         }
         // normalize non-ok status
@@ -66,18 +75,24 @@ export async function requestWithRetry(url, options = {}, { timeoutMs = DEFAULT_
         // only retry if retryable and idempotent
         if (isRetryableError(err) && idempotent && attempt < maxAttempts) {
           await sleep(retryDelayMs * attempt);
+          retryCount += 1;
           continue;
         }
+        recordExternalMetric(provider, operation, false, Date.now() - start, err.code, retryCount);
         throw err;
       }
+      recordExternalMetric(provider, operation, true, Date.now() - start, null, retryCount);
       return res;
     } catch (err) {
+      const durationMs = Date.now() - start;
       lastError = normalizeProviderError(err, { provider });
       if (!isRetryableError(lastError) || !idempotent || attempt >= maxAttempts) {
+        recordExternalMetric(provider, operation, false, durationMs, lastError.code, retryCount);
         throw lastError;
       }
       logger.warn({ provider, url, attempt, error: lastError.message }, 'Retryable error, retrying request');
       await sleep(retryDelayMs * attempt);
+      retryCount += 1;
     }
   }
   throw lastError;

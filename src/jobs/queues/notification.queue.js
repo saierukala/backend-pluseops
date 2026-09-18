@@ -2,6 +2,7 @@ import { Queue } from 'bullmq';
 import { getBullMqRedisConnection } from '../connection.js';
 import { QUEUE_NAMES, QUEUE_PREFIX, DEFAULT_JOB_OPTIONS, JOB_NAMES, jobTimeoutMs } from '../jobs.config.js';
 import { logger } from '../../config/logger.js';
+import { recordQueueMetric } from '../../config/metrics.js';
 
 let notificationQueue = null;
 
@@ -86,9 +87,11 @@ export async function enqueueNotification({ tenantId, userId = null, type = 'INF
       removeOnFail: DEFAULT_JOB_OPTIONS[QUEUE_NAMES.NOTIFICATION].removeOnFail,
       timeout: jobTimeoutMs(QUEUE_NAMES.NOTIFICATION),
     });
+    recordQueueMetric(QUEUE_NAMES.NOTIFICATION, 'enqueue', true, 0);
     logger.info({ queue: QUEUE_NAMES.NOTIFICATION, jobId: job.id, tenantId, jobName: JOB_NAMES.SEND_NOTIFICATION, payload: sanitizeForLog(payload) }, 'Notification job enqueued');
     return job;
   } catch (err) {
+    recordQueueMetric(QUEUE_NAMES.NOTIFICATION, 'enqueue', false, 0, err?.code || 'error');
     // Duplicate jobId (idempotent) - BullMQ throws error; treat as success (already enqueued)
     if (err?.message?.includes('JobId') || err?.code === 'EEXIST' || String(err?.message).toLowerCase().includes('already exists')) {
       logger.info({ queue: QUEUE_NAMES.NOTIFICATION, tenantId, idempotencyKey }, 'Duplicate notification job ignored (idempotent)');

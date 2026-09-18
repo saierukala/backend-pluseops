@@ -19,4 +19,4 @@ export async function shutdownJobs() {
   await disconnectBullMqRedis();
 }
 
-export { isBullMqEnabled, getAllQueues, getWorkers, isWorkersStarted };
+export { isBullMqEnabled, getAllQueues, getWorkers, isWorkersStarted, disconnectBullMqRedis, stopWorkers };

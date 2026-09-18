@@ -7,9 +7,12 @@ import { env } from '../config/env.js';
 import { errorHandler } from '../common/middleware/error-handler.js';
 import { notFoundHandler } from '../common/middleware/not-found.js';
 import { requestContext } from '../common/middleware/request-context.js';
+import { requestLogger } from '../common/middleware/request-logger.js';
 import { createGlobalLimiter } from '../common/middleware/rate-limiters.js';
 import { apiRouter } from './routes.js';
 import { healthRouter } from '../modules/health/health.routes.js';
+import { readinessRouter } from '../modules/readiness/readiness.routes.js';
+import { metricsRouter } from '../modules/metrics/metrics.routes.js';
 import { setupSwagger } from '../docs/swagger.js';
 
 /**
@@ -26,6 +29,7 @@ export function createApp() {
   if (env.TRUST_PROXY) app.set('trust proxy', 1);
 
   app.use(requestContext);
+  app.use(requestLogger);
   // Security headers — API-appropriate Helmet configuration
   app.use(helmet({
     contentSecurityPolicy: false, // API returns JSON, not HTML; CSP is browser-rendered content policy — disabled to avoid breaking legitimate API consumers
@@ -67,6 +71,8 @@ export function createApp() {
   setupSwagger(app);
 
   app.use('/health', healthRouter);
+  app.use('/ready', readinessRouter);
+  app.use('/metrics', metricsRouter);
   app.use('/api/v1', apiRouter);
   app.use(notFoundHandler);
   app.use(errorHandler);

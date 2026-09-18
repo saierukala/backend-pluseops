@@ -2,6 +2,7 @@ import { Queue } from 'bullmq';
 import { getBullMqRedisConnection } from '../connection.js';
 import { QUEUE_NAMES, QUEUE_PREFIX, DEFAULT_JOB_OPTIONS, JOB_NAMES, jobTimeoutMs } from '../jobs.config.js';
 import { logger } from '../../config/logger.js';
+import { recordQueueMetric } from '../../config/metrics.js';
 
 /**
  * Report queue — DEFERRED analytics/reporting (Phase 18).
@@ -42,9 +43,11 @@ export async function enqueueReport({ tenantId, userId = null, reportType = 'gen
       removeOnFail: DEFAULT_JOB_OPTIONS[QUEUE_NAMES.REPORT].removeOnFail,
       timeout: jobTimeoutMs(QUEUE_NAMES.REPORT),
     });
+    recordQueueMetric(QUEUE_NAMES.REPORT, 'enqueue', true, 0);
     logger.info({ queue: QUEUE_NAMES.REPORT, jobId: job.id, tenantId, reportType }, 'Report job enqueued (generation deferred)');
     return job;
   } catch (err) {
+    recordQueueMetric(QUEUE_NAMES.REPORT, 'enqueue', false, 0, err?.code || 'error');
     if (String(err?.message).toLowerCase().includes('already exists') || String(err?.message).includes('JobId')) {
       return { id: jobId, duplicate: true };
     }

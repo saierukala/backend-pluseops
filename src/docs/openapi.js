@@ -1,5 +1,6 @@
 import { schemas } from './components/schemas.js';
-import { healthPaths } from './paths/health.js';
+import { healthPaths, readinessPaths } from './paths/health.js';
+import { metricsPaths } from './paths/metrics.js';
 import { tenantsPaths } from './paths/tenants.js';
 import { authPaths } from './paths/auth.js';
 import { rbacPaths } from './paths/rbac.js';
@@ -24,6 +25,8 @@ export const openApiSpec = {
   ],
   tags: [
     { name: 'Health', description: 'Service health probes (public)' },
+    { name: 'Readiness', description: 'Service readiness probes (public)' },
+    { name: 'Metrics', description: 'Application metrics (public)' },
     { name: 'Tenants', description: 'Tenant provisioning (public)' },
     { name: 'Auth', description: 'Authentication, registration, tokens, password flows' },
     { name: 'Roles', description: 'Tenant role management' },
@@ -89,6 +92,8 @@ export const openApiSpec = {
   },
   paths: {
     ...healthPaths,
+    ...readinessPaths,
+    ...metricsPaths,
     ...tenantsPaths,
     ...authPaths,
     ...rbacPaths,

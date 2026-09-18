@@ -1,8 +1,24 @@
 import Redis from 'ioredis';
 import { env } from './env.js';
 import { logger } from './logger.js';
+import { recordRedisMetric } from './metrics.js';
 
 let redis;
+
+function wrapCommand(client, command) {
+  const original = client[command].bind(client);
+  client[command] = async (...args) => {
+    const start = Date.now();
+    try {
+      const result = await original(...args);
+      recordRedisMetric(command, true, Date.now() - start);
+      return result;
+    } catch (error) {
+      recordRedisMetric(command, false, Date.now() - start, error?.code || 'error');
+      throw error;
+    }
+  };
+}
 
 export function getRedisClient() {
   if (!env.REDIS_URL) return undefined;
@@ -15,6 +31,11 @@ export function getRedisClient() {
       retryStrategy: () => null
     });
     redis.on('error', (error) => logger.warn({ code: error.code, message: error.message }, 'Redis client error'));
+
+    const commands = ['get', 'set', 'del', 'exists', 'expire', 'ttl', 'incr', 'decr', 'hget', 'hset', 'hdel', 'hgetall', 'lpush', 'rpush', 'lpop', 'rpop', 'llen', 'sadd', 'srem', 'smembers', 'scard', 'zadd', 'zrem', 'zrange', 'zcard', 'eval', 'evalsha', 'ping', 'info'];
+    for (const cmd of commands) {
+      wrapCommand(redis, cmd);
+    }
   }
   return redis;
 }
@@ -33,9 +54,13 @@ export async function connectRedis() {
 export async function redisHealthCheck() {
   const client = getRedisClient();
   if (!client || client.status !== 'ready') return false;
+  const start = Date.now();
   try {
-    return (await client.ping()) === 'PONG';
+    const result = (await client.ping()) === 'PONG';
+    recordRedisMetric('ping', result, Date.now() - start, result ? null : 'unavailable');
+    return result;
   } catch (error) {
+    recordRedisMetric('ping', false, Date.now() - start, error?.code || 'error');
     logger.warn({ err: error }, 'Redis health check failed');
     return false;
   }

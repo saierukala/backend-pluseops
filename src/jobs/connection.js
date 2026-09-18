@@ -4,6 +4,7 @@ import { logger } from '../config/logger.js';
 
 let bullMqRedis = null;
 let bullMqConnectionErrorLogged = false;
+let bullMqErrorResetTimer = null;
 
 /**
  * BullMQ requires maxRetriesPerRequest: null and enableReadyCheck: false.
@@ -26,7 +27,9 @@ export function getBullMqRedisConnection() {
       // Avoid log spam on repeated failures
       bullMqConnectionErrorLogged = true;
       logger.warn({ code: error.code, message: error.message }, 'BullMQ Redis connection error');
-      setTimeout(() => { bullMqConnectionErrorLogged = false; }, 30000).unref();
+      if (bullMqErrorResetTimer) clearTimeout(bullMqErrorResetTimer);
+      bullMqErrorResetTimer = setTimeout(() => { bullMqConnectionErrorLogged = false; bullMqErrorResetTimer = null; }, 30000);
+      if (bullMqErrorResetTimer.unref) bullMqErrorResetTimer.unref();
     }
   });
   bullMqRedis.on('connect', () => logger.info('BullMQ Redis connection established'));
@@ -43,7 +46,15 @@ export function getBullMqConnectionOptions() {
 export async function disconnectBullMqRedis() {
   const client = bullMqRedis;
   bullMqRedis = null;
+  if (bullMqErrorResetTimer) {
+    clearTimeout(bullMqErrorResetTimer);
+    bullMqErrorResetTimer = null;
+  }
+  bullMqConnectionErrorLogged = false;
   if (!client) return;
+  try {
+    client.removeAllListeners();
+  } catch (_e) { void _e; }
   try {
     if (client.status === 'wait') {
       client.disconnect();

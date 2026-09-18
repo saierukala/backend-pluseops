@@ -2,6 +2,7 @@ import { Queue } from 'bullmq';
 import { getBullMqRedisConnection } from '../connection.js';
 import { QUEUE_NAMES, QUEUE_PREFIX, DEFAULT_JOB_OPTIONS, JOB_NAMES, jobTimeoutMs } from '../jobs.config.js';
 import { logger } from '../../config/logger.js';
+import { recordQueueMetric } from '../../config/metrics.js';
 
 let webhookQueue = null;
 
@@ -76,9 +77,11 @@ export async function enqueueWebhook({ tenantId, eventId, payload, rawBody = nul
       removeOnFail: DEFAULT_JOB_OPTIONS[QUEUE_NAMES.WEBHOOK].removeOnFail,
       timeout: jobTimeoutMs(QUEUE_NAMES.WEBHOOK),
     });
+    recordQueueMetric(QUEUE_NAMES.WEBHOOK, 'enqueue', true, 0);
     logger.info({ queue: QUEUE_NAMES.WEBHOOK, jobId: job.id, eventId, tenantId, jobName: JOB_NAMES.PROCESS_WEBHOOK }, 'Webhook job enqueued');
     return job;
   } catch (err) {
+    recordQueueMetric(QUEUE_NAMES.WEBHOOK, 'enqueue', false, 0, err?.code || 'error');
     if (String(err?.message).toLowerCase().includes('already exists') || String(err?.message).includes('JobId')) {
       logger.info({ queue: QUEUE_NAMES.WEBHOOK, eventId, jobId }, 'Duplicate webhook job ignored (idempotent)');
       return { id: jobId, duplicate: true };

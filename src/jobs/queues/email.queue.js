@@ -2,6 +2,7 @@ import { Queue } from 'bullmq';
 import { getBullMqRedisConnection } from '../connection.js';
 import { QUEUE_NAMES, QUEUE_PREFIX, DEFAULT_JOB_OPTIONS, JOB_NAMES, jobTimeoutMs } from '../jobs.config.js';
 import { logger } from '../../config/logger.js';
+import { recordQueueMetric } from '../../config/metrics.js';
 
 /**
  * Email queue — DEFERRED provider integration.
@@ -46,9 +47,11 @@ export async function enqueueEmail({ tenantId, to, subject, template = null, var
       removeOnFail: DEFAULT_JOB_OPTIONS[QUEUE_NAMES.EMAIL].removeOnFail,
       timeout: jobTimeoutMs(QUEUE_NAMES.EMAIL),
     });
+    recordQueueMetric(QUEUE_NAMES.EMAIL, 'enqueue', true, 0);
     logger.info({ queue: QUEUE_NAMES.EMAIL, jobId: job.id, tenantId }, 'Email job enqueued (provider deferred)');
     return job;
   } catch (err) {
+    recordQueueMetric(QUEUE_NAMES.EMAIL, 'enqueue', false, 0, err?.code || 'error');
     if (String(err?.message).toLowerCase().includes('already exists') || String(err?.message).includes('JobId')) {
       return { id: jobId, duplicate: true };
     }

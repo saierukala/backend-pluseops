@@ -3,6 +3,7 @@ import { LocalStorageProvider } from './local-storage.provider.js';
 import { S3StorageProvider, MockS3StorageProvider } from '../../integrations/storage/s3-storage.provider.js';
 import { env } from '../../config/env.js';
 import { AppError } from '../errors/app-error.js';
+import { recordStorageMetric } from '../../config/metrics.js';
 
 const ALLOWED_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 const ALLOWED_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
@@ -98,34 +99,80 @@ export class StorageService {
 
   async uploadProductImage(tenantId, productId, file) {
     const storageKey = this.generateProductImageKey(tenantId, productId, file.originalname);
-    const result = await this.provider.upload(storageKey, file.buffer, file.mimetype);
-    return { storageKey, ...result };
+    const start = Date.now();
+    try {
+      const result = await this.provider.upload(storageKey, file.buffer, file.mimetype);
+      recordStorageMetric('upload', true, Date.now() - start, null, this.providerName);
+      return { storageKey, ...result };
+    } catch (error) {
+      recordStorageMetric('upload', false, Date.now() - start, error?.code || 'error', this.providerName);
+      throw error;
+    }
   }
 
   async uploadVariantImage(tenantId, productId, variantId, file) {
     const storageKey = this.generateVariantImageKey(tenantId, productId, variantId, file.originalname);
-    const result = await this.provider.upload(storageKey, file.buffer, file.mimetype);
-    return { storageKey, ...result };
+    const start = Date.now();
+    try {
+      const result = await this.provider.upload(storageKey, file.buffer, file.mimetype);
+      recordStorageMetric('upload', true, Date.now() - start, null, this.providerName);
+      return { storageKey, ...result };
+    } catch (error) {
+      recordStorageMetric('upload', false, Date.now() - start, error?.code || 'error', this.providerName);
+      throw error;
+    }
   }
 
   async deleteFile(storageKey) {
     this.assertTenantScopedKey(storageKey);
-    return this.provider.delete(storageKey);
+    const start = Date.now();
+    try {
+      const result = await this.provider.delete(storageKey);
+      recordStorageMetric('delete', true, Date.now() - start, null, this.providerName);
+      return result;
+    } catch (error) {
+      recordStorageMetric('delete', false, Date.now() - start, error?.code || 'error', this.providerName);
+      throw error;
+    }
   }
 
   async getFileUrl(storageKey) {
     this.assertTenantScopedKey(storageKey);
-    return this.provider.getUrl(storageKey);
+    const start = Date.now();
+    try {
+      const result = await this.provider.getUrl(storageKey);
+      recordStorageMetric('get_url', true, Date.now() - start, null, this.providerName);
+      return result;
+    } catch (error) {
+      recordStorageMetric('get_url', false, Date.now() - start, error?.code || 'error', this.providerName);
+      throw error;
+    }
   }
 
   async getFileStream(storageKey) {
     this.assertTenantScopedKey(storageKey);
-    return this.provider.getStream(storageKey);
+    const start = Date.now();
+    try {
+      const result = await this.provider.getStream(storageKey);
+      recordStorageMetric('get_stream', true, Date.now() - start, null, this.providerName);
+      return result;
+    } catch (error) {
+      recordStorageMetric('get_stream', false, Date.now() - start, error?.code || 'error', this.providerName);
+      throw error;
+    }
   }
 
   async fileExists(storageKey) {
     this.assertTenantScopedKey(storageKey);
-    return this.provider.exists(storageKey);
+    const start = Date.now();
+    try {
+      const result = await this.provider.exists(storageKey);
+      recordStorageMetric('exists', true, Date.now() - start, null, this.providerName);
+      return result;
+    } catch (error) {
+      recordStorageMetric('exists', false, Date.now() - start, error?.code || 'error', this.providerName);
+      throw error;
+    }
   }
 
   assertTenantScopedKey(storageKey) {
@@ -150,26 +197,60 @@ export class StorageService {
   // Provider-independent operations for Phase 16 contract
   async upload(storageKey, buffer, mimeType) {
     this.assertTenantScopedKey(storageKey);
-    return this.provider.upload(storageKey, buffer, mimeType);
+    const start = Date.now();
+    try {
+      const result = await this.provider.upload(storageKey, buffer, mimeType);
+      recordStorageMetric('upload', true, Date.now() - start, null, this.providerName);
+      return result;
+    } catch (error) {
+      recordStorageMetric('upload', false, Date.now() - start, error?.code || 'error', this.providerName);
+      throw error;
+    }
   }
 
   async delete(storageKey) {
     this.assertTenantScopedKey(storageKey);
-    return this.provider.delete(storageKey);
+    const start = Date.now();
+    try {
+      const result = await this.provider.delete(storageKey);
+      recordStorageMetric('delete', true, Date.now() - start, null, this.providerName);
+      return result;
+    } catch (error) {
+      recordStorageMetric('delete', false, Date.now() - start, error?.code || 'error', this.providerName);
+      throw error;
+    }
   }
 
   async getUrl(storageKey) {
     this.assertTenantScopedKey(storageKey);
-    return this.provider.getUrl(storageKey);
+    const start = Date.now();
+    try {
+      const result = await this.provider.getUrl(storageKey);
+      recordStorageMetric('get_url', true, Date.now() - start, null, this.providerName);
+      return result;
+    } catch (error) {
+      recordStorageMetric('get_url', false, Date.now() - start, error?.code || 'error', this.providerName);
+      throw error;
+    }
   }
 
   async getSignedUrl(storageKey, expiresInSec = 900) {
     this.assertTenantScopedKey(storageKey);
-    if (typeof this.provider.getSignedUrl === 'function') {
-      return this.provider.getSignedUrl(storageKey, expiresInSec);
+    const start = Date.now();
+    try {
+      if (typeof this.provider.getSignedUrl === 'function') {
+        const result = await this.provider.getSignedUrl(storageKey, expiresInSec);
+        recordStorageMetric('get_signed_url', true, Date.now() - start, null, this.providerName);
+        return result;
+      }
+      // Fallback to regular URL if provider does not support signed URLs
+      const result = await this.provider.getUrl(storageKey);
+      recordStorageMetric('get_url', true, Date.now() - start, null, this.providerName);
+      return result;
+    } catch (error) {
+      recordStorageMetric('get_signed_url', false, Date.now() - start, error?.code || 'error', this.providerName);
+      throw error;
     }
-    // Fallback to regular URL if provider does not support signed URLs
-    return this.provider.getUrl(storageKey);
   }
 
   validateImageFile(file) {

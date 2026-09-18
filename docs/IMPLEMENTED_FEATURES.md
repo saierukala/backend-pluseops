@@ -1669,3 +1669,71 @@ src/docs/
 - No Docker/CI/CD (Phase 23).
 
 ### Status: ✅ COMPLETE (16/16, 115/115 coverage, server corrected to http://localhost:3000, lint 0, Prisma valid, 9 migrations, no secrets, roadmap unchanged)
+
+---
+
+## Phase 23 — Docker / CI/CD / Deployment (COMPLETE & VERIFIED — HUMAN VERIFICATION: PASS)
+
+### Docker & Deployment
+
+- Multi-stage Dockerfile (deps + production, node:22-alpine, npm ci, prisma generate, non-root pulseops, tini, HEALTHCHECK wget /health)
+- docker-compose.yml postgres:16-alpine, redis:7-alpine, migrate (prisma migrate deploy), api/worker with service_healthy/service_completed_successfully, named volumes
+- docker-compose.prod.yml overlay requiring ${DATABASE_URL:?}, ${JWT_*}
+- CI workflow .github/workflows/ci.yml install/lint/test/build/migration validation/deployment, npm ci, prisma validate/generate, docker compose config
+- docs/DEPLOYMENT.md documents STORAGE_PROVIDER local/s3, DATABASE_URL with connection_limit/sslmode/PgBouncer, health/graceful shutdown/logs/monitoring
+
+### Verification
+
+- docker compose config --quiet valid, prisma validate valid, 9 migrations, no secrets baked, health endpoints preserved
+
+---
+
+## Phase 24 — Observability & Reliability (COMPLETE & VERIFIED — 85/85, 990/990, HUMAN VERIFICATION: APPROVED)
+
+### Objective
+
+Add production observability and reliability layer without changing modular-monolith architecture: structured logs, correlation IDs, metrics, health/readiness, timeouts, retries, failure isolation, alert definitions.
+
+### Structured Logging & Correlation
+
+- src/config/logger.js enhanced: 47 redacted paths (authorization, cookie, password, token, secret, apiKey, provider keys), censor:'[REDACTED]', createChildLogger, getRequestLogContext
+- src/common/middleware/request-context.js generates X-Request-Id UUIDv4 or preserves valid incoming
+- src/common/middleware/request-logger.js logs request_start/request_complete with durationMs, statusCode, tenant/user context; records http_requests_total/http_request_duration_ms
+
+### Metrics (src/config/metrics.js)
+
+- In-memory MetricsCollector counters/histograms/gauges with bounded labels only (method, normalized route, statusClass, queue, provider, operation, errorType)
+- recordRequestMetric, recordDbMetric (Prisma $use middleware in src/config/database.js), recordRedisMetric (wrapped ioredis commands in src/config/redis.js), recordQueueMetric (workers + 6 queues), recordExternalMetric (src/integrations/http/http-client.js), recordStorageMetric (src/common/storage/storage.service.js)
+- GET /metrics JSON and ?format=prometheus text; no high-cardinality labels
+
+### Health & Readiness
+
+- GET /health liveness, GET /health/db /health/redis /health/bullmq dependency checks, GET /ready readiness (database required, redis/bullmq optional) with dependencies, timestamp, 200/503, GET /ready/live
+- src/modules/health, src/modules/readiness, src/modules/metrics mounted in src/app/app.js before /api/v1
+
+### Reliability
+
+- Timeouts: DEFAULT_TIMEOUT_MS 5000, REQUEST_BODY_LIMIT 1mb, multer 10MB; external AbortController
+- Retries: bounded 2-5 attempts, exponential backoff, idempotent-only (src/integrations/http/http-client.js idempotent ? retries+1 :1, src/jobs/jobs.config.js per queue)
+- Non-idempotent protection: refund idempotent:false, payments not blindly retried
+- Failure isolation: Redis down -> API still 200 (cache fallback), single job failure via UnrecoverableError not crashing worker, try/catch in workers
+- Graceful shutdown: src/app/server.js server.close -> shutdownJobs (stopWorkers+closeAllQueues+disconnectBullMqRedis) -> disconnectRedis/disconnectDatabase with 10s hard timeout; src/worker.js similar; tini in Dockerfile
+- Startup: Promise.allSettled with failOnDependencyError (production true, dev false)
+- Alert definitions: docs/ALERT_DEFINITIONS.md 35 rules (API, DB, Redis, Queue, External, Storage, Auth) with PromQL, severity, runbook
+
+### Verification
+
+- Dedicated Phase 24: 85/85 (27 observability + 32 reliability + 26 security-privacy) — all meaningful assertions replacing placeholders
+- Full suite: 990/990 (29 suites) — 905 baseline +85 Phase 24 =990, clean Jest exit (fixed src/config/database.js always disconnect, src/config/metrics.js interval guard, src/jobs/connection.js timer clear)
+- Lint: 0 errors
+- Prisma: validate valid, migrate status 9 migrations up to date, no new migration (in-memory metrics)
+- Docker limitation: docker compose config --quiet valid, up not runnable in CI (daemon unavailable) — live host Node proves DB/Redis/BullMQ up via curl /health/ready/metrics
+- Remaining limitations: Docker up not verified in CI, in-memory metrics reset on restart, alerts documented not wired to external PagerDuty (no fake service), full suite ~130s with pino logs
+
+### APIs Added
+
+GET /ready, GET /ready/live, GET /health/bullmq, GET /metrics, GET /metrics/metrics (+ /api/v1 aliases) — documented in src/docs/paths/{health,metrics}.js and src/docs/openapi.js (21 tags now include Readiness/Metrics, 115 -> 123 ops)
+
+### Status: ✅ COMPLETE AND VERIFIED (HUMAN VERIFICATION: APPROVED)
+
+85/85 Phase 24, 990/990 full, lint 0, Prisma valid, 9 migrations, Docker config valid, live DB metrics proven, no roadmap change

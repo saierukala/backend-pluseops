@@ -2,6 +2,7 @@ import { Worker } from 'bullmq';
 import { getBullMqRedisConnection } from '../connection.js';
 import { QUEUE_NAMES, JOB_NAMES, QUEUE_PREFIX } from '../jobs.config.js';
 import { logger } from '../../config/logger.js';
+import { recordQueueMetric } from '../../config/metrics.js';
 import { processSendNotification } from '../processors/notification.processor.js';
 import { processCleanupExpiredTokens } from '../processors/cleanup.processor.js';
 import { processWebhook } from '../processors/webhook.processor.js';
@@ -54,12 +55,15 @@ function createWorker(queueName) {
       }
       const result = await processor(job.data, { jobId, attempt: job.attemptsMade + 1, job });
       const durationMs = Date.now() - start;
+      recordQueueMetric(queue, jobName, true, durationMs);
       logger.info({ queue, jobId, jobName, tenantId, durationMs, attempt: job.attemptsMade + 1 }, 'Worker job completed');
       return result;
     } catch (err) {
       const durationMs = Date.now() - start;
       // UnrecoverableError will be handled by BullMQ as permanent failure (no retry)
       const isUnrecoverable = err?.name === 'UnrecoverableError';
+      const errorType = isUnrecoverable ? 'permanent' : 'retryable';
+      recordQueueMetric(queue, jobName, false, durationMs, errorType);
       logger[isUnrecoverable ? 'warn' : 'error']({ queue, jobId, jobName, tenantId, attempt: job.attemptsMade + 1, durationMs, err: err?.message, name: err?.name }, isUnrecoverable ? 'Worker job permanently failed' : 'Worker job failed (will retry if attempts remain)');
       throw err;
     }
@@ -68,15 +72,12 @@ function createWorker(queueName) {
     prefix: QUEUE_PREFIX,
     concurrency,
     lockDuration: 30000,
-    // stalled check interval
   });
 
   worker.on('completed', (job) => {
     logger.info({ queue: queueName, jobId: job.id, jobName: job.name, tenantId: job.data?.tenantId }, 'Worker emitted completed');
   });
   worker.on('failed', (job, err) => {
-    // Failed jobs are retained per BullMQ failed state (removeOnFail age 24h) for observability.
-    // No separate DLQ in Phase 15; failed jobs are observable via BullMQ failed set + logs.
     logger.error({ queue: queueName, jobId: job?.id, jobName: job?.name, tenantId: job?.data?.tenantId, err: err?.message, attemptsMade: job?.attemptsMade }, 'Worker emitted failed');
   });
   worker.on('error', (err) => {

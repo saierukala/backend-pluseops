@@ -2,6 +2,7 @@ import { Queue } from 'bullmq';
 import { getBullMqRedisConnection } from '../connection.js';
 import { QUEUE_NAMES, QUEUE_PREFIX, DEFAULT_JOB_OPTIONS, JOB_NAMES, jobTimeoutMs } from '../jobs.config.js';
 import { logger } from '../../config/logger.js';
+import { recordQueueMetric } from '../../config/metrics.js';
 
 let cleanupQueue = null;
 
@@ -53,9 +54,11 @@ export async function enqueueCleanup({ tenantId = null, idempotencyKey = null } 
       removeOnFail: DEFAULT_JOB_OPTIONS[QUEUE_NAMES.CLEANUP].removeOnFail,
       timeout: jobTimeoutMs(QUEUE_NAMES.CLEANUP),
     });
+    recordQueueMetric(QUEUE_NAMES.CLEANUP, 'enqueue', true, 0);
     logger.info({ queue: QUEUE_NAMES.CLEANUP, jobId: job.id, tenantId, jobName: JOB_NAMES.CLEANUP_EXPIRED_TOKENS }, 'Cleanup job enqueued');
     return job;
   } catch (err) {
+    recordQueueMetric(QUEUE_NAMES.CLEANUP, 'enqueue', false, 0, err?.code || 'error');
     if (String(err?.message).toLowerCase().includes('already exists') || String(err?.message).includes('JobId')) {
       logger.info({ queue: QUEUE_NAMES.CLEANUP, tenantId, jobId }, 'Duplicate cleanup job ignored (idempotent)');
       return { id: jobId, duplicate: true };
