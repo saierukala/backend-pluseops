@@ -3,6 +3,7 @@ import { healthPaths, readinessPaths } from './paths/health.js';
 import { metricsPaths } from './paths/metrics.js';
 import { tenantsPaths } from './paths/tenants.js';
 import { authPaths } from './paths/auth.js';
+import { platformPaths } from './paths/platform.js';
 import { rbacPaths } from './paths/rbac.js';
 import { catalogPaths } from './paths/catalog.js';
 import { inventoryWarehousesPaths } from './paths/inventory-warehouses.js';
@@ -27,8 +28,9 @@ export const openApiSpec = {
     { name: 'Health', description: 'Service health probes (public)' },
     { name: 'Readiness', description: 'Service readiness probes (public)' },
     { name: 'Metrics', description: 'Application metrics (public)' },
-    { name: 'Tenants', description: 'Tenant provisioning (public)' },
-    { name: 'Auth', description: 'Authentication, registration, tokens, password flows' },
+    { name: 'Tenants', description: 'Tenant provisioning (public - legacy; platform preferred)' },
+    { name: 'Platform', description: 'Platform administration - tenant lifecycle, requires scope=platform and platform:tenant:* permissions' },
+    { name: 'Auth', description: 'Authentication, registration, tokens, password flows. Dual-scope login: platform vs tenant.' },
     { name: 'Roles', description: 'Tenant role management' },
     { name: 'Permissions', description: 'Tenant permissions' },
     { name: 'Users', description: 'Tenant user management' },
@@ -96,6 +98,7 @@ export const openApiSpec = {
     ...metricsPaths,
     ...tenantsPaths,
     ...authPaths,
+    ...platformPaths,
     ...rbacPaths,
     ...catalogPaths,
     ...inventoryWarehousesPaths,

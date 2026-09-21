@@ -14,8 +14,37 @@ export class AuthRepository {
       },
       include: {
         memberships: { where: { tenantId, status: 'ACTIVE' }, include: { tenant: true } },
+        platformUserRoles: { include: { role: true } },
       },
     });
+  }
+
+  async findUserByEmail(email) {
+    return this.prisma.user.findUnique({
+      where: { email },
+      include: {
+        memberships: { include: { tenant: true } },
+        platformUserRoles: { include: { role: true } },
+      },
+    });
+  }
+
+  async findTenantBySlug(slug) {
+    return this.prisma.tenant.findUnique({
+      where: { slug },
+    });
+  }
+
+  async findPlatformRolesForUser(userId) {
+    return this.prisma.platformUserRole.findMany({
+      where: { userId },
+      include: { role: true },
+    });
+  }
+
+  async hasPlatformRole(userId) {
+    const count = await this.prisma.platformUserRole.count({ where: { userId } });
+    return count > 0;
   }
 
   async findTenantById(tenantId) {

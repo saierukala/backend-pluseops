@@ -20,10 +20,12 @@ import { jobsRouter } from '../modules/jobs/jobs.routes.js';
 import { dashboardRouter } from '../modules/dashboard/dashboard.routes.js';
 import { analyticsRouter } from '../modules/analytics/analytics.routes.js';
 import { storageRouter } from '../modules/storage/storage.routes.js';
+import { platformRouter } from '../modules/platform/platform.routes.js';
 
 export const apiRouter = Router();
 apiRouter.use('/health', healthRouter);
 apiRouter.use('/tenants', tenantsRouter);
+apiRouter.use('/platform', platformRouter);
 apiRouter.use('/auth', authRouter);
 apiRouter.use('/roles', rolesRouter);
 apiRouter.use('/permissions', permissionsRouter);

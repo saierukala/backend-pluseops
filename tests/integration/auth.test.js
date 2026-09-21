@@ -182,7 +182,7 @@ describe('Authentication endpoints', () => {
       expect(response.body.error.code).toBe('INVALID_CREDENTIALS');
     });
 
-    it('rejects login without tenantId', async () => {
+    it('logs in successfully without tenantId via auto-resolution', async () => {
       const response = await request(app)
         .post('/api/v1/auth/login')
         .send({
@@ -190,8 +190,16 @@ describe('Authentication endpoints', () => {
           password: testUserPassword,
         });
 
-      expect(response.status).toBe(400);
-      expect(response.body.error.code).toBe('TENANT_REQUIRED');
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.accessToken).toBeDefined();
+      // Verify JWT contains scope tenant and correct tenantId without client supplying it
+      const jwt = await import('jsonwebtoken');
+      const { env } = await import('../../src/config/env.js');
+      const accessSecret = env.JWT_ACCESS_SECRET || 'test-access-secret-min-32-chars-long-for-testing';
+      const decoded = jwt.verify(response.body.data.accessToken, accessSecret);
+      expect(decoded.scope).toBe('tenant');
+      expect(decoded.tenantId).toBe(testTenantId);
     });
 
     it('rejects login for inactive user', async () => {
@@ -378,15 +386,15 @@ describe('Authentication endpoints', () => {
       expect(response.body.success).toBe(true);
     });
 
-    it('rejects request without tenantId', async () => {
+    it('succeeds without tenantId via auto-resolution', async () => {
       const response = await request(app)
         .post('/api/v1/auth/forgot-password')
         .send({
           email: testUserEmail,
         });
 
-      expect(response.status).toBe(400);
-      expect(response.body.error.code).toBe('TENANT_REQUIRED');
+      expect(response.status).toBe(200);
+      expect(response.body.success).toBe(true);
     });
   });
 

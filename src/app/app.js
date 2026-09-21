@@ -40,11 +40,33 @@ export function createApp() {
     noSniff: true,
     hidePoweredBy: true,
   }));
+  // Development-only dynamic localhost CORS: allows any http://localhost:<valid-port> and http://127.0.0.1:<valid-port>
+  // Validates parsed hostname/protocol rather than substring check; disabled in production
+  function isAllowedDevelopmentOrigin(origin) {
+    if (env.NODE_ENV === 'production') return false;
+    try {
+      const url = new URL(origin);
+      if (url.protocol !== 'http:') return false;
+      if (url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') return false;
+      if (url.username || url.password) return false;
+      if (url.pathname !== '/' || url.search || url.hash) return false;
+      if (url.origin !== origin) return false;
+      if (url.port) {
+        const port = Number(url.port);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   app.use(cors({
     origin(origin, callback) {
       // Allow non-browser requests (no origin) and configured origins; credentials handled deliberately
       if (!origin) return callback(null, true);
       if (env.corsOrigins.includes(origin)) return callback(null, true);
+      if (isAllowedDevelopmentOrigin(origin)) return callback(null, true);
       return callback(new Error('Not allowed by CORS'));
     },
     credentials: true,

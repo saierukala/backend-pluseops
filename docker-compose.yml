@@ -73,11 +73,11 @@ services:
       PORT: 3000
       HOST: 0.0.0.0
       LOG_LEVEL: info
-      CORS_ORIGINS: http://localhost:5173
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:5173
       DATABASE_URL: postgresql://pulseops:pulseops@postgres:5432/pulseops?schema=public
       REDIS_URL: redis://redis:6379
       JWT_ACCESS_SECRET: dev-access-secret-min-32-chars-long-for-testing
-      JWT_REFRESH_SECRET: dev-refresh-secret-min-32-chars-long-for-test
+      JWT_REFRESH_SECRET: dev-refresh-secret-min-32-chars-long-for-testing
       PAYMENT_WEBHOOK_SECRET: dev-webhook-secret-min-32-chars-long-for-testing
       STORAGE_PROVIDER: local
       LOCAL_STORAGE_PATH: ./storage

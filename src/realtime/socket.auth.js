@@ -50,25 +50,48 @@ export async function socketAuthMiddleware(socket, next) {
       throw e;
     }
 
+    const scope = decoded.scope || 'tenant';
     if (!decoded.sub || !decoded.tenantId || !decoded.sessionId) {
       const err = new Error('Invalid token claims');
       err.data = { code: 'INVALID_TOKEN_CLAIMS' };
       return next(err);
     }
 
-    const repo = new AuthRepository();
-    const user = await repo.findUserByIdAndTenant(decoded.sub, decoded.tenantId);
-    if (!user || user.status !== 'ACTIVE') {
-      const err = new Error('User not found or inactive');
-      err.data = { code: 'USER_NOT_FOUND' };
-      return next(err);
-    }
-
-    const tenant = user.memberships[0]?.tenant;
-    if (!tenant || (tenant.status !== 'ACTIVE' && tenant.status !== 'TRIAL')) {
-      const err = new Error('Tenant is not active');
-      err.data = { code: 'TENANT_INACTIVE' };
-      return next(err);
+    if (scope === 'platform') {
+      // Platform socket: verify platform role
+      const { getPrismaClient } = await import('../config/database.js');
+      const prisma = getPrismaClient();
+      const grant = await prisma.platformUserRole.findFirst({ where: { userId: decoded.sub } });
+      if (!grant) {
+        const err = new Error('Platform access denied');
+        err.data = { code: 'PLATFORM_ACCESS_DENIED' };
+        return next(err);
+      }
+      const user = await prisma.user.findUnique({ where: { id: decoded.sub } });
+      if (!user || user.status !== 'ACTIVE') {
+        const err = new Error('User not found or inactive');
+        err.data = { code: 'USER_NOT_FOUND' };
+        return next(err);
+      }
+    } else {
+      const repo = new AuthRepository();
+      const user = await repo.findUserByIdAndTenant(decoded.sub, decoded.tenantId);
+      if (!user || user.status !== 'ACTIVE') {
+        const err = new Error('User not found or inactive');
+        err.data = { code: 'USER_NOT_FOUND' };
+        return next(err);
+      }
+      const tenant = user.memberships[0]?.tenant;
+      if (!tenant || (tenant.status !== 'ACTIVE' && tenant.status !== 'TRIAL')) {
+        const err = new Error('Tenant is not active');
+        err.data = { code: 'TENANT_INACTIVE' };
+        return next(err);
+      }
+      if (tenant.slug === '__platform') {
+        const err = new Error('Platform tenant forbidden');
+        err.data = { code: 'PLATFORM_TENANT_FORBIDDEN' };
+        return next(err);
+      }
     }
 
     // Server-derived context only - never trust client-supplied tenantId/userId
@@ -77,6 +100,7 @@ export async function socketAuthMiddleware(socket, next) {
       tenantId: decoded.tenantId,
       sessionId: decoded.sessionId,
       email: decoded.email,
+      scope,
     };
     // Also set for backward compatibility
     socket.data = socket.data || {};

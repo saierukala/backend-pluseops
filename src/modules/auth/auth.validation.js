@@ -14,7 +14,9 @@ export const loginSchema = z.object({
   body: z.object({
     email: z.string().email(),
     password: z.string().min(1),
+    scope: z.enum(['platform', 'tenant']).optional(),
     tenantId: z.string().uuid().optional(),
+    tenantSlug: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/).optional(),
   }),
 });
 
@@ -34,6 +36,7 @@ export const forgotPasswordSchema = z.object({
   body: z.object({
     email: z.string().email(),
     tenantId: z.string().uuid().optional(),
+    tenantSlug: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/).optional(),
   }),
 });
 

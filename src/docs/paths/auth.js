@@ -43,7 +43,7 @@ export const authPaths = {
     post: {
       tags: ['Auth'],
       summary: 'Login',
-      description: 'Public. Rate-limited. Returns access and refresh tokens.',
+      description: 'Public. Rate-limited. Supports dual-scope authentication. Use scope=platform for Platform Admin (requires platform role). Use scope=tenant (default) for tenant users. Tenant login no longer requires manual tenantId; when omitted the server auto-resolves tenant via email (requires globally unique email). Legacy tenantId still accepted for backward compatibility. tenantSlug optional resolves tenant by slug without exposing UUID.',
       operationId: 'login',
       security: [],
       requestBody: {
@@ -56,16 +56,19 @@ export const authPaths = {
               properties: {
                 email: { type: 'string', format: 'email' },
                 password: { type: 'string', minLength: 1 },
-                tenantId: { type: 'string', format: 'uuid' },
+                scope: { type: 'string', enum: ['platform', 'tenant'], description: 'Authentication scope. platform=Platform Console, tenant=Tenant Console (default tenant).' },
+                tenantId: { type: 'string', format: 'uuid', description: 'Deprecated: optional legacy tenant UUID. Prefer tenantSlug or auto-resolution.' },
+                tenantSlug: { type: 'string', pattern: '^[a-z0-9-]+$', description: 'Optional tenant slug for tenant login without exposing UUID' },
               },
             },
           },
         },
       },
       responses: {
-        200: { description: 'Login successful', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object', properties: { accessToken: { type: 'string' }, refreshToken: { type: 'string' }, user: { $ref: '#/components/schemas/User' } } }, message: { type: 'string' } } } } } },
+        200: { description: 'Login successful', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object', properties: { accessToken: { type: 'string', description: 'JWT with scope claim (platform|tenant)' }, refreshToken: { type: 'string' }, sessionId: { type: 'string', format: 'uuid' }, scope: { type: 'string', enum: ['platform', 'tenant'] }, user: { $ref: '#/components/schemas/User' } } }, message: { type: 'string' } } } } } },
         400: error400,
         401: error401,
+        403: { description: 'Forbidden - platform access denied or tenant inactive', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
         429: error429,
         500: error500,
       },
@@ -128,7 +131,7 @@ export const authPaths = {
     post: {
       tags: ['Auth'],
       summary: 'Forgot password',
-      description: 'Public. Rate-limited. Always returns success to avoid email enumeration.',
+      description: 'Public. Rate-limited. Always returns success to avoid email enumeration. tenantId/tenantSlug optional; when omitted auto-resolves via email.',
       operationId: 'forgotPassword',
       security: [],
       requestBody: {
@@ -141,6 +144,7 @@ export const authPaths = {
               properties: {
                 email: { type: 'string', format: 'email' },
                 tenantId: { type: 'string', format: 'uuid' },
+                tenantSlug: { type: 'string', pattern: '^[a-z0-9-]+$' },
               },
             },
           },

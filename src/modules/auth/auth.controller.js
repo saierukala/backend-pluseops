@@ -97,6 +97,7 @@ export async function me(req, res, next) {
   try {
     const userId = req.context.userId;
     const tenantId = req.context.tenantId;
+    const scope = req.context.scope || 'tenant';
     
     if (!userId || !tenantId) {
       return res.status(401).json({
@@ -106,7 +107,7 @@ export async function me(req, res, next) {
       });
     }
 
-    const user = await authService.getMe(userId, tenantId);
+    const user = await authService.getMe(userId, tenantId, scope);
     res.status(200).json({
       success: true,
       data: user,

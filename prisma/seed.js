@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import argon2 from 'argon2';
 
 const prisma = new PrismaClient();
 
@@ -61,8 +62,15 @@ const PLATFORM_PERMISSIONS = [
   { resource: 'platform:billing', action: 'update', name: 'platform:billing:update' },
 ];
 
+const PLATFORM_TENANT_SLUG = '__platform';
+const PLATFORM_ADMIN_EMAIL = process.env.PLATFORM_ADMIN_EMAIL || 'sairram@gmail.com';
+const PLATFORM_ADMIN_PASSWORD = process.env.PLATFORM_ADMIN_PASSWORD || 'Sairram@123';
+
+async function hashPassword(password) {
+  return argon2.hash(password, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
+}
+
 async function seedTenant(tenantId) {
-  // Upsert permissions
   const permissions = {};
   for (const perm of SYSTEM_PERMISSIONS) {
     const p = await prisma.permission.upsert({
@@ -84,7 +92,6 @@ async function seedTenant(tenantId) {
     permissions[`${perm.resource}:${perm.action}`] = p.id;
   }
 
-  // Upsert roles
   const roles = {};
   for (const role of SYSTEM_ROLES) {
     const r = await prisma.role.upsert({
@@ -104,8 +111,6 @@ async function seedTenant(tenantId) {
     roles[role.name] = r.id;
   }
 
-  // Link roles to permissions
-  // admin -> all permissions
   const adminPerms = Object.values(permissions);
   for (const permId of adminPerms) {
     await prisma.rolePermission.upsert({
@@ -125,7 +130,6 @@ async function seedTenant(tenantId) {
     });
   }
 
-  // manager -> most permissions (exclude delete for sensitive resources)
   const managerExclude = ['user:delete', 'role:delete', 'permission:read', 'tenant:update'];
   const managerPerms = Object.entries(permissions)
     .filter(([key]) => !managerExclude.includes(key))
@@ -148,7 +152,6 @@ async function seedTenant(tenantId) {
     });
   }
 
-  // member -> read permissions only
   const memberPerms = Object.entries(permissions)
     .filter(([key]) => key.endsWith(':read'))
     .map(([, v]) => v);
@@ -171,7 +174,14 @@ async function seedTenant(tenantId) {
   }
 }
 
-async function main() {
+async function seedPlatformAdmin() {
+  // Ensure platform tenant exists
+  const platformTenant = await prisma.tenant.upsert({
+    where: { slug: PLATFORM_TENANT_SLUG },
+    update: { name: 'Platform', status: 'ACTIVE', plan: 'platform' },
+    create: { name: 'Platform', slug: PLATFORM_TENANT_SLUG, status: 'ACTIVE', plan: 'platform' },
+  });
+
   const platformRole = await prisma.platformRole.upsert({
     where: { name: 'platform_admin' },
     update: { description: 'PulseOps platform administration', isSystem: true },
@@ -189,9 +199,71 @@ async function main() {
       create: { roleId: platformRole.id, permissionId: stored.id },
     });
   }
-  // Get all existing tenants
+
+  // Upsert platform admin user idempotently; never duplicate on repeated seed
+  const passwordHash = await hashPassword(PLATFORM_ADMIN_PASSWORD);
+  let platformUser = await prisma.user.findUnique({ where: { email: PLATFORM_ADMIN_EMAIL } });
+  if (!platformUser) {
+    platformUser = await prisma.user.create({
+      data: {
+        tenantId: platformTenant.id,
+        email: PLATFORM_ADMIN_EMAIL,
+        passwordHash,
+        firstName: 'Platform',
+        lastName: 'Admin',
+        status: 'ACTIVE',
+        emailVerified: true,
+        memberships: {
+          create: { tenantId: platformTenant.id, status: 'ACTIVE' },
+        },
+      },
+    });
+  } else {
+    // Ensure existing user is corrected to platform tenant and active, update hash if needed
+    // Only update passwordHash if verification fails (means password changed or hash outdated) - compare via argon2 verify
+    let needsUpdate = false;
+    try {
+      const valid = await argon2.verify(platformUser.passwordHash, PLATFORM_ADMIN_PASSWORD);
+      if (!valid) needsUpdate = true;
+    } catch {
+      needsUpdate = true;
+    }
+    const updateData = {};
+    if (platformUser.tenantId !== platformTenant.id) updateData.tenantId = platformTenant.id;
+    if (platformUser.status !== 'ACTIVE') updateData.status = 'ACTIVE';
+    if (!platformUser.emailVerified) updateData.emailVerified = true;
+    if (needsUpdate) updateData.passwordHash = passwordHash;
+    if (Object.keys(updateData).length > 0) {
+      platformUser = await prisma.user.update({ where: { id: platformUser.id }, data: updateData });
+    }
+    // Ensure membership exists
+    const membership = await prisma.tenantMembership.findUnique({
+      where: { tenantId_userId: { tenantId: platformTenant.id, userId: platformUser.id } },
+    });
+    if (!membership) {
+      await prisma.tenantMembership.create({
+        data: { tenantId: platformTenant.id, userId: platformUser.id, status: 'ACTIVE' },
+      });
+    }
+  }
+
+  // Ensure platform role assignment
+  await prisma.platformUserRole.upsert({
+    where: { userId_roleId: { userId: platformUser.id, roleId: platformRole.id } },
+    update: {},
+    create: { userId: platformUser.id, roleId: platformRole.id },
+  });
+
+  return { platformTenant, platformUser, platformRole };
+}
+
+async function main() {
+  // Seed platform first (idempotent)
+  await seedPlatformAdmin();
+
+  // Get all existing business tenants (exclude platform)
   const tenants = await prisma.tenant.findMany({
-    where: { status: { not: 'CANCELLED' } },
+    where: { status: { not: 'CANCELLED' }, slug: { not: PLATFORM_TENANT_SLUG } },
     select: { id: true, name: true, slug: true },
   });
 
