@@ -7,4 +7,6 @@ export default {
   },
   setupFilesAfterEnv: ['./tests/jest.setupAfterEnv.js'],
   openHandlesTimeout: 5000,
+  // Some suites leave Redis/BullMQ connections open; without this Jest never exits and CI hangs until the job timeout.
+  forceExit: true,
 };

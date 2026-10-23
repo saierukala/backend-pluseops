@@ -11,7 +11,8 @@ import { recordQueueMetric } from '../../config/metrics.js';
 let analyticsQueue = null;
 
 function getQueue() {
-  if (analyticsQueue) return analyticsQueue;
+  // A queue closed by shutdownJobs() never reconnects; build a new one instead of hanging on add().
+  if (analyticsQueue && !analyticsQueue.closing) return analyticsQueue;
   const connection = getBullMqRedisConnection();
   if (!connection) return null;
   analyticsQueue = new Queue(QUEUE_NAMES.ANALYTICS, {

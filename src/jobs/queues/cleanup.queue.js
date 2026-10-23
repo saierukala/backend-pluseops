@@ -7,7 +7,8 @@ import { recordQueueMetric } from '../../config/metrics.js';
 let cleanupQueue = null;
 
 function getQueue() {
-  if (cleanupQueue) return cleanupQueue;
+  // A queue closed by shutdownJobs() never reconnects; build a new one instead of hanging on add().
+  if (cleanupQueue && !cleanupQueue.closing) return cleanupQueue;
   const connection = getBullMqRedisConnection();
   if (!connection) return null;
   cleanupQueue = new Queue(QUEUE_NAMES.CLEANUP, {
