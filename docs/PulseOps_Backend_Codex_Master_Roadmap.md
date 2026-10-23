@@ -439,7 +439,7 @@ PHASE 27 → RBAC Completion                       (done)
 PHASE 28 → Account Self-Service                  (done)
 PHASE 29 → Customers & Addresses                (done)
 PHASE 30 → Tenant Workspace (settings, domains, support access)  (done)
-PHASE 31 → Reports, Exports & Notification Templates
+PHASE 31 → Reports, Exports & Notification Templates  (done)
 PHASE 32 → Storefront / Public Commerce API
 PHASE 33 → Platform Operations
 PHASE 34 → Data Integrity & API Consistency
@@ -2803,6 +2803,23 @@ Delivered (migration `20261024_phase30_tenant_workspace`):
 - Real `report` / `analytics` job processors (today they accept the job and do nothing).
 - `GET /reports`, `GET /reports/:id`, CSV download via signed URL.
 - `NotificationTemplate` CRUD and template rendering in the email/notification processors.
+
+Delivered (DONE 2026-10-24, migration `20261024_phase31_reports`):
+- `Report` table (type ORDERS / INVENTORY / CUSTOMERS, status PENDING → PROCESSING → COMPLETED / FAILED).
+  `POST /reports` (202; `report:create` **plus** the data's read permission — order/inventory/customer:read),
+  `GET /reports`, `GET /reports/:id`, `GET /reports/:id/download` → 5-minute signed URL (409 `REPORT_NOT_READY`).
+  The worker builds the CSV in id-cursor batches (100k-row cap), UTF-8 with BOM, formula-injection-safe cells, and stores
+  it at `tenants/{tenantId}/reports/{id}.csv`; signed/authenticated downloads now send `text/csv` as an attachment.
+  Failures store a generic message. Without Redis the report is generated inline. `POST /jobs/reports` now creates a
+  report the same way (`reportType` must be a valid type).
+- Analytics job computes the requested aggregate (`overview|sales|orders|inventory|customers|revenue`) into the same
+  cache entry the `/analytics/*` endpoint reads; inline without Redis.
+- `/notification-templates` CRUD + `POST /:id/preview` (`notification_template:*`). `{{name}}` placeholders only, every
+  placeholder declared in `variables`, subject required except SMS, unique (name, channel). Notification and email
+  jobs that name a template use the tenant's active one, else their own text; new orders use `order.created`
+  (variables orderId, total, currency).
+- New catalog permissions `report:create/read`, `notification_template:*` — existing tenants need `npm run db:seed`.
+- Not done: report file retention/cleanup, scheduled reports, templates for other system events.
 
 ## PHASE 32 — STOREFRONT / PUBLIC COMMERCE API
 

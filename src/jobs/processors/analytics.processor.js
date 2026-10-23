@@ -1,15 +1,29 @@
+import { UnrecoverableError } from 'bullmq';
 import { logger } from '../../config/logger.js';
 import { QUEUE_NAMES, JOB_NAMES } from '../jobs.config.js';
 
+export const ANALYTICS_METRICS = {
+  overview: 'getOverview',
+  sales: 'getSales',
+  orders: 'getOrders',
+  inventory: 'getInventory',
+  customers: 'getCustomers',
+  revenue: 'getRevenue',
+};
+
 /**
- * Analytics processor — DEFERRED (Phase 18).
- * Stub that preserves tenant isolation and logging; no real aggregation yet.
+ * Analytics processor (Phase 31): computes a tenant's analytics aggregate ahead of time, warming the same
+ * cache entry the /analytics endpoints read, so the next dashboard load is a cache hit.
  */
 export async function processCalculateAnalytics(payload, opts = {}) {
   const start = Date.now();
-  const { tenantId, metric, period, filters } = payload;
+  const { tenantId, metric = 'overview', filters = {} } = payload;
   const jobId = opts.jobId || 'unknown';
-  logger.info({ queue: QUEUE_NAMES.ANALYTICS, jobId, tenantId, metric, jobName: JOB_NAMES.CALCULATE_ANALYTICS }, 'Analytics calculation deferred — Phase 18 will implement aggregation');
-  logger.info({ queue: QUEUE_NAMES.ANALYTICS, jobId, tenantId, durationMs: Date.now() - start }, 'Analytics job succeeded (deferred stub)');
-  return { deferred: true, tenantId, metric, period, filters, note: 'Analytics calculation is deferred to Phase 18.' };
+  const method = ANALYTICS_METRICS[metric];
+  if (!tenantId || !method) throw new UnrecoverableError(`tenantId and a metric (${Object.keys(ANALYTICS_METRICS).join(', ')}) are required`);
+  const { AnalyticsService } = await import('../../modules/analytics/analytics.service.js');
+  await new AnalyticsService()[method](tenantId, filters);
+  const durationMs = Date.now() - start;
+  logger.info({ queue: QUEUE_NAMES.ANALYTICS, jobId, tenantId, metric, durationMs, jobName: JOB_NAMES.CALCULATE_ANALYTICS }, 'Analytics aggregate computed and cached');
+  return { tenantId, metric, cached: true, durationMs };
 }

@@ -76,7 +76,7 @@ export const jobsPaths = {
     post: {
       tags: ['Jobs'],
       summary: 'Trigger report job',
-      description: 'Requires `jobs:manage`. Passthrough body.',
+      description: 'Requires `jobs:manage` (plus the report permissions of `POST /reports`). Same as `POST /reports` with `type` = `reportType` (ORDERS, INVENTORY, CUSTOMERS); kept for existing callers. Returns 202 with `reportId`.',
       operationId: 'triggerReport',
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -86,7 +86,7 @@ export const jobsPaths = {
             schema: {
               type: 'object',
               properties: {
-                reportType: { type: 'string' },
+                reportType: { type: 'string', enum: ['ORDERS', 'INVENTORY', 'CUSTOMERS'], description: 'Case-insensitive' },
                 filters: { type: 'object' },
                 idempotencyKey: { type: 'string' },
               },
@@ -96,7 +96,7 @@ export const jobsPaths = {
         },
       },
       responses: {
-        200: { description: 'Report job enqueued', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object' } } } } } },
+        202: { description: 'Report requested', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object' } } } } } },
         401: error401,
         403: error403,
         500: error500,
@@ -107,7 +107,7 @@ export const jobsPaths = {
     post: {
       tags: ['Jobs'],
       summary: 'Trigger analytics job',
-      description: 'Requires `jobs:manage`.',
+      description: 'Requires `jobs:manage`. Computes an analytics aggregate in the background into the cache the `/analytics/*` endpoints read.',
       operationId: 'triggerAnalytics',
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -117,7 +117,7 @@ export const jobsPaths = {
             schema: {
               type: 'object',
               properties: {
-                metric: { type: 'string' },
+                metric: { type: 'string', enum: ['overview', 'sales', 'orders', 'inventory', 'customers', 'revenue'], default: 'overview' },
                 period: { type: 'string' },
                 filters: { type: 'object' },
                 idempotencyKey: { type: 'string' },

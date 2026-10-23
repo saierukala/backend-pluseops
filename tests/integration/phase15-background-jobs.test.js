@@ -246,11 +246,11 @@ describe('Phase 15 - Background Jobs / BullMQ', () => {
       await prisma.warehouse.deleteMany({ where: { id: wh.id } });
     });
 
-    it('deferred processors (report, analytics, email) succeed without external integration', async () => {
-      const r = await processGenerateReport({ tenantId: tenantAId, userId: userAId, reportType: 'sales' }, { jobId: 'rep-1' });
-      expect(r.deferred).toBe(true);
+    it('report, analytics and email processors run without external integration', async () => {
+      // Phase 31: report jobs need a stored Report row (reportId); a bare legacy payload is rejected without retry
+      await expect(processGenerateReport({ tenantId: tenantAId, userId: userAId, reportType: 'sales' }, { jobId: 'rep-1' })).rejects.toThrow('reportId');
       const a = await processCalculateAnalytics({ tenantId: tenantAId, metric: 'revenue' }, { jobId: 'ana-1' });
-      expect(a.deferred).toBe(true);
+      expect(a).toMatchObject({ tenantId: tenantAId, metric: 'revenue', cached: true });
       const e = await processSendEmail({ tenantId: tenantAId, to: 'a@b.com', subject: 'hi' }, { jobId: 'email-1' });
       // Phase 16: email processor now uses provider adapter (success), earlier phases expected deferred stub. Accept either.
       expect(e.deferred === true || e.success === true).toBe(true);
@@ -424,9 +424,9 @@ describe('Phase 15 - Background Jobs / BullMQ', () => {
       expect(JSON.stringify(stored)).not.toContain('password');
     });
 
-    it('analytics/report stub processors do not log secrets', async () => {
-      const r = await processGenerateReport({ tenantId: tenantAId, userId: userAId, reportType: 'sales', filters: {} }, { jobId: 'rep-safe' });
-      expect(r.note).not.toContain('secret');
+    it('analytics processor result carries no secrets', async () => {
+      const r = await processCalculateAnalytics({ tenantId: tenantAId, metric: 'overview' }, { jobId: 'ana-safe' });
+      expect(JSON.stringify(r)).not.toMatch(/secret|password|token/i);
     });
   });
 

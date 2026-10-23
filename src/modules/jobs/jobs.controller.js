@@ -1,6 +1,8 @@
 import { enqueueNotification } from '../../jobs/queues/notification.queue.js';
 import { enqueueCleanup } from '../../jobs/queues/cleanup.queue.js';
-import { enqueueReport } from '../../jobs/queues/report.queue.js';
+import { z } from 'zod';
+import { reportService } from '../reports/reports.service.js';
+import { reportRequestBody } from '../reports/reports.validation.js';
 import { enqueueAnalytics } from '../../jobs/queues/analytics.queue.js';
 import { getWorkers, isWorkersStarted } from '../../jobs/workers/index.js';
 import { isBullMqEnabled } from '../../jobs/connection.js';
@@ -51,19 +53,18 @@ export async function triggerNotification(req, res, next) {
 
 export async function triggerReport(req, res, next) {
   try {
-    const tenantId = req.context.tenantId;
-    const userId = req.context.userId;
-    const { reportType, filters, idempotencyKey } = req.body;
-    const job = await enqueueReport({ tenantId, userId, reportType, filters, idempotencyKey });
-    res.status(202).json({ success: true, data: { jobId: job?.id || null, deferred: true }, message: 'Report job enqueued (deferred to Phase 18)' });
+    const parsed = reportRequestBody.safeParse({ type: req.body.reportType, filters: req.body.filters });
+    if (!parsed.success) throw new z.ZodError(parsed.error.issues);
+    const report = await reportService.request(req.context, parsed.data, { ipAddress: req.ip || null, userAgent: req.headers['user-agent'] || null });
+    res.status(202).json({ success: true, data: { jobId: `report-${report.id}`, reportId: report.id, status: report.status }, message: 'Report requested' });
   } catch (error) { next(error); }
 }
 
 export async function triggerAnalytics(req, res, next) {
   try {
     const tenantId = req.context.tenantId;
-    const { metric, period, filters, idempotencyKey } = req.body;
-    const job = await enqueueAnalytics({ tenantId, metric, period, filters, idempotencyKey });
-    res.status(202).json({ success: true, data: { jobId: job?.id || null, deferred: true }, message: 'Analytics job enqueued (deferred to Phase 18)' });
+    const { metric, filters, idempotencyKey } = req.body;
+    const job = await enqueueAnalytics({ tenantId, metric, filters, idempotencyKey });
+    res.status(202).json({ success: true, data: { jobId: job?.id || null, fallback: Boolean(job?.fallback) }, message: 'Analytics job enqueued' });
   } catch (error) { next(error); }
 }

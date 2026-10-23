@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { authenticate } from '../auth/auth.middleware.js';
 import { authorize } from '../auth/authorization.middleware.js';
 import { getJobsStatus, triggerCleanup, triggerNotification, triggerReport, triggerAnalytics } from './jobs.controller.js';
+import { ANALYTICS_METRICS } from '../../jobs/processors/analytics.processor.js';
 
 function validate(schema) {
   return (req, res, next) => {
@@ -32,5 +33,6 @@ export const jobsRouter = Router();
 jobsRouter.get('/status', authenticate(), authorize('jobs:read'), getJobsStatus);
 jobsRouter.post('/cleanup', authenticate(), authorize('jobs:manage'), triggerCleanup);
 jobsRouter.post('/notifications', authenticate(), validate(notificationJobSchema), authorize('jobs:manage'), triggerNotification);
-jobsRouter.post('/reports', authenticate(), authorize('jobs:manage'), validate(z.object({ body: z.object({ reportType: z.string().optional(), filters: z.record(z.string(), z.unknown()).optional(), idempotencyKey: z.string().optional() }).passthrough() })), triggerReport);
-jobsRouter.post('/analytics', authenticate(), authorize('jobs:manage'), validate(z.object({ body: z.object({ metric: z.string().optional(), period: z.string().optional(), filters: z.record(z.string(), z.unknown()).optional(), idempotencyKey: z.string().optional() }).passthrough() })), triggerAnalytics);
+// Phase 31: same as POST /reports (creates a Report row); kept for existing callers. `reportType` = ORDERS | INVENTORY | CUSTOMERS.
+jobsRouter.post('/reports', authenticate(), authorize('jobs:manage'), validate(z.object({ body: z.object({ reportType: z.string(), filters: z.record(z.string(), z.unknown()).optional() }) })), triggerReport);
+jobsRouter.post('/analytics', authenticate(), authorize('jobs:manage'), validate(z.object({ body: z.object({ metric: z.enum(Object.keys(ANALYTICS_METRICS)).optional(), filters: z.object({ from: z.string().optional(), to: z.string().optional(), groupBy: z.enum(['day', 'week', 'month']).optional() }).optional(), idempotencyKey: z.string().optional() }) })), triggerAnalytics);

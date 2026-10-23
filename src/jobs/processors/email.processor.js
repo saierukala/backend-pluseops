@@ -10,7 +10,8 @@ function isRetryableEmailError(err) {
 
 export async function processSendEmail(payload, opts = {}) {
   const start = Date.now();
-  const { tenantId, to, subject, template, variables = {}, html, text } = payload;
+  const { tenantId, to, template, variables = {}, html } = payload;
+  let { subject, text } = payload;
   const jobId = opts.jobId || 'unknown';
 
   if (!tenantId) {
@@ -18,6 +19,17 @@ export async function processSendEmail(payload, opts = {}) {
     const err = new AppError('tenantId is required', { statusCode: 400, code: 'VALIDATION_ERROR' });
     const { UnrecoverableError } = await import('bullmq');
     throw new UnrecoverableError(err.message);
+  }
+  // Phase 31: a tenant's active EMAIL template with this name overrides subject/text
+  if (template) {
+    const { getPrismaClient } = await import('../../config/database.js');
+    const { findActiveTemplate, renderTemplate } = await import('../../modules/notification-templates/template.renderer.js');
+    const stored = await findActiveTemplate(getPrismaClient(), tenantId, template, 'EMAIL');
+    if (stored) {
+      const rendered = renderTemplate(stored, variables);
+      subject = rendered.subject;
+      text = rendered.body;
+    }
   }
   if (!to || !subject) {
     const { UnrecoverableError } = await import('bullmq');
