@@ -1,4 +1,5 @@
 import { ProductRepository } from './products.repository.js';
+import { assertWithinPlan } from '../plans/plans.service.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { getCacheService } from '../../common/cache/cache.service.js';
 import { productListKey, productListPattern } from '../../common/cache/cache.keys.js';
@@ -20,6 +21,7 @@ export class ProductService {
   }
 
   async create(tenantId, data) {
+    await assertWithinPlan(tenantId, 'products');
     if (data.categories && data.categories.length > 0) {
       for (const catId of data.categories) {
         const category = await this.repository.prisma.category.findFirst({

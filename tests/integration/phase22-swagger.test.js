@@ -272,6 +272,18 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'PUT /api/v1/storefront/{store}/cart/items/{variantId}',
     'DELETE /api/v1/storefront/{store}/cart/items/{variantId}',
     'POST /api/v1/storefront/{store}/checkout',
+    // Platform operations (Phase 33) 11
+    'GET /api/v1/platform/overview',
+    'GET /api/v1/platform/tenants/{id}/usage',
+    'PATCH /api/v1/platform/tenants/{id}/plan',
+    'GET /api/v1/platform/plans',
+    'POST /api/v1/platform/plans',
+    'PATCH /api/v1/platform/plans/{code}',
+    'GET /api/v1/platform/roles',
+    'GET /api/v1/platform/admins',
+    'POST /api/v1/platform/admins',
+    'DELETE /api/v1/platform/admins/{userId}',
+    'GET /api/v1/platform/audit-logs',
   ];
 
   it('OpenAPI JSON endpoint responds successfully', async () => {

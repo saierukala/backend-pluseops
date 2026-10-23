@@ -159,6 +159,7 @@ model Tenant {
   domains               TenantDomain[]
   supportSessions       SupportSession[]
   reports               Report[]
+  platformAuditLogs     PlatformAuditLog[]
   customerSessions      CustomerSession[]
   customerTokens        CustomerToken[]
   cartItems             CartItem[]
@@ -299,6 +300,7 @@ model User {
   memberships         TenantMembership[]
   supportSessions     SupportSession[]
   reports             Report[]
+  platformAuditLogs   PlatformAuditLog[]
   platformUserRoles   PlatformUserRole[]
 
   // One person = one account = one business (decided in Phase 30); email is unique platform-wide.
@@ -398,6 +400,42 @@ model Role {
   @@unique([tenantId, name])
   @@index([tenantId])
   @@map("roles")
+}
+
+// Subscription plan (Phase 33). Tenant.plan holds the code. A null limit means unlimited.
+model Plan {
+  id          String   @id @default(uuid())
+  code        String   @unique
+  name        String
+  description String?
+  // { users, products, warehouses, ordersPerMonth } — each an integer or null
+  limits      Json     @default("{}")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt   DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  @@map("plans")
+}
+
+// What platform admins did (Phase 33). Separate from tenant audit logs, which tenants can read.
+model PlatformAuditLog {
+  id          String   @id @default(uuid())
+  actorUserId String?  @map("actor_user_id")
+  actor       User?    @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+  action      String
+  targetType  String   @map("target_type")
+  targetId    String?  @map("target_id")
+  tenantId    String?  @map("tenant_id")
+  tenant      Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  details     Json     @default("{}")
+  ipAddress   String?  @db.VarChar(64) @map("ip_address")
+  userAgent   String?  @db.VarChar(512) @map("user_agent")
+  createdAt   DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@index([createdAt])
+  @@index([tenantId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@map("platform_audit_logs")
 }
 
 model PlatformRole {

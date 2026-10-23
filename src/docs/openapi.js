@@ -7,6 +7,7 @@ import { platformPaths } from './paths/platform.js';
 import { rbacPaths } from './paths/rbac.js';
 import { catalogPaths } from './paths/catalog.js';
 import { inventoryWarehousesPaths } from './paths/inventory-warehouses.js';
+import { platformOpsPaths } from './paths/platform-ops.js';
 import { storefrontPaths } from './paths/storefront.js';
 import { reportsTemplatesPaths } from './paths/reports-templates.js';
 import { workspacePaths } from './paths/workspace.js';
@@ -126,6 +127,7 @@ export const openApiSpec = {
     ...jobsPaths,
     ...reportsTemplatesPaths,
     ...storefrontPaths,
+    ...platformOpsPaths,
     ...analyticsStoragePaths,
   },
   security: [],

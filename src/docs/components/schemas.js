@@ -245,6 +245,49 @@ export const schemas = {
       createdAt: { type: 'string', format: 'date-time' },
     },
   },
+  Plan: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' }, code: { type: 'string', example: 'pro' }, name: { type: 'string' }, description: { type: 'string', nullable: true },
+      limits: { type: 'object', properties: { users: { type: 'integer', nullable: true }, products: { type: 'integer', nullable: true }, warehouses: { type: 'integer', nullable: true }, ordersPerMonth: { type: 'integer', nullable: true } } },
+      isActive: { type: 'boolean' }, tenantCount: { type: 'integer', description: 'In list responses' },
+      createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  TenantUsage: {
+    type: 'object',
+    properties: {
+      tenantId: { type: 'string' }, plan: { $ref: '#/components/schemas/Plan' },
+      usage: { type: 'object', properties: { users: { type: 'integer' }, products: { type: 'integer' }, warehouses: { type: 'integer' }, ordersPerMonth: { type: 'integer' } } },
+      lastActivityAt: { type: 'string', format: 'date-time', nullable: true },
+    },
+  },
+  PlatformOverview: {
+    type: 'object',
+    properties: {
+      tenants: { type: 'object', properties: { total: { type: 'integer' }, byStatus: { type: 'object' }, byPlan: { type: 'object' }, newByMonth: { type: 'array', items: { type: 'object', properties: { month: { type: 'string', example: '2026-10' }, count: { type: 'integer' } } } } } },
+      users: { type: 'object', properties: { active: { type: 'integer' } } },
+      orders: { type: 'object', properties: { total: { type: 'integer' }, last30Days: { type: 'integer' } } },
+      revenue: { type: 'object', properties: { total: { type: 'array', items: { type: 'object', properties: { currency: { type: 'string' }, amount: { type: 'string' } } } }, last30Days: { type: 'array', items: { type: 'object' } } } },
+    },
+  },
+  PlatformAdmin: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' }, email: { type: 'string' }, firstName: { type: 'string' }, lastName: { type: 'string' }, status: { type: 'string' },
+      lastLoginAt: { type: 'string', format: 'date-time', nullable: true }, createdAt: { type: 'string', format: 'date-time' },
+      roles: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' } } } },
+    },
+  },
+  PlatformAuditEntry: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' }, action: { type: 'string', example: 'tenant.status' }, targetType: { type: 'string' }, targetId: { type: 'string', nullable: true },
+      tenant: { type: 'object', nullable: true, properties: { id: { type: 'string' }, name: { type: 'string' }, slug: { type: 'string' } } },
+      actor: { type: 'object', nullable: true, properties: { id: { type: 'string' }, email: { type: 'string' } } },
+      details: { type: 'object' }, ipAddress: { type: 'string', nullable: true }, createdAt: { type: 'string', format: 'date-time' },
+    },
+  },
   StorefrontStore: {
     type: 'object',
     properties: { slug: { type: 'string' }, name: { type: 'string' }, currency: { type: 'string', example: 'INR' }, locale: { type: 'string', nullable: true }, timezone: { type: 'string', nullable: true }, contactEmail: { type: 'string', nullable: true }, contactPhone: { type: 'string', nullable: true } },

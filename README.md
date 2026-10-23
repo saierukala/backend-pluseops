@@ -239,6 +239,15 @@ Never commit `.env`. The repository `.gitignore` excludes `.env` and `.dockerign
 | POST | `/api/v1/workspace/domains` | Add a domain (globally unique; first is primary; unverified) |
 | PATCH | `/api/v1/workspace/domains/:domainId` | Make a domain primary (`{ "primary": true }`) |
 | DELETE | `/api/v1/workspace/domains/:domainId` | Remove a domain |
+| GET | `/api/v1/platform/overview` | Platform totals: tenants by status/plan, growth, users, orders, revenue per currency |
+| GET | `/api/v1/platform/tenants/:id/usage` | Tenant usage against its plan limits |
+| PATCH | `/api/v1/platform/tenants/:id/plan` | Assign a plan (`platform:billing:update`) |
+| GET/POST | `/api/v1/platform/plans` | List / create plans with limits (`platform:billing:*`) |
+| PATCH | `/api/v1/platform/plans/:code` | Update a plan's name, limits or active flag |
+| GET | `/api/v1/platform/roles` | Platform roles and their permissions |
+| GET/POST | `/api/v1/platform/admins` | List / add platform admins (`platform:admin:*`) |
+| DELETE | `/api/v1/platform/admins/:userId` | Remove platform access (ends their sessions) |
+| GET | `/api/v1/platform/audit-logs` | Platform audit trail (`platform:audit:read`) |
 | POST | `/api/v1/platform/tenants/:id/support-sessions` | Platform: start a 30-min read-only support session (`platform:tenant:access`, `reason`) |
 | DELETE | `/api/v1/platform/support-sessions/:sessionId` | Platform: end your support session |
 | POST | `/api/v1/auth/change-password` | Change own password (current + new); signs out other sessions |

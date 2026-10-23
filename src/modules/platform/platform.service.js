@@ -2,6 +2,7 @@ import { getPrismaClient } from '../../config/database.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { hashPassword } from '../auth/password.util.js';
 import { PlatformRepository } from './platform.repository.js';
+import { assertWithinPlan, assertAssignablePlan } from '../plans/plans.service.js';
 import { SYSTEM_PERMISSIONS, SYSTEM_ROLES, MANAGER_EXCLUDED_PERMISSIONS } from '../permissions/system-permissions.js';
 
 const PLATFORM_TENANT_SLUG = '__platform';
@@ -30,6 +31,7 @@ export class PlatformService {
 
   async createTenantWithAdmin(data) {
     const { name, slug, status, plan, admin } = data;
+    await assertAssignablePlan(plan);
     if (slug === PLATFORM_TENANT_SLUG) {
       throw new AppError('Reserved slug', { statusCode: 400, code: 'SLUG_RESERVED' });
     }
@@ -118,6 +120,7 @@ export class PlatformService {
 
   async createTenantOnly(data) {
     const { name, slug, status, plan } = data;
+    await assertAssignablePlan(plan);
     if (slug === PLATFORM_TENANT_SLUG) throw new AppError('Reserved slug', { statusCode: 400, code: 'SLUG_RESERVED' });
     const exists = await this.repository.existsBySlug(slug);
     if (exists) throw new AppError('Tenant with this slug already exists', { statusCode: 409, code: 'TENANT_SLUG_EXISTS' });
@@ -149,6 +152,7 @@ export class PlatformService {
 
   async updateTenant(id, data) {
     const tenant = await this.getTenantById(id);
+    await assertAssignablePlan(data.plan);
     if (data.slug && data.slug !== tenant.slug) {
       if (data.slug === PLATFORM_TENANT_SLUG) throw new AppError('Reserved slug', { statusCode: 400, code: 'SLUG_RESERVED' });
       const exists = await this.repository.existsBySlug(data.slug);
@@ -171,6 +175,7 @@ export class PlatformService {
 
   async createTenantAdmin(tenantId, adminData) {
     const tenant = await this.getTenantById(tenantId);
+    await assertWithinPlan(tenant.id, 'users');
     const existing = await this.prisma.user.findUnique({ where: { email: adminData.email } });
     if (existing) throw new AppError('User with this email already exists', { statusCode: 409, code: 'USER_ALREADY_EXISTS' });
 

@@ -1,6 +1,6 @@
 # PulseOps — Project Status & Roadmap (plain-language)
 
-> Last audited: 2026-10-24 (after Phase 32) · Backend `main` @ `6e42e0f` + Phase 32 work
+> Last audited: 2026-10-24 (after Phase 33) · Backend `main` @ `9d596c9` + Phase 33 work
 > Detailed phase specs: [`PulseOps_Backend_Codex_Master_Roadmap.md`](PulseOps_Backend_Codex_Master_Roadmap.md) (section 12 = phases 24–35)
 
 ---
@@ -52,6 +52,7 @@ refresh tokens · argon2id · Zod · Pino · Jest/Supertest · OpenAPI at `/api-
 |---|---|---|
 | Health / readiness / metrics | ✅ | `/health`, `/health/db`, `/health/redis`, `/ready`, `/metrics` |
 | Platform admin (tenants) | ✅ | `/api/v1/platform/tenants*`; legacy `/api/v1/tenants` is platform-only (Phase 26) |
+| Plans & limits, usage stats, platform admins, platform audit trail | ✅ | Phase 33 — limits enforced on users/products/warehouses/monthly orders |
 | Login, refresh rotation, logout, forgot/reset, verify email | ✅ | auto tenant resolution, `tenantSlug` |
 | Change password, edit own profile, resend verification | ✅ | Phase 28 |
 | Sessions: list, revoke one, sign out everywhere | ✅ | Phase 28 — revocation is immediate (access tokens are session-checked) |
@@ -75,7 +76,7 @@ refresh tokens · argon2id · Zod · Pino · Jest/Supertest · OpenAPI at `/api-
 | Dashboard & analytics (cached) | ✅ | |
 | Real-time (Socket.IO, tenant rooms) | ✅ | |
 | External providers (payment, email, SMS, shipping, maps, S3) | ✅ | mock + HTTP adapters |
-| OpenAPI / Swagger | ✅ | 196 documented operations |
+| OpenAPI / Swagger | ✅ | 207 documented operations |
 | Docker / CI | ✅ | deploy job is a placeholder (Phase 35) |
 | Storefront: public catalog, shopper accounts, cart, checkout, order tracking | ✅ | Phase 32 — `/api/v1/storefront/{slug}` |
 | Custom domains with DNS verification | ✅ | Phase 32 — only verified domains resolve |
@@ -84,13 +85,13 @@ refresh tokens · argon2id · Zod · Pino · Jest/Supertest · OpenAPI at `/api-
 
 ## 3. How it was tested (2026-10-23)
 
-**Automated suite** — `npm test`: **1139/1139** after Phase 32, run with Redis as in CI (the former BullMQ cleanup flake was a real bug, fixed in PR #1).
+**Automated suite** — `npm test`: **1157/1157** after Phase 33, run with Redis as in CI (the former BullMQ cleanup flake was a real bug, fixed in PR #1).
 
 **Live end-to-end audit** — new script [`scripts/api-audit.js`](../scripts/api-audit.js) runs against a real
 server, creates two fresh tenants, and walks every mounted route as platform admin, tenant admin, a
 staff user with no role, and a second tenant trying to reach the first tenant's data.
 
-### 3.1 Live audit results (after Phase 32)
+### 3.1 Live audit results (after Phase 33)
 
 | Group | Pass | Fail | What fails |
 |---|---|---|---|
@@ -110,6 +111,7 @@ staff user with no role, and a second tenant trying to reach the first tenant's 
 | reports (9) | 9 | 0 | new in Phase 31 — needs the worker running |
 | templates (9) | 9 | 0 | new in Phase 31 |
 | storefront (25) | 25 | 0 | new in Phase 32 |
+| platform-ops (18) | 18 | 0 | new in Phase 33 |
 | payments (12) | 12 | 0 | |
 | audit (5) | 5 | 0 | |
 | notifications (6) | 6 | 0 | |
@@ -119,9 +121,9 @@ staff user with no role, and a second tenant trying to reach the first tenant's 
 | realtime (3) | 3 | 0 | |
 | openapi (4) | 4 | 0 | |
 | cleanup (11) | 11 | 0 | |
-| **Total 333** | **333** | **0** | |
+| **Total 351** | **351** | **0** | |
 
-History: 308/308 after Phase 31; 290/290 after Phase 30; 266/266 after Phase 29; 243/244 after Phase 28; 227/229 after Phase 27; 214/219 after Phase 26; 201/213 before it. 201/213 before Phase 26 (4 legacy-tenant, 2 jobs, 1 isolation failures). Before the first round of
+History: 333/333 after Phase 32; 308/308 after Phase 31; 290/290 after Phase 30; 266/266 after Phase 29; 243/244 after Phase 28; 227/229 after Phase 27; 214/219 after Phase 26; 201/213 before it. 201/213 before Phase 26 (4 legacy-tenant, 2 jobs, 1 isolation failures). Before the first round of
 fixes in §4 the same audit stopped early (tenant admins could not create attributes) and
 image downloads failed.
 
@@ -131,6 +133,7 @@ image downloads failed.
 |---|---|
 | Before fixes | 988 / 990 — Swagger inventory test out of date; one BullMQ cleanup test timed out while a second API instance was consuming the same queue |
 | After first fixes | **993 / 993** (30 suites) — includes 3 new permission-catalog tests |
+| After Phase 33 | **1157 / 1157** (39 suites) — 18 new Phase 33 tests |
 | After Phase 32 | **1139 / 1139** (38 suites) — 25 new Phase 32 tests; one Phase 30 domain test updated to the new rule (unverified claims no longer reserve a domain) |
 | After Phase 31 | **1114 / 1114** (37 suites) — 21 new Phase 31 tests; 2 Phase 15 tests that asserted the old report/analytics stubs updated to the real behaviour |
 | After Phase 30 | **1093 / 1093** (36 suites) — 22 new Phase 30 tests |
@@ -193,6 +196,10 @@ Lint: `src/`, `tests/`, `prisma/` clean. Local-only scripts listed in `.gitignor
 13. Soft-deleted rows still hold unique SKUs/emails (incl. customer emails since Phase 29); single-column FKs (cross-tenant safety is app-only).
 14. ~~Global unique email~~ → decided in Phase 30: kept on purpose (one person = one account = one business).
 
+- **No real payment provider** wired for the storefront (mock only) — payments are never confirmed automatically.
+  Needed before production (Phase 35).
+- Plans have limits but no prices, invoices or billing.
+
 ### P3 — operations
 15. No real deployment target, secret manager, backups, or Prometheus/Grafana.
 16. Local Redis (Memurai 5.0.14) is below BullMQ's recommended 6.2.
@@ -214,8 +221,8 @@ DONE   29     Customers & addresses            → F17, F25
 DONE   30     Tenant workspace + support access → F08, F33
 DONE   31     Reports, exports, templates      → F21, F23
 DONE   32     Storefront / public commerce     → F26–F30
-NEXT   33     Platform operations              → F31, F32
-       34     Data integrity & consistency
+DONE   33     Platform operations              → F31, F32
+NEXT   34     Data integrity & consistency
        35     Production deployment
 ```
 

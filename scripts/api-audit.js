@@ -539,6 +539,28 @@ async function main() {
   await check('unverified domain does not resolve', 'GET', `/storefront/resolve?host=www.audit-${RUN}.invalid`, 404);
   await check('verify without DNS record 422', 'POST', `/workspace/domains/${data(sfDomain)?.id}/verify`, 422, { token: A });
 
+  // ── Platform operations (Phase 33) ───────────────────────────────────
+  group = 'platform-ops';
+  await check('platform overview', 'GET', '/platform/overview', 200, { token: P, assert: (r) => data(r)?.tenants?.total >= 2 });
+  await check('tenant list has users + last activity', 'GET', `/platform/tenants?search=audit-a-${RUN}`, 200, { token: P, assert: (r) => data(r)?.[0]?.usersCount >= 1 && 'lastActivityAt' in data(r)[0] });
+  await check('tenant usage', 'GET', `/platform/tenants/${tenantA.id}/usage`, 200, { token: P, assert: (r) => data(r)?.usage?.products >= 1 });
+  await check('list plans', 'GET', '/platform/plans', 200, { token: P, assert: (r) => data(r).some((p) => p.code === 'free') });
+  const auditPlan = `audit-${RUN}`;
+  await check('create plan', 'POST', '/platform/plans', 201, { token: P, body: { code: auditPlan, name: 'Audit', limits: { warehouses: 0 } } });
+  await check('assign unknown plan 400', 'PATCH', `/platform/tenants/${tenantB.id}/plan`, 400, { token: P, body: { plan: 'no-such-plan' } });
+  await check('assign plan to B', 'PATCH', `/platform/tenants/${tenantB.id}/plan`, 200, { token: P, body: { plan: auditPlan } });
+  await check('plan limit enforced', 'POST', '/warehouses', 403, { token: B, body: { name: 'Over', code: `OVER-${RUN}` }, assert: (r) => r.json?.error?.code === 'PLAN_LIMIT_REACHED' });
+  await check('move B back to free', 'PATCH', `/platform/tenants/${tenantB.id}/plan`, 200, { token: P, body: { plan: 'free' } });
+  await check('tenant token refused on plans', 'GET', '/platform/plans', 403, { token: A });
+  await check('list platform roles', 'GET', '/platform/roles', 200, { token: P });
+  await check('list platform admins', 'GET', '/platform/admins', 200, { token: P });
+  const newAdmin = await check('add platform admin', 'POST', '/platform/admins', 201, { token: P, body: { email: `padmin-${RUN}@audit.test`, password: 'Audit#Platform123', firstName: 'Pia', lastName: 'Admin' } });
+  await check('new admin can sign in', 'POST', '/auth/login', 200, { body: { email: `padmin-${RUN}@audit.test`, password: 'Audit#Platform123', scope: 'platform' } });
+  await check('cannot remove yourself', 'DELETE', `/platform/admins/${data(pLogin)?.user?.id}`, 409, { token: P });
+  await check('remove platform admin', 'DELETE', `/platform/admins/${data(newAdmin)?.id}`, 200, { token: P });
+  await check('removed admin cannot sign in', 'POST', '/auth/login', [401, 403], { body: { email: `padmin-${RUN}@audit.test`, password: 'Audit#Platform123', scope: 'platform' } });
+  await check('platform audit trail', 'GET', `/platform/audit-logs?tenantId=${tenantB.id}&action=tenant.plan`, 200, { token: P, assert: (r) => data(r).length >= 2 });
+
   // ── Tenant isolation ─────────────────────────────────────────────────
   group = 'isolation';
   await check('B cannot read A product', 'GET', `/products/${productId}`, 404, { token: B });

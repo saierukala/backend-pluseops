@@ -1,6 +1,7 @@
 import { getPrismaClient } from '../../config/database.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { OrderRepository } from './orders.repository.js';
+import { assertWithinPlan } from '../plans/plans.service.js';
 import { auditService } from '../audit/audit.service.js';
 import { CustomerService, toAddressSnapshot } from '../customers/customers.service.js';
 import { emitOrderCreated, emitOrderUpdated } from '../../realtime/realtime.service.js';
@@ -43,6 +44,7 @@ export class OrderService {
     // Validate customer exists tenant-scoped
     const customer = await this.prisma.customer.findFirst({ where: { id: customerId, tenantId, deletedAt: null } });
     if (!customer) throw new AppError('Customer not found', { statusCode: 404, code: 'CUSTOMER_NOT_FOUND' });
+    await assertWithinPlan(tenantId, 'ordersPerMonth');
 
     // Snapshot the chosen (or default) addresses so later address edits don't rewrite the order
     const shippingAddress = toAddressSnapshot(await this.customerService.resolveOrderAddress(customerId, tenantId, 'SHIPPING', body.shippingAddressId));

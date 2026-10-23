@@ -39,6 +39,8 @@ export const SYSTEM_PERMISSIONS = [
 export const PLATFORM_PERMISSIONS = [
   ...perms('platform:tenant', ['create', 'read', 'update', 'suspend', 'delete', 'access']),
   ...perms('platform:billing', ['read', 'update']),
+  ...perms('platform:admin', ['read', 'manage']),
+  ...perms('platform:audit', ['read']),
 ];
 
 export const SYSTEM_ROLES = [
