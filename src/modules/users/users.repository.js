@@ -82,6 +82,28 @@ export class UserRepository {
     });
   }
 
+  async findRoleById(roleId, tenantId) {
+    return this.prisma.role.findFirst({
+      where: { id: roleId, tenantId },
+      select: { id: true, name: true, isSystem: true },
+    });
+  }
+
+  /**
+   * Removes one role assignment. When `guardRoleName` matches the role, refuses (returns
+   * { lastHolder: true }) if this user is its only holder — checked in the same transaction.
+   */
+  async removeRole(userId, tenantId, roleId, { guardRoleName = null, roleName = null } = {}) {
+    return this.prisma.$transaction(async (tx) => {
+      if (guardRoleName && roleName === guardRoleName) {
+        const holders = await tx.userRole.count({ where: { tenantId, roleId } });
+        if (holders <= 1) return { removed: 0, lastHolder: true };
+      }
+      const { count } = await tx.userRole.deleteMany({ where: { tenantId, userId, roleId } });
+      return { removed: count, lastHolder: false };
+    });
+  }
+
   async list(tenantId, options = {}) {
     const {
       page = 1,

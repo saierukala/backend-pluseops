@@ -32,6 +32,17 @@ export class PermissionService {
     return result;
   }
 
+  // The catalog is small and bounded, so page the cached full list instead of caching every page
+  async listPage(tenantId, { page = 1, limit = 100, resource } = {}) {
+    const all = await this.list(tenantId);
+    const filtered = resource ? all.filter((p) => p.resource === resource) : all;
+    const start = (page - 1) * limit;
+    return {
+      data: filtered.slice(start, start + limit),
+      meta: { page, limit, total: filtered.length, totalPages: Math.ceil(filtered.length / limit) },
+    };
+  }
+
   async invalidateTenantPermissions(tenantId) {
     try {
       await this.cache.del(permissionsListKey(tenantId));

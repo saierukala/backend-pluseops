@@ -221,11 +221,37 @@ export const authPaths = {
     get: {
       tags: ['Auth'],
       summary: 'Get current user',
-      description: 'Requires authentication. No specific permission. Tenant isolated via JWT.',
+      description: 'Requires authentication. No specific permission. Tenant isolated via JWT. Includes the caller\'s `roles` and the de-duplicated, sorted union of their permission names (`resource:action`) for UI gating — every request is still authorized server-side.',
       operationId: 'getMe',
       security: [{ bearerAuth: [] }],
       responses: {
-        200: { description: 'Current user', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { $ref: '#/components/schemas/User' }, message: { type: 'string' } } } } } },
+        200: {
+          description: 'Current user with roles and effective permissions',
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  success: { type: 'boolean', example: true },
+                  data: {
+                    allOf: [
+                      { $ref: '#/components/schemas/User' },
+                      {
+                        type: 'object',
+                        properties: {
+                          scope: { type: 'string', enum: ['tenant', 'platform'] },
+                          roles: { type: 'array', items: { type: 'object', properties: { id: { type: 'string', format: 'uuid' }, name: { type: 'string', example: 'admin' }, description: { type: 'string', nullable: true }, isSystem: { type: 'boolean' } } } },
+                          permissions: { type: 'array', items: { type: 'string', example: 'product:read' } },
+                        },
+                      },
+                    ],
+                  },
+                  message: { type: 'string' },
+                },
+              },
+            },
+          },
+        },
         401: error401,
         403: error403,
         500: error500,

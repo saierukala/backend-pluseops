@@ -6,6 +6,7 @@ import { getCacheService } from '../../common/cache/cache.service.js';
 import { userPermissionsKey } from '../../common/cache/cache.keys.js';
 
 const ALLOWED_UPDATE_FIELDS = ['firstName', 'lastName', 'status'];
+const TENANT_ADMIN_ROLE = 'admin';
 
 export class UserService {
   constructor() {
@@ -164,20 +165,7 @@ export class UserService {
     }
 
     const userRoles = await this.repository.findUserRoles(userId, tenantId);
-    return userRoles.map((ur) => ({
-      id: ur.role.id,
-      name: ur.role.name,
-      description: ur.role.description,
-      isSystem: ur.role.isSystem,
-      permissions: ur.role.rolePermissions.map((rp) => ({
-        id: rp.permission.id,
-        name: rp.permission.name,
-        resource: rp.permission.resource,
-        action: rp.permission.action,
-        description: rp.permission.description,
-      })),
-      assignedAt: ur.createdAt,
-    }));
+    return userRoles.map((ur) => this.toUserRoleResponse(ur));
   }
 
   async assignRoles(userId, tenantId, roleIds) {
@@ -201,20 +189,63 @@ export class UserService {
 
     const userRoles = await this.repository.assignRoles(userId, tenantId, uniqueRoleIds);
     await this.cache.del(userPermissionsKey(tenantId, userId));
-    return userRoles.map((ur) => ({
-      id: ur.role.id,
-      name: ur.role.name,
-      description: ur.role.description,
-      isSystem: ur.role.isSystem,
-      permissions: ur.role.rolePermissions.map((rp) => ({
+    return userRoles.map((ur) => this.toUserRoleResponse(ur));
+  }
+
+  async removeRole(userId, tenantId, roleId) {
+    const user = await this.repository.findByIdAndTenant(userId, tenantId);
+    if (!user) {
+      throw new AppError('User not found', {
+        statusCode: 404,
+        code: 'USER_NOT_FOUND',
+      });
+    }
+    const role = await this.repository.findRoleById(roleId, tenantId);
+    if (!role) {
+      throw new AppError('Role not found', {
+        statusCode: 404,
+        code: 'ROLE_NOT_FOUND',
+      });
+    }
+
+    // Never leave a tenant without anyone holding the admin role — nobody could manage roles again
+    const { removed, lastHolder } = await this.repository.removeRole(userId, tenantId, roleId, {
+      guardRoleName: TENANT_ADMIN_ROLE,
+      roleName: role.name,
+    });
+    if (lastHolder) {
+      throw new AppError('Cannot remove the admin role from the last admin of this tenant', {
+        statusCode: 409,
+        code: 'LAST_ADMIN_ROLE',
+      });
+    }
+    if (removed === 0) {
+      throw new AppError('Role is not assigned to this user', {
+        statusCode: 404,
+        code: 'ROLE_NOT_ASSIGNED',
+      });
+    }
+
+    await this.cache.del(userPermissionsKey(tenantId, userId));
+    const remaining = await this.repository.findUserRoles(userId, tenantId);
+    return remaining.map((ur) => this.toUserRoleResponse(ur));
+  }
+
+  toUserRoleResponse(userRole) {
+    return {
+      id: userRole.role.id,
+      name: userRole.role.name,
+      description: userRole.role.description,
+      isSystem: userRole.role.isSystem,
+      permissions: userRole.role.rolePermissions.map((rp) => ({
         id: rp.permission.id,
         name: rp.permission.name,
         resource: rp.permission.resource,
         action: rp.permission.action,
         description: rp.permission.description,
       })),
-      assignedAt: ur.createdAt,
-    }));
+      assignedAt: userRole.createdAt,
+    };
   }
 
   async getOverview(tenantId) {

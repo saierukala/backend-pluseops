@@ -127,7 +127,8 @@ export class RoleService {
     }
   }
 
-  async assignPermissions(id, tenantId, permissionIds) {
+  // Role whose permission set may change: must exist in the tenant and not be a system role
+  async getMutableRole(id, tenantId) {
     const role = await this.repository.findById(id, tenantId);
     if (!role) {
       throw new AppError('Role not found', {
@@ -135,16 +136,17 @@ export class RoleService {
         code: 'ROLE_NOT_FOUND',
       });
     }
-
-    const isSystem = await this.repository.isSystemRole(id, tenantId);
-    if (isSystem) {
+    if (role.isSystem) {
       throw new AppError('Cannot modify system role permissions', {
         statusCode: 403,
         code: 'SYSTEM_ROLE_IMMUTABLE',
       });
     }
+    return role;
+  }
 
-    // IDs from another tenant look exactly like unknown IDs: reject the whole request rather than drop them
+  // IDs from another tenant look exactly like unknown IDs: reject the whole request rather than drop them
+  async assertTenantPermissions(permissionIds, tenantId) {
     const found = await this.repository.findPermissionsByIds(permissionIds, tenantId);
     if (found.length !== new Set(permissionIds).size) {
       throw new AppError('One or more permissions do not exist in this tenant', {
@@ -152,16 +154,51 @@ export class RoleService {
         code: 'INVALID_PERMISSION_IDS',
       });
     }
+  }
+
+  async assignPermissions(id, tenantId, permissionIds) {
+    await this.getMutableRole(id, tenantId);
+    await this.assertTenantPermissions(permissionIds, tenantId);
 
     const updated = await this.repository.assignPermissions(id, tenantId, permissionIds);
     await this.invalidateUserPermissions(tenantId);
-    return updated.map((rp) => ({
-      id: rp.permission.id,
-      name: rp.permission.name,
-      resource: rp.permission.resource,
-      action: rp.permission.action,
-      description: rp.permission.description,
-    }));
+    return updated.map((rp) => this.toPermissionResponse(rp.permission));
+  }
+
+  async replacePermissions(id, tenantId, permissionIds) {
+    await this.getMutableRole(id, tenantId);
+    const uniqueIds = [...new Set(permissionIds)];
+    await this.assertTenantPermissions(uniqueIds, tenantId);
+
+    const updated = await this.repository.replacePermissions(id, tenantId, uniqueIds);
+    await this.invalidateUserPermissions(tenantId);
+    return updated.map((rp) => this.toPermissionResponse(rp.permission));
+  }
+
+  async removePermission(id, tenantId, permissionId) {
+    const role = await this.getMutableRole(id, tenantId);
+    if (!role.rolePermissions.some((rp) => rp.permissionId === permissionId)) {
+      throw new AppError('Permission is not assigned to this role', {
+        statusCode: 404,
+        code: 'PERMISSION_NOT_ASSIGNED',
+      });
+    }
+
+    await this.repository.removePermission(id, tenantId, permissionId);
+    await this.invalidateUserPermissions(tenantId);
+    return role.rolePermissions
+      .filter((rp) => rp.permissionId !== permissionId)
+      .map((rp) => this.toPermissionResponse(rp.permission));
+  }
+
+  toPermissionResponse(permission) {
+    return {
+      id: permission.id,
+      name: permission.name,
+      resource: permission.resource,
+      action: permission.action,
+      description: permission.description,
+    };
   }
 
   toRoleResponse(role) {
@@ -171,13 +208,7 @@ export class RoleService {
       name: role.name,
       description: role.description,
       isSystem: role.isSystem,
-      permissions: role.rolePermissions?.map((rp) => ({
-        id: rp.permission.id,
-        name: rp.permission.name,
-        resource: rp.permission.resource,
-        action: rp.permission.action,
-        description: rp.permission.description,
-      })) ?? [],
+      permissions: role.rolePermissions?.map((rp) => this.toPermissionResponse(rp.permission)) ?? [],
       userCount: role._count?.userRoles ?? 0,
       createdAt: role.createdAt,
       updatedAt: role.updatedAt,

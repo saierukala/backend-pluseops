@@ -1,5 +1,13 @@
 # FRONTEND F07 RBAC CONTRACT — Verified Backend Contract
 
+> **Update 2026-10-23 — backend Phase 27 closes gaps #1–#3 and #5 below.** Now available:
+> `GET /auth/me` → `data.roles[]` + `data.permissions[]` (sorted unique `resource:action` names, no second request
+> needed); `DELETE /users/:id/roles/:roleId` (409 `LAST_ADMIN_ROLE`); `PUT /roles/:id/permissions` (replace);
+> `DELETE /roles/:id/permissions/:permissionId`; `GET /permissions` returns `meta` (default `limit=100` = whole catalog).
+> Role/permission changes take effect immediately (cache invalidated). Built-in `admin`/`manager`/`member` roles are
+> `isSystem: true` → their permissions can't be edited (403 `SYSTEM_ROLE_IMMUTABLE`). Unknown or cross-tenant IDs → 400
+> `INVALID_ROLE_IDS` / `INVALID_PERMISSION_IDS`. The "MUST HIDE removal UI" rule below no longer applies.
+
 > **BACKEND F07 CONTRACT REPORT — READY FOR FRONTEND IMPLEMENTATION**
 > Generated: 2026-09-21
 > Scope: BACKEND ANALYSIS / CONTRACT PREPARATION ONLY — no backend, schema, OpenAPI, roadmap, or frontend modifications

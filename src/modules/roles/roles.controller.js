@@ -96,3 +96,35 @@ export async function assignPermissions(req, res, next) {
     next(error);
   }
 }
+export async function replacePermissions(req, res, next) {
+  try {
+    const tenantId = req.context.tenantId;
+    const { id } = req.params;
+    const { permissionIds } = req.body;
+
+    const permissions = await roleService.replacePermissions(id, tenantId, permissionIds);
+    res.status(200).json({
+      success: true,
+      data: permissions,
+      message: 'Permissions replaced successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function removePermission(req, res, next) {
+  try {
+    const tenantId = req.context.tenantId;
+    const { id, permissionId } = req.params;
+
+    const permissions = await roleService.removePermission(id, tenantId, permissionId);
+    res.status(200).json({
+      success: true,
+      data: permissions,
+      message: 'Permission removed successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+}

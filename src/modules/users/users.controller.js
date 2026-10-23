@@ -129,3 +129,18 @@ export async function assignRoles(req, res, next) {
     next(error);
   }
 }
+export async function removeRole(req, res, next) {
+  try {
+    const tenantId = req.context.tenantId;
+    const { id, roleId } = req.params;
+
+    const roles = await userService.removeRole(id, tenantId, roleId);
+    res.status(200).json({
+      success: true,
+      data: roles,
+      message: 'Role removed successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+}

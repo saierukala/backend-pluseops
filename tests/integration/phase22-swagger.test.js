@@ -189,6 +189,10 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'PATCH /api/v1/platform/tenants/{id}',
     'PATCH /api/v1/platform/tenants/{id}/status',
     'POST /api/v1/platform/tenants/{id}/admin',
+    // RBAC completion (Phase 27) 3
+    'PUT /api/v1/roles/{id}/permissions',
+    'DELETE /api/v1/roles/{id}/permissions/{permissionId}',
+    'DELETE /api/v1/users/{id}/roles/{roleId}',
   ];
 
   it('OpenAPI JSON endpoint responds successfully', async () => {
@@ -255,12 +259,15 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     expect(documented.length).toBe(allExpected.length);
   });
 
-  it('HTTP methods match actual routes (PUT only for variant attributes)', async () => {
+  it('HTTP methods match actual routes (PUT only for full-set replacements)', async () => {
     const putPaths = [];
     for (const [path, methods] of Object.entries(openApiSpec.paths)) {
       if (methods.put) putPaths.push(path);
     }
-    expect(putPaths).toEqual(['/api/v1/products/{productId}/variants/{variantId}/attributes']);
+    expect(putPaths.sort()).toEqual([
+      '/api/v1/products/{productId}/variants/{variantId}/attributes',
+      '/api/v1/roles/{id}/permissions',
+    ]);
   });
 
   it('Protected endpoints have bearerAuth security', async () => {

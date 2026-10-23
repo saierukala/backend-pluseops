@@ -7,12 +7,16 @@ import {
   updateRole,
   deleteRole,
   assignPermissions,
+  replacePermissions,
+  removePermission,
 } from './roles.controller.js';
 import {
   createRoleSchema,
   updateRoleSchema,
   roleIdParamSchema,
   assignPermissionsSchema,
+  replacePermissionsSchema,
+  removePermissionSchema,
   listRolesQuerySchema,
 } from './roles.validation.js';
 import { authenticate } from '../auth/auth.middleware.js';
@@ -45,3 +49,5 @@ rolesRouter.post('/', validate(createRoleSchema), authorize('role:create'), crea
 rolesRouter.patch('/:id', validate(updateRoleSchema), authorize('role:update'), updateRole);
 rolesRouter.delete('/:id', validate(roleIdParamSchema), authorize('role:delete'), deleteRole);
 rolesRouter.post('/:id/permissions', validate(assignPermissionsSchema), authorize('role:update'), assignPermissions);
+rolesRouter.put('/:id/permissions', validate(replacePermissionsSchema), authorize('role:update'), replacePermissions);
+rolesRouter.delete('/:id/permissions/:permissionId', validate(removePermissionSchema), authorize('role:update'), removePermission);

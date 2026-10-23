@@ -68,7 +68,7 @@ export class PlatformService {
       const roles = {};
       for (const role of SYSTEM_ROLES) {
         const r = await tx.role.create({
-          data: { tenantId: tenant.id, name: role.name, description: role.description },
+          data: { tenantId: tenant.id, name: role.name, description: role.description, isSystem: true },
         });
         roles[role.name] = r.id;
       }
@@ -131,7 +131,7 @@ export class PlatformService {
       }
       const roles = {};
       for (const role of SYSTEM_ROLES) {
-        const r = await tx.role.create({ data: { tenantId: t.id, name: role.name, description: role.description } });
+        const r = await tx.role.create({ data: { tenantId: t.id, name: role.name, description: role.description, isSystem: true } });
         roles[role.name] = r.id;
       }
       for (const permId of Object.values(permissions)) {

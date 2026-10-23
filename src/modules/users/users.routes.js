@@ -7,6 +7,7 @@ import {
   deleteUser,
   getUserRoles,
   assignRoles,
+  removeRole,
 } from './users.controller.js';
 import {
   listUsersQuerySchema,
@@ -14,6 +15,7 @@ import {
   updateUserSchema,
   deleteUserSchema,
   assignRolesSchema,
+  removeRoleSchema,
   listUserRolesQuerySchema,
 } from './users.validation.js';
 import { authenticate } from '../auth/auth.middleware.js';
@@ -49,3 +51,4 @@ usersRouter.delete('/:id', validate(deleteUserSchema), authorize('user:delete'),
 // User role management endpoints
 usersRouter.get('/:id/roles', validate(listUserRolesQuerySchema), authorize('user:read'), getUserRoles);
 usersRouter.post('/:id/roles', validate(assignRolesSchema), authorize('user:update'), assignRoles);
+usersRouter.delete('/:id/roles/:roleId', validate(removeRoleSchema), authorize('user:update'), removeRole);

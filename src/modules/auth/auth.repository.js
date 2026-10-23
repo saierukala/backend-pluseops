@@ -42,6 +42,23 @@ export class AuthRepository {
     });
   }
 
+  // Roles with their permissions, for the /auth/me authorization summary
+  async findTenantRolesWithPermissions(userId, tenantId) {
+    return this.prisma.userRole.findMany({
+      where: { userId, tenantId },
+      include: { role: { include: { rolePermissions: { include: { permission: true } } } } },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async findPlatformRolesWithPermissions(userId) {
+    return this.prisma.platformUserRole.findMany({
+      where: { userId },
+      include: { role: { include: { permissions: { include: { permission: true } } } } },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
   async hasPlatformRole(userId) {
     const count = await this.prisma.platformUserRole.count({ where: { userId } });
     return count > 0;

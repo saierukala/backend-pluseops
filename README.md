@@ -229,7 +229,7 @@ Never commit `.env`. The repository `.gitignore` excludes `.env` and `.dockerign
 | POST | `/api/v1/auth/forgot-password` | Request password reset |
 | POST | `/api/v1/auth/reset-password` | Reset password |
 | POST | `/api/v1/auth/verify-email` | Verify email |
-| GET | `/api/v1/auth/me` | Get current user profile |
+| GET | `/api/v1/auth/me` | Get current user profile, roles and effective permission names |
 | GET | `/api/v1/users` | List users (tenant-scoped, paginated, search, filter, sort) |
 | GET | `/api/v1/users/:id` | Get user by ID (tenant-scoped) |
 | PATCH | `/api/v1/users/:id` | Update user (firstName, lastName, status) |
@@ -239,11 +239,14 @@ Never commit `.env`. The repository `.gitignore` excludes `.env` and `.dockerign
 | POST | `/api/v1/roles` | Create role |
 | PATCH | `/api/v1/roles/:id` | Update role |
 | DELETE | `/api/v1/roles/:id` | Delete role |
-| POST | `/api/v1/roles/:id/permissions` | Assign permissions to role |
-| GET | `/api/v1/permissions` | List permissions (tenant-scoped) |
+| POST | `/api/v1/roles/:id/permissions` | Assign permissions to role (additive) |
+| PUT | `/api/v1/roles/:id/permissions` | Replace a role's permission set (empty array clears) |
+| DELETE | `/api/v1/roles/:id/permissions/:permissionId` | Remove one permission from a role |
+| GET | `/api/v1/permissions` | List permissions (tenant-scoped, paginated: `page`, `limit` ≤200 default 100, `resource`) |
 | GET | `/api/v1/permissions/:id` | Get permission by ID |
 | GET | `/api/v1/users/:id/roles` | Get user roles |
 | POST | `/api/v1/users/:id/roles` | Assign roles to user |
+| DELETE | `/api/v1/users/:id/roles/:roleId` | Remove a role from a user (409 if it would leave the tenant without an admin) |
 | POST | `/api/v1/categories` | Create category |
 | GET | `/api/v1/categories` | List categories (paginated) |
 | PATCH | `/api/v1/categories/:id` | Update category |

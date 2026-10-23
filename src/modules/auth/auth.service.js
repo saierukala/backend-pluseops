@@ -533,9 +533,15 @@ export class AuthService {
       if (!full || full.status !== 'ACTIVE') {
         throw new AppError('User not found', { statusCode: 404, code: 'USER_NOT_FOUND' });
       }
-      const hasPlatform = await this.repository.hasPlatformRole(userId);
-      if (!hasPlatform) throw new AppError('Platform access denied', { statusCode: 403, code: 'PLATFORM_ACCESS_DENIED' });
-      return this.toSafeUser(full, tenantId, 'platform');
+      const platformRoles = await this.repository.findPlatformRolesWithPermissions(userId);
+      if (platformRoles.length === 0) throw new AppError('Platform access denied', { statusCode: 403, code: 'PLATFORM_ACCESS_DENIED' });
+      return {
+        ...this.toSafeUser(full, tenantId, 'platform'),
+        ...this.toAuthorizationSummary(platformRoles.map((ur) => ({
+          role: ur.role,
+          permissions: ur.role.permissions.map((rp) => rp.permission),
+        }))),
+      };
     }
     const user = await this.repository.findUserByIdAndTenant(userId, tenantId);
     if (!user) {
@@ -556,7 +562,29 @@ export class AuthService {
         code: 'TENANT_INACTIVE',
       });
     }
-    return this.toSafeUser(user, tenantId, 'tenant');
+    const tenantRoles = await this.repository.findTenantRolesWithPermissions(userId, tenantId);
+    return {
+      ...this.toSafeUser(user, tenantId, 'tenant'),
+      ...this.toAuthorizationSummary(tenantRoles.map((ur) => ({
+        role: ur.role,
+        permissions: ur.role.rolePermissions.map((rp) => rp.permission),
+      }))),
+    };
+  }
+
+  /**
+   * What the client may show: the user's roles and the de-duplicated union of their permission
+   * names (`resource:action`). Informational only — every request is still authorized server-side.
+   */
+  toAuthorizationSummary(grants) {
+    const permissions = new Set();
+    for (const { permissions: granted } of grants) {
+      for (const permission of granted) permissions.add(permission.name ?? `${permission.resource}:${permission.action}`);
+    }
+    return {
+      roles: grants.map(({ role }) => ({ id: role.id, name: role.name, description: role.description, isSystem: role.isSystem })),
+      permissions: [...permissions].sort(),
+    };
   }
 
   generateAccessToken(user, sessionId, tenantId = user.memberships?.[0]?.tenantId, scope = 'tenant') {

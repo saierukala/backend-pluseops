@@ -139,6 +139,24 @@ export class RoleRepository {
     });
   }
 
+  async replacePermissions(roleId, tenantId, permissionIds) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.rolePermission.deleteMany({
+        where: { tenantId, roleId, permissionId: { notIn: permissionIds } },
+      });
+      if (permissionIds.length > 0) {
+        await tx.rolePermission.createMany({
+          data: permissionIds.map((permissionId) => ({ tenantId, roleId, permissionId })),
+          skipDuplicates: true,
+        });
+      }
+      return tx.rolePermission.findMany({
+        where: { tenantId, roleId },
+        include: { permission: true },
+      });
+    });
+  }
+
   async removePermission(roleId, tenantId, permissionId) {
     return this.prisma.rolePermission.deleteMany({
       where: { tenantId, roleId, permissionId },

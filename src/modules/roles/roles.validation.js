@@ -34,6 +34,23 @@ export const assignPermissionsSchema = z.object({
   }),
 });
 
+// Replace the full set; an empty array clears every permission from the role
+export const replacePermissionsSchema = z.object({
+  params: z.object({
+    id: z.string().uuid(),
+  }),
+  body: z.object({
+    permissionIds: z.array(z.string().uuid()).max(500),
+  }),
+});
+
+export const removePermissionSchema = z.object({
+  params: z.object({
+    id: z.string().uuid(),
+    permissionId: z.string().uuid(),
+  }),
+});
+
 export const listRolesQuerySchema = z.object({
   query: z.object({
     page: z.coerce.number().int().positive().default(1),

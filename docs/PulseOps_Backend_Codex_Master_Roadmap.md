@@ -435,7 +435,7 @@ PHASE 23 → Docker / CI/CD / Deployment
 PHASE 24 → Observability & Reliability            (done)
 PHASE 25 → Platform Admin & Dual-Scope Auth      (done)
 PHASE 26 → Security Corrections                  (done — storage secret moved to 34)
-PHASE 27 → RBAC Completion
+PHASE 27 → RBAC Completion                       (done)
 PHASE 28 → Account Self-Service
 PHASE 29 → Customers & Addresses
 PHASE 30 → Tenant Workspace (settings, domains, memberships)
@@ -2724,9 +2724,15 @@ table. Not done here: rotating the existing password and a separate storage sign
 
 Completion: audit groups `legacy-tenants`, `jobs`, `isolation` fully green.
 
-## PHASE 27 — RBAC COMPLETION
+## PHASE 27 — RBAC COMPLETION (DONE 2026-10-23)
 
 Unblocks frontend F07/F20.
+
+Delivered: `DELETE /users/:id/roles/:roleId` (404 `ROLE_NOT_ASSIGNED`, 409 `LAST_ADMIN_ROLE` for the tenant's
+only admin), `PUT /roles/:id/permissions` (atomic replace, empty clears), `DELETE /roles/:id/permissions/:permissionId`
+(404 `PERMISSION_NOT_ASSIGNED`), `/auth/me` → `roles[]` + sorted unique `permissions[]` names, paginated
+`GET /permissions` (`page`, `limit` default 100, `resource` filter, `meta`). Built-in admin/manager/member roles are
+now `isSystem: true` (immutable; the seed backfills existing tenants). Every change clears the permission cache.
 
 - `DELETE /users/:id/roles/:roleId`, `DELETE /roles/:id/permissions/:permissionId`,
   `PUT /roles/:id/permissions` (replace set). Invalidate the user-permission cache on every change

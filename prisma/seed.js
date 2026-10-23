@@ -60,11 +60,13 @@ async function seedTenant(tenantId) {
           name: role.name,
         },
       },
-      update: { description: role.description },
+      // System roles are immutable through the API (update backfills tenants created before Phase 27)
+      update: { description: role.description, isSystem: true },
       create: {
         tenantId,
         name: role.name,
         description: role.description,
+        isSystem: true,
       },
     });
     roles[role.name] = r.id;

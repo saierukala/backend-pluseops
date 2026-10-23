@@ -15,6 +15,13 @@ export const assignRolesSchema = z.object({
   }),
 });
 
+export const removeRoleSchema = z.object({
+  params: z.object({
+    id: z.string().uuid(),
+    roleId: z.string().uuid(),
+  }),
+});
+
 export const listUserRolesQuerySchema = z.object({
   params: z.object({
     id: z.string().uuid(),

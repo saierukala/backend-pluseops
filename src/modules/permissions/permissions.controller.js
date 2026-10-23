@@ -5,10 +5,12 @@ const permissionService = new PermissionService();
 export async function listPermissions(req, res, next) {
   try {
     const tenantId = req.context.tenantId;
-    const permissions = await permissionService.list(tenantId);
+    const { page, limit, resource } = req.validatedQuery ?? {};
+    const result = await permissionService.listPage(tenantId, { page, limit, resource });
     res.status(200).json({
       success: true,
-      data: permissions,
+      data: result.data,
+      meta: result.meta,
       message: 'Permissions retrieved successfully',
     });
   } catch (error) {

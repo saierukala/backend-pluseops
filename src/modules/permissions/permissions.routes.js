@@ -18,6 +18,8 @@ function validate(schema) {
     }
     req.body = result.data.body;
     req.params = result.data.params;
+    // Express 5 req.query is read-only; expose the parsed query (with defaults) separately
+    req.validatedQuery = result.data.query;
     next();
   };
 }

@@ -182,10 +182,13 @@ async function main() {
 
   // ── RBAC & users ─────────────────────────────────────────────────────
   group = 'rbac';
-  const perms = await check('list permissions', 'GET', '/permissions', 200, { token: A });
+  const perms = await check('list permissions (paginated)', 'GET', '/permissions', 200, { token: A, assert: (r) => r.json?.meta?.total === data(r)?.length });
   const permList = data(perms) || [];
-  const productRead = permList.find((p) => p.resource === 'product' && p.action === 'read');
+  const permId = (resource, action) => permList.find((p) => p.resource === resource && p.action === action)?.id;
+  const productRead = { id: permId('product', 'read') };
   if (permList[0]) await check('get permission', 'GET', `/permissions/${permList[0].id}`, 200, { token: A });
+  await check('permissions page 2', 'GET', '/permissions?page=2&limit=5', 200, { token: A, assert: (r) => data(r).length === 5 && r.json.meta.page === 2 });
+  await check('permissions filtered by resource', 'GET', '/permissions?resource=order', 200, { token: A, assert: (r) => data(r).length > 0 && data(r).every((p) => p.resource === 'order') });
   await check('list roles', 'GET', '/roles', 200, { token: A });
   const role = await check('create role', 'POST', '/roles', 201, { token: A, body: { name: `auditor-${RUN}`, description: 'Audit role' } });
   const roleId = data(role)?.id;
@@ -193,7 +196,13 @@ async function main() {
   await check('get role', 'GET', `/roles/${roleId}`, 200, { token: A });
   await check('update role', 'PATCH', `/roles/${roleId}`, 200, { token: A, body: { description: 'Updated' } });
   await check('assign permission to role', 'POST', `/roles/${roleId}/permissions`, [200, 201], { token: A, body: { permissionIds: [productRead.id] } });
-  await check('remove permission from role', 'DELETE', `/roles/${roleId}/permissions/${productRead.id}`, [200, 204], { token: A, note: 'no endpoint to remove a permission from a role' });
+  await check('replace role permissions (PUT)', 'PUT', `/roles/${roleId}/permissions`, 200, { token: A, body: { permissionIds: [productRead.id, permId('order', 'read')] }, assert: (r) => data(r).length === 2 });
+  await check('remove permission from role', 'DELETE', `/roles/${roleId}/permissions/${permId('order', 'read')}`, 200, { token: A, assert: (r) => data(r).length === 1 });
+  await check('remove unassigned permission 404', 'DELETE', `/roles/${roleId}/permissions/${permId('order', 'read')}`, 404, { token: A });
+  const systemRoles = data(await call('GET', '/roles', { token: A })) || [];
+  const adminRole = systemRoles.find((r) => r.name === 'admin');
+  await check('built-in admin role is a system role', 'GET', `/roles/${adminRole?.id}`, 200, { token: A, assert: (r) => data(r)?.isSystem === true, note: 'built-in roles must be immutable' });
+  await check('system role permissions immutable', 'PUT', `/roles/${adminRole?.id}/permissions`, 403, { token: A, body: { permissionIds: [] } });
   await check('list users', 'GET', '/users?page=1&limit=10', 200, { token: A });
   await check('get user', 'GET', `/users/${staffId}`, 200, { token: A });
   await check('update user name', 'PATCH', `/users/${staffId}`, 200, { token: A, body: { firstName: 'Samuel' } });
@@ -201,11 +210,16 @@ async function main() {
   await check('update user tenantId rejected', 'PATCH', `/users/${staffId}`, [400, 403], { token: A, body: { tenantId: tenantB.id } });
   await check('assign role to user', 'POST', `/users/${staffId}/roles`, [200, 201], { token: A, body: { roleIds: [roleId] } });
   await check('get user roles', 'GET', `/users/${staffId}/roles`, 200, { token: A });
-  await check('staff gains product:read immediately', 'GET', '/products', 200, { token: S, note: 'permission cache (300s) not invalidated when roles change' });
-  await check('remove role from user', 'DELETE', `/users/${staffId}/roles/${roleId}`, [200, 204], { token: A, note: 'no endpoint to remove a role from a user' });
-  const me = await call('GET', '/auth/me', { token: A });
-  await check('/auth/me includes permissions', 'GET', '/auth/me', 200, { token: A, assert: (r) => Array.isArray(data(r)?.permissions) || Array.isArray(data(r)?.user?.permissions), note: '/auth/me does not return roles/permissions for the frontend' });
-  await check('cannot delete self', 'DELETE', `/users/${data(me)?.id || data(me)?.user?.id}`, [400, 403], { token: A });
+  await check('staff gains product:read immediately', 'GET', '/products', 200, { token: S, note: 'permission cache not invalidated when roles change' });
+  await check('remove role from user', 'DELETE', `/users/${staffId}/roles/${roleId}`, 200, { token: A });
+  await check('staff loses product:read immediately', 'GET', '/products', 403, { token: S, note: 'permission cache not invalidated on role removal' });
+  await check('remove unassigned role 404', 'DELETE', `/users/${staffId}/roles/${roleId}`, 404, { token: A });
+  const me = await check('/auth/me includes roles + permissions', 'GET', '/auth/me', 200, { token: A, assert: (r) => data(r)?.roles?.some((x) => x.name === 'admin') && data(r)?.permissions?.includes('role:update') });
+  // Tenant A has two admins (platform group adds one), so test the guard on tenant B, which has exactly one
+  const bAdminRole = (data(await call('GET', '/roles', { token: B })) || []).find((r) => r.name === 'admin');
+  await check('last admin keeps admin role (409)', 'DELETE', `/users/${data(bLogin).user.id}/roles/${bAdminRole?.id}`, 409, { token: B });
+  await check('/auth/me for user without roles', 'GET', '/auth/me', 200, { token: S, assert: (r) => data(r)?.permissions?.length === 0 && data(r)?.roles?.length === 0 });
+  await check('cannot delete self', 'DELETE', `/users/${data(me)?.id}`, [400, 403], { token: A });
   await check('staff cannot list users', 'GET', '/users', 403, { token: S });
 
   // ── Catalog ──────────────────────────────────────────────────────────
