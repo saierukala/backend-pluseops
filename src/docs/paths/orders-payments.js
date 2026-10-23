@@ -164,6 +164,26 @@ export const ordersPaymentsPaths = {
       },
     },
   },
+  '/api/v1/payments/webhook/razorpay/{tenantId}': {
+    post: {
+      tags: ['Payments'],
+      summary: "A shop's Razorpay webhook",
+      description: "Public; set this URL in the shop's Razorpay dashboard (events `payment.captured`, `order.paid`). `X-Razorpay-Signature` is the HMAC-SHA256 of the exact raw body with that shop's webhook secret (401 `INVALID_WEBHOOK_SIGNATURE` otherwise, or when no webhook secret is stored). `X-Razorpay-Event-Id` makes repeats idempotent (`duplicate: true`). A captured payment whose amount differs from the order's is not marked paid. Answers 200 for any correctly signed event so Razorpay stops retrying.",
+      operationId: 'razorpayWebhook',
+      security: [],
+      parameters: [
+        { name: 'tenantId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } },
+        { name: 'X-Razorpay-Signature', in: 'header', required: true, schema: { type: 'string' } },
+        { name: 'X-Razorpay-Event-Id', in: 'header', schema: { type: 'string' } },
+      ],
+      requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', properties: { event: { type: 'string', example: 'payment.captured' }, payload: { type: 'object' } }, additionalProperties: true } } } },
+      responses: {
+        200: { description: 'Processed', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, data: { type: 'object', properties: { handled: { type: 'boolean' }, duplicate: { type: 'boolean' }, paymentId: { type: 'string' }, status: { type: 'string' } } } } } } } },
+        400: { description: 'Invalid tenant id or body', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        401: { description: 'Invalid signature', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+      },
+    },
+  },
   '/api/v1/payments/webhook': {
     post: {
       tags: ['Payments'],

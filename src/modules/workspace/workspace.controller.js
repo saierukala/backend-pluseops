@@ -1,4 +1,5 @@
 import { WorkspaceService } from './workspace.service.js';
+import { paymentGatewayService } from '../payments/payment-gateway.service.js';
 
 const workspaceService = new WorkspaceService();
 
@@ -70,5 +71,32 @@ export async function deleteDomain(req, res, next) {
   try {
     await workspaceService.removeDomain(req.context.tenantId, req.params.domainId, auditContextFrom(req));
     res.status(200).json({ success: true, data: null, message: 'Domain removed successfully' });
+  } catch (error) { next(error); }
+}
+
+export async function getPaymentGateway(req, res, next) {
+  try {
+    res.status(200).json({ success: true, data: await paymentGatewayService.get(req.context.tenantId), message: 'Payment gateway retrieved successfully' });
+  } catch (error) { next(error); }
+}
+
+export async function savePaymentGateway(req, res, next) {
+  try {
+    const gateway = await paymentGatewayService.save(req.context.tenantId, req.body, auditContextFrom(req));
+    res.status(200).json({ success: true, data: gateway, message: 'Razorpay connected' });
+  } catch (error) { next(error); }
+}
+
+export async function updatePaymentGateway(req, res, next) {
+  try {
+    const gateway = await paymentGatewayService.setEnabled(req.context.tenantId, req.body.enabled, auditContextFrom(req));
+    res.status(200).json({ success: true, data: gateway, message: 'Payment gateway updated' });
+  } catch (error) { next(error); }
+}
+
+export async function deletePaymentGateway(req, res, next) {
+  try {
+    await paymentGatewayService.remove(req.context.tenantId, auditContextFrom(req));
+    res.status(204).send();
   } catch (error) { next(error); }
 }

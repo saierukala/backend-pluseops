@@ -3,6 +3,7 @@ import { AppError } from '../../common/errors/app-error.js';
 import { logger } from '../../config/logger.js';
 import { OrderService } from '../orders/orders.service.js';
 import { PaymentService } from '../payments/payments.service.js';
+import { razorpayPaymentsService } from '../payments/razorpay-payments.service.js';
 import { sellableVariant, stockOf, attributesOf } from './storefront.catalog.js';
 import { toProfile } from './storefront.auth.js';
 
@@ -122,13 +123,36 @@ export async function getOrder(store, customerId, orderId) {
   return toCustomerOrder(await findOwnOrder(store, customerId, orderId));
 }
 
-function toPayment(p) {
-  return { id: p.id, status: p.status, amount: money(p.amount), currency: p.currency, provider: p.provider, providerPaymentId: p.providerPaymentId };
+function toPayment(p, checkout = null) {
+  return { id: p.id, status: p.status, amount: money(p.amount), currency: p.currency, provider: p.provider, providerPaymentId: p.providerPaymentId, checkout };
+}
+
+// Phase 35: with the shop's Razorpay connected, a Razorpay order is created and `checkout` carries what Razorpay's web
+// checkout needs (key id, order id, amount in minor units). Without it, a pending payment the shop settles by hand.
+async function startPayment(store, customerId, orderId) {
+  if (!(await razorpayPaymentsService.enabledFor(store.id))) {
+    return toPayment(await paymentService.create(store.id, null, { orderId }));
+  }
+  const customer = await getPrismaClient().customer.findFirst({ where: { id: customerId, tenantId: store.id }, select: { firstName: true, lastName: true, email: true, phone: true } });
+  const { payment, checkout } = await razorpayPaymentsService.start(store.id, orderId, {
+    description: `${store.name} order`,
+    prefill: { name: [customer?.firstName, customer?.lastName].filter(Boolean).join(' ') || undefined, email: customer?.email || undefined, contact: customer?.phone || undefined },
+  });
+  return toPayment(payment, { ...checkout, name: store.name });
 }
 
 export async function payOrder(store, customerId, orderId) {
   await findOwnOrder(store, customerId, orderId);
-  return toPayment(await paymentService.create(store.id, null, { orderId }));
+  return startPayment(store, customerId, orderId);
+}
+
+/** What Razorpay's checkout handed the browser; the signature decides, never the browser's word. */
+export async function verifyPayment(store, customerId, paymentId, body) {
+  return toPayment(await razorpayPaymentsService.verify(store.id, paymentId, body, { where: { order: { customerId } } }));
+}
+
+export async function onlinePaymentInfo(store) {
+  return { provider: 'razorpay', enabled: await razorpayPaymentsService.enabledFor(store.id) };
 }
 
 // Single-warehouse fulfilment per line: the default warehouse when it can cover the quantity, else the
@@ -161,7 +185,7 @@ export async function checkout(store, customerId, { shippingAddressId, billingAd
 
   let payment = null;
   try {
-    payment = toPayment(await paymentService.create(store.id, null, { orderId: created.id }));
+    payment = await startPayment(store, customerId, created.id);
   } catch (err) {
     // The order stands; the shopper can retry with POST /account/orders/:id/pay
     logger.warn({ err, tenantId: store.id, orderId: created.id }, 'Storefront payment could not be started');

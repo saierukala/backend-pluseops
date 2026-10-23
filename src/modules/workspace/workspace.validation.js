@@ -51,3 +51,15 @@ export const updateDomainSchema = z.object({
 });
 
 export const deleteDomainSchema = z.object({ params: domainParams });
+
+// Phase 35: the shop's own Razorpay account (secrets are write-only)
+export const savePaymentGatewaySchema = z.object({
+  body: z.object({
+    keyId: z.string().trim().regex(/^rzp_(test|live)_[A-Za-z0-9]{6,}$/, 'keyId must be a Razorpay key id (rzp_test_… or rzp_live_…)'),
+    keySecret: z.string().trim().min(8).max(128),
+    webhookSecret: z.string().min(8).max(128).optional(),
+    enabled: z.boolean().optional(),
+  }),
+});
+
+export const updatePaymentGatewaySchema = z.object({ body: z.object({ enabled: z.boolean() }) });

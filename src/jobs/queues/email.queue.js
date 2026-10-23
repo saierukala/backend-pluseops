@@ -36,8 +36,15 @@ export async function enqueueEmail({ tenantId, to, subject, text = null, templat
   const jobId = rawJobId ? rawJobId.replace(/:/g, '-') : undefined;
 
   if (!queue) {
-    logger.warn({ queue: QUEUE_NAMES.EMAIL }, 'Redis unavailable; email job deferred (no provider)');
-    return { id: `deferred-${Date.now()}`, fallback: true, deferred: true };
+    // Phase 35: no Redis means no retries, but a password-reset email is still sent rather than dropped
+    try {
+      const { processSendEmail } = await import('../processors/email.processor.js');
+      const result = await processSendEmail(payload, { jobId: 'inline' });
+      return { id: `inline-${Date.now()}`, fallback: true, result };
+    } catch (err) {
+      logger.warn({ queue: QUEUE_NAMES.EMAIL, tenantId, err: err?.message }, 'Redis unavailable and the inline email send failed');
+      return { id: `deferred-${Date.now()}`, fallback: true, deferred: true };
+    }
   }
 
   try {

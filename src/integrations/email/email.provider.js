@@ -1,3 +1,4 @@
+import nodemailer from 'nodemailer';
 import { IntegrationError, IntegrationErrorCode, normalizeProviderError } from '../errors/integration-error.js';
 import { requestWithRetry, mapProviderResponse } from '../http/http-client.js';
 import { env } from '../../config/env.js';
@@ -62,8 +63,38 @@ export class HttpEmailProvider {
   }
 }
 
+// Phase 35: plain SMTP through nodemailer, the same setup as businesshub-backend: SMTP_URL (Brevo, Gmail app password,
+// SES SMTP, …) and EMAIL_FROM. Without SMTP_URL the jsonTransport builds the message and sends nothing.
+export class SmtpEmailProvider {
+  constructor(options = {}) {
+    this.providerName = 'smtp';
+    this.from = options.from || env.EMAIL_FROM;
+    const url = options.url ?? env.SMTP_URL;
+    this.transport = options.transport || (url
+      ? nodemailer.createTransport(url, { connectionTimeout: env.EMAIL_PROVIDER_TIMEOUT_MS, greetingTimeout: env.EMAIL_PROVIDER_TIMEOUT_MS, socketTimeout: env.EMAIL_PROVIDER_TIMEOUT_MS * 2 })
+      : nodemailer.createTransport({ jsonTransport: true }));
+  }
+
+  async send({ to, subject, html, text, tenantId, replyTo }) {
+    if (!to || !subject) throw new IntegrationError('Invalid email parameters', { code: IntegrationErrorCode.VALIDATION, statusCode: 400, provider: 'smtp' });
+    try {
+      const info = await this.transport.sendMail({ from: this.from, to, subject, text: text || undefined, html: html || undefined, replyTo: replyTo || undefined });
+      const raw = { id: info.messageId, status: 'sent', accepted: info.accepted, rejected: info.rejected };
+      return { providerId: info.messageId || null, status: 'sent', raw, mapped: mapProviderResponse('email', raw) };
+    } catch (err) {
+      // 5xx SMTP replies (bad recipient, auth refused) won't succeed on retry; connection problems might
+      const permanent = Number(err?.responseCode) >= 500 || err?.code === 'EAUTH' || err?.code === 'EENVELOPE';
+      logger.warn({ provider: 'smtp', tenantId, code: err?.code, responseCode: err?.responseCode }, 'SMTP send failed');
+      throw new IntegrationError(`SMTP send failed: ${err?.message || 'unknown error'}`, {
+        code: permanent ? IntegrationErrorCode.VALIDATION : IntegrationErrorCode.UNAVAILABLE, statusCode: permanent ? 400 : 503, provider: 'smtp', cause: err,
+      });
+    }
+  }
+}
+
 let singletonMock = null;
 export function createEmailProvider(name = env.EMAIL_PROVIDER || 'mock', options = {}) {
+  if (name === 'smtp') return new SmtpEmailProvider(options);
   if (name === 'http' || name === 'sendgrid' || name === 'ses' || name === 'mailgun') return new HttpEmailProvider(options);
   if (singletonMock && !options.fresh) return singletonMock;
   const inst = new MockEmailProvider(options);

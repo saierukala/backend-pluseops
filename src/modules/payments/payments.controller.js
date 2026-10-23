@@ -1,4 +1,5 @@
 import { PaymentService } from './payments.service.js';
+import { razorpayPaymentsService } from './razorpay-payments.service.js';
 
 const paymentService = new PaymentService();
 
@@ -54,6 +55,14 @@ export async function webhookHandler(req, res, next) {
       return;
     }
     res.status(202).json({ success: true, data: null, enqueued: true, jobId: job.id, message: 'Webhook enqueued for processing' });
+  } catch (error) { next(error); }
+}
+
+// Processed inline (small, idempotent): Razorpay retries anything that isn't a 2xx, and duplicates change nothing
+export async function razorpayWebhookHandler(req, res, next) {
+  try {
+    const result = await razorpayPaymentsService.handleWebhook(req.params.tenantId, req.rawBody, req.headers['x-razorpay-signature'], req.headers['x-razorpay-event-id']);
+    res.status(200).json({ success: true, data: result, message: result.duplicate ? 'Webhook already processed' : 'Webhook processed' });
   } catch (error) { next(error); }
 }
 

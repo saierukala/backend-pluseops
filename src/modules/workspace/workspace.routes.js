@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { getWorkspace, updateWorkspace, getSettings, updateSettings, listDomains, createDomain, updateDomain, verifyDomain, deleteDomain } from './workspace.controller.js';
-import { updateWorkspaceSchema, updateSettingsSchema, createDomainSchema, updateDomainSchema, deleteDomainSchema } from './workspace.validation.js';
+import {
+  getWorkspace, updateWorkspace, getSettings, updateSettings, listDomains, createDomain, updateDomain, verifyDomain, deleteDomain,
+  getPaymentGateway, savePaymentGateway, updatePaymentGateway, deletePaymentGateway,
+} from './workspace.controller.js';
+import {
+  updateWorkspaceSchema, updateSettingsSchema, createDomainSchema, updateDomainSchema, deleteDomainSchema, savePaymentGatewaySchema, updatePaymentGatewaySchema,
+} from './workspace.validation.js';
 import { authenticate } from '../auth/auth.middleware.js';
 import { authorize } from '../auth/authorization.middleware.js';
 
@@ -28,3 +33,9 @@ workspaceRouter.post('/domains', validate(createDomainSchema), authorize('tenant
 workspaceRouter.patch('/domains/:domainId', validate(updateDomainSchema), authorize('tenant:update'), updateDomain);
 workspaceRouter.post('/domains/:domainId/verify', validate(deleteDomainSchema), authorize('tenant:update'), verifyDomain);
 workspaceRouter.delete('/domains/:domainId', validate(deleteDomainSchema), authorize('tenant:update'), deleteDomain);
+
+// Phase 35: the shop's own Razorpay account. Secrets are write-only; tenant:update (owners/admins, not managers).
+workspaceRouter.get('/payment-gateway', authorize('tenant:read'), getPaymentGateway);
+workspaceRouter.put('/payment-gateway', validate(savePaymentGatewaySchema), authorize('tenant:update'), savePaymentGateway);
+workspaceRouter.patch('/payment-gateway', validate(updatePaymentGatewaySchema), authorize('tenant:update'), updatePaymentGateway);
+workspaceRouter.delete('/payment-gateway', authorize('tenant:update'), deletePaymentGateway);

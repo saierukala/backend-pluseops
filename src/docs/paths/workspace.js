@@ -12,6 +12,7 @@ const ok = (description, schema) => ({
 const workspace = { $ref: '#/components/schemas/Workspace' };
 const settings = { $ref: '#/components/schemas/WorkspaceSettings' };
 const domain = { $ref: '#/components/schemas/TenantDomain' };
+const paymentGateway = { $ref: '#/components/schemas/PaymentGateway' };
 const domainIdParam = { name: 'domainId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } };
 const security = [{ bearerAuth: [] }];
 
@@ -134,6 +135,51 @@ export const workspacePaths = {
       security,
       parameters: [{ name: 'sessionId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
       responses: { 200: ok('Support session ended', { nullable: true, example: null }), 400: error400, 401: error401, 403: error403, 404: error404, 500: error500 },
+    },
+  },
+  // Phase 35
+  '/api/v1/workspace/payment-gateway': {
+    get: {
+      tags: ['Workspace'],
+      summary: "The shop's Razorpay connection",
+      description: 'Requires `tenant:read`. Secrets are never returned; `webhookSecretSet` says whether one is stored. `webhookUrlPath` is the path to enter (after your API origin) as the webhook URL in the Razorpay dashboard, with events `payment.captured` and `order.paid`.',
+      operationId: 'getPaymentGateway',
+      security,
+      responses: { 200: ok('Payment gateway', paymentGateway), 401: error401, 403: error403, 500: error500 },
+    },
+    put: {
+      tags: ['Workspace'],
+      summary: "Connect the shop's own Razorpay account",
+      description: 'Requires `tenant:update` (owners/admins). Money goes straight to this account. Razorpay is asked whether the keys work before they are saved (422 `RAZORPAY_KEYS_INVALID`; 502 if Razorpay is unreachable). The key secret and webhook secret are stored AES-256-GCM encrypted; replacing the keys replaces the webhook secret too (omit it to clear). 503 `CREDENTIALS_ENCRYPTION_NOT_CONFIGURED` in production without `CREDENTIALS_ENCRYPTION_KEY`.',
+      operationId: 'savePaymentGateway',
+      security,
+      requestBody: {
+        required: true,
+        content: { 'application/json': { schema: { type: 'object', required: ['keyId', 'keySecret'], properties: {
+          keyId: { type: 'string', pattern: '^rzp_(test|live)_[A-Za-z0-9]{6,}$', example: 'rzp_test_1DP5mmOlF5G5ag' },
+          keySecret: { type: 'string', minLength: 8, maxLength: 128, writeOnly: true },
+          webhookSecret: { type: 'string', minLength: 8, maxLength: 128, writeOnly: true, description: 'The secret you set on the Razorpay webhook; without it, webhooks are refused (checkout verification still works)' },
+          enabled: { type: 'boolean', default: true },
+        } } } },
+      },
+      responses: { 200: ok('Razorpay connected', paymentGateway), 400: error400, 401: error401, 403: error403, 422: err('Razorpay rejected the keys (`RAZORPAY_KEYS_INVALID`)'), 500: error500, 502: err('Razorpay unreachable (`PAYMENT_PROVIDER_ERROR`)'), 503: err('`CREDENTIALS_ENCRYPTION_NOT_CONFIGURED`') },
+    },
+    patch: {
+      tags: ['Workspace'],
+      summary: 'Switch online payment on or off',
+      description: 'Requires `tenant:update`. Off: the storefront creates plain pending payments again; refunds and webhooks for earlier Razorpay payments keep working.',
+      operationId: 'updatePaymentGateway',
+      security,
+      requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['enabled'], properties: { enabled: { type: 'boolean' } } } } } },
+      responses: { 200: ok('Payment gateway updated', paymentGateway), 400: error400, 401: error401, 403: error403, 404: error404, 500: error500 },
+    },
+    delete: {
+      tags: ['Workspace'],
+      summary: 'Disconnect Razorpay',
+      description: 'Requires `tenant:update`. Deletes the stored keys. Refunds of earlier Razorpay payments then fail with 409 `PAYMENT_GATEWAY_NOT_CONFIGURED` until the keys are entered again.',
+      operationId: 'deletePaymentGateway',
+      security,
+      responses: { 204: { description: 'Disconnected' }, 401: error401, 403: error403, 404: error404, 500: error500 },
     },
   },
 };

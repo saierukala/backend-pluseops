@@ -290,7 +290,7 @@ export const schemas = {
   },
   StorefrontStore: {
     type: 'object',
-    properties: { slug: { type: 'string' }, name: { type: 'string' }, currency: { type: 'string', example: 'INR' }, locale: { type: 'string', nullable: true }, timezone: { type: 'string', nullable: true }, contactEmail: { type: 'string', nullable: true }, contactPhone: { type: 'string', nullable: true } },
+    properties: { slug: { type: 'string' }, name: { type: 'string' }, currency: { type: 'string', example: 'INR' }, locale: { type: 'string', nullable: true }, timezone: { type: 'string', nullable: true }, contactEmail: { type: 'string', nullable: true }, contactPhone: { type: 'string', nullable: true }, onlinePayment: { type: 'object', properties: { provider: { type: 'string', example: 'razorpay' }, enabled: { type: 'boolean' } } } },
   },
   StorefrontImage: {
     type: 'object', nullable: true,
@@ -326,7 +326,28 @@ export const schemas = {
   },
   StorefrontPayment: {
     type: 'object',
-    properties: { id: { type: 'string' }, status: { type: 'string' }, amount: { type: 'string' }, currency: { type: 'string' }, provider: { type: 'string', nullable: true }, providerPaymentId: { type: 'string', nullable: true } },
+    properties: {
+      id: { type: 'string' }, status: { type: 'string' }, amount: { type: 'string' }, currency: { type: 'string' }, provider: { type: 'string', nullable: true }, providerPaymentId: { type: 'string', nullable: true },
+      checkout: {
+        type: 'object', nullable: true,
+        description: 'Phase 35: when the shop has Razorpay connected — pass to Razorpay web checkout as `key`, `order_id`, `amount`, `currency`, `name`, `description`, `prefill`; then send the handler result to `/account/payments/{paymentId}/verify`. null otherwise.',
+        properties: {
+          provider: { type: 'string', example: 'razorpay' }, keyId: { type: 'string', example: 'rzp_test_1DP5mmOlF5G5ag' }, orderId: { type: 'string', example: 'order_IluGWxBm9U8zJ8' },
+          amount: { type: 'integer', description: 'Smallest currency unit (paise for INR)', example: 129950 }, currency: { type: 'string', example: 'INR' },
+          name: { type: 'string' }, description: { type: 'string' },
+          prefill: { type: 'object', properties: { name: { type: 'string' }, email: { type: 'string' }, contact: { type: 'string' } } },
+        },
+      },
+    },
+  },
+  PaymentGateway: {
+    type: 'object',
+    properties: {
+      provider: { type: 'string', example: 'razorpay' }, configured: { type: 'boolean' }, enabled: { type: 'boolean' },
+      keyId: { type: 'string', nullable: true, example: 'rzp_test_1DP5mmOlF5G5ag' }, mode: { type: 'string', enum: ['test', 'live'], nullable: true },
+      webhookSecretSet: { type: 'boolean' }, webhookUrlPath: { type: 'string', example: '/api/v1/payments/webhook/razorpay/3f6c…' },
+      updatedAt: { type: 'string', format: 'date-time', nullable: true },
+    },
   },
   StorefrontOrder: {
     type: 'object',

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { createPayment, confirmPayment, webhookHandler, getPayment, refundPayment } from './payments.controller.js';
-import { createPaymentSchema, confirmPaymentSchema, getPaymentSchema, refundPaymentSchema, webhookSchema } from './payments.validation.js';
+import { createPayment, confirmPayment, webhookHandler, razorpayWebhookHandler, getPayment, refundPayment } from './payments.controller.js';
+import { createPaymentSchema, confirmPaymentSchema, getPaymentSchema, refundPaymentSchema, webhookSchema, razorpayWebhookSchema } from './payments.validation.js';
 import { authenticate } from '../auth/auth.middleware.js';
 import { authorize } from '../auth/authorization.middleware.js';
 import { createWebhookLimiter } from '../../common/middleware/rate-limiters.js';
@@ -35,6 +35,8 @@ export const paymentsRouter = Router();
 
 // Webhook is public but signature validated in service - no authenticate; rate-limited to mitigate abuse
 paymentsRouter.post('/webhook', webhookLimiter, validateWebhook(webhookSchema), webhookHandler);
+// Phase 35: each shop's Razorpay webhook (set this URL in the shop's Razorpay dashboard); signed with that shop's webhook secret
+paymentsRouter.post('/webhook/razorpay/:tenantId', webhookLimiter, validateWebhook(razorpayWebhookSchema), razorpayWebhookHandler);
 
 // All other routes require authentication
 paymentsRouter.post('/create', authenticate(), validate(createPaymentSchema), authorize('payment:create'), createPayment);
