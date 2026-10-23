@@ -11,6 +11,7 @@ import { requestLogger } from '../common/middleware/request-logger.js';
 import { createGlobalLimiter } from '../common/middleware/rate-limiters.js';
 import { apiRouter } from './routes.js';
 import { healthRouter } from '../modules/health/health.routes.js';
+import { getJwks } from '../modules/auth/jwt.util.js';
 import { readinessRouter } from '../modules/readiness/readiness.routes.js';
 import { metricsRouter } from '../modules/metrics/metrics.routes.js';
 import { setupSwagger } from '../docs/swagger.js';
@@ -71,7 +72,7 @@ export function createApp() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'PUT', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Webhook-Signature', 'X-Payment-Signature'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Webhook-Signature', 'X-Payment-Signature', 'X-Refresh-Token-Transport'],
     maxAge: 600,
   }));
   app.use(compression({ threshold: 512, level: 6 }));
@@ -93,6 +94,10 @@ export function createApp() {
   setupSwagger(app);
 
   app.use('/health', healthRouter);
+  // Phase 36: public keys for verifying access tokens (RS256); empty with HS256
+  app.get('/.well-known/jwks.json', (req, res) => {
+    res.set('Cache-Control', 'public, max-age=300').json(getJwks());
+  });
   app.use('/ready', readinessRouter);
   app.use('/metrics', metricsRouter);
   app.use('/api/v1', apiRouter);

@@ -152,6 +152,14 @@ async function main() {
   const aRefresh = data(aLogin).refreshToken;
   await check('tenant login by slug', 'POST', '/auth/login', 200, { body: { email: adminA.email, password: PASSWORD, tenantSlug: tenantA.slug } });
   await check('tenant login wrong password', 'POST', '/auth/login', 401, { body: { email: adminA.email, password: 'Wrong#Pass1' } });
+  // Phase 36: JWKS and refresh-token cookie mode
+  await check('JWKS published', 'GET', `${BASE}/.well-known/jwks.json`, 200, { assert: (r) => Array.isArray(r.json?.keys) });
+  const CM = { 'X-Refresh-Token-Transport': 'cookie' };
+  const cLogin = await check('cookie-mode login', 'POST', '/auth/login', 200, { headers: CM, body: { email: adminA.email, password: PASSWORD }, assert: (r) => !data(r)?.refreshToken && data(r)?.refreshTokenTransport === 'cookie' && /HttpOnly/i.test(r.headers.get('set-cookie') ?? '') });
+  const rtCookie = (cLogin.headers.get('set-cookie') ?? '').split(';')[0];
+  await check('cookie ignored without the header', 'POST', '/auth/refresh', 400, { headers: { Cookie: rtCookie }, body: {} });
+  const cRefresh = await check('cookie-mode refresh', 'POST', '/auth/refresh', 200, { headers: { ...CM, Cookie: rtCookie }, body: {}, assert: (r) => !data(r)?.refreshToken && /pulseops_refresh=/.test(r.headers.get('set-cookie') ?? '') });
+  await check('cookie-mode logout clears it', 'POST', '/auth/logout', 200, { headers: { ...CM, Cookie: (cRefresh.headers.get('set-cookie') ?? '').split(';')[0] }, body: {}, assert: (r) => /1970/.test(r.headers.get('set-cookie') ?? '') });
   await check('tenant login unknown email', 'POST', '/auth/login', [401, 404], { body: { email: `nobody-${RUN}@audit.test`, password: PASSWORD } });
   await check('login validation error', 'POST', '/auth/login', 400, { body: { email: 'not-an-email' } });
   await check('me', 'GET', '/auth/me', 200, { token: A });

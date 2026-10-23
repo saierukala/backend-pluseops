@@ -195,6 +195,8 @@ Use this workflow when you manage PostgreSQL and Redis outside Docker (e.g., loc
 | `EMAIL_PROVIDER` | No | `smtp`, `mock` or `http` (or `sendgrid`, `ses`, `mailgun`); defaults to `smtp` when `SMTP_URL` is set, else `mock`. |
 | `SMTP_URL` / `EMAIL_FROM` | No | Phase 35 SMTP email (nodemailer), e.g. Brevo `smtp://login%40smtp-brevo.com:KEY@smtp-relay.brevo.com:587`. |
 | `APP_URL` | No | Staff web app origin for verification / password-reset links (default: first CORS origin). |
+| `JWT_ALGORITHM` / `JWT_PRIVATE_KEY` / `JWT_PREVIOUS_PUBLIC_KEYS` | No | Phase 36: `RS256` access tokens with key rotation; public keys at `/.well-known/jwks.json`. |
+| `REFRESH_COOKIE_SAMESITE` / `_SECURE` / `_DOMAIN` | No | Phase 36: refresh token in an httpOnly cookie when the client sends `X-Refresh-Token-Transport: cookie`. |
 | `CREDENTIALS_ENCRYPTION_KEY` | Prod, for Razorpay | Encrypts each shop's Razorpay secrets (min 32 chars). Shops enter their own Razorpay keys under `/workspace/payment-gateway`. |
 | `EMAIL_PROVIDER_URL` | No | Base URL for HTTP email provider; required when `EMAIL_PROVIDER=http`. |
 | `EMAIL_PROVIDER_API_KEY` | No | API key for HTTP email provider. |

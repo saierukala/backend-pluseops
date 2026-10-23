@@ -60,6 +60,10 @@ This document is the Phase 23 production reference. It covers environment variab
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | **Yes** (prod) | — | Min 32 chars. Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Optional in `test`. |
 | `STORAGE_SIGNING_SECRET` | **Yes** (prod) | derived from `JWT_ACCESS_SECRET` outside production | Min 32 chars, must differ from `JWT_ACCESS_SECRET`. Signs storage download URLs (Phase 34). Both the API and the worker need it. |
 | `CREDENTIALS_ENCRYPTION_KEY` | **Yes** to use Razorpay (prod) | derived from `JWT_ACCESS_SECRET` outside production | Min 32 chars, must differ from `JWT_ACCESS_SECRET`. AES-256-GCM key for each shop's stored Razorpay secrets (Phase 35). Without it, production refuses to save Razorpay keys (503). Changing it makes stored keys unreadable — shops re-enter them. API needs it (the worker does not). |
+| `JWT_ALGORITHM` | No | `HS256` | Phase 36. `RS256` signs access tokens with `JWT_PRIVATE_KEY` and publishes public keys at `/.well-known/jwks.json`. Switching expires current access tokens only (clients refresh). |
+| `JWT_PRIVATE_KEY` | With RS256 | — | PEM RSA private key, ≥ 2048 bits (`openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048`); `\n` escapes allowed. API needs it (the worker does not sign tokens). |
+| `JWT_PREVIOUS_PUBLIC_KEYS` | While rotating | — | PEM public key(s) of the previous signing key(s). Rotation: generate a new key → old public key here, new private key in `JWT_PRIVATE_KEY` → deploy → remove the old key after `JWT_ACCESS_EXPIRY`. |
+| `REFRESH_COOKIE_SAMESITE` / `REFRESH_COOKIE_SECURE` / `REFRESH_COOKIE_DOMAIN` | No | `strict` / `true` in prod / unset | Phase 36 cookie mode (clients send `X-Refresh-Token-Transport: cookie`). Frontend on another *site* than the API → `none` (requires Secure). |
 | `JWT_ACCESS_EXPIRY` / `JWT_REFRESH_EXPIRY` | No | `15m` / `7d` | |
 | `PASSWORD_RESET_EXPIRY` / `EMAIL_VERIFICATION_EXPIRY` | No | `1h` / `24h` | |
 | `PAYMENT_WEBHOOK_SECRET` | No | `test-webhook-secret-…` | HMAC for `x-webhook-signature`/`x-payment-signature`. Must be set in prod. |

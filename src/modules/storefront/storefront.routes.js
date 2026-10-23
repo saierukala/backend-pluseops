@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { env } from '../../config/env.js';
 import { createAuthLimiter } from '../../common/middleware/rate-limiters.js';
 import { resolveStore, authenticateCustomer } from './storefront.middleware.js';
+import { refreshCookie, shopperCookie } from '../../common/http/refresh-cookie.js';
 import * as c from './storefront.controller.js';
 import * as v from './storefront.validation.js';
 
@@ -36,11 +37,13 @@ store.get('/products', validate(v.listProductsSchema), c.listProducts);
 store.get('/products/:productId', validate(v.productParamsSchema), c.getProduct);
 
 store.post('/auth/register', authLimiter, validate(v.registerSchema), c.register);
-store.post('/auth/set-password', authLimiter, validate(v.setPasswordSchema), c.setPassword);
-store.post('/auth/login', authLimiter, validate(v.loginSchema), c.login);
+// Phase 36: optional httpOnly refresh cookie, scoped to this store's auth path
+const shopCookie = (req) => shopperCookie(req.store.slug);
+store.post('/auth/set-password', authLimiter, refreshCookie(shopCookie), validate(v.setPasswordSchema), c.setPassword);
+store.post('/auth/login', authLimiter, refreshCookie(shopCookie), validate(v.loginSchema), c.login);
 store.post('/auth/forgot-password', authLimiter, validate(v.forgotPasswordSchema), c.forgotPassword);
-store.post('/auth/refresh', authLimiter, validate(v.refreshSchema), c.refresh);
-store.post('/auth/logout', validate(v.refreshSchema), c.logout);
+store.post('/auth/refresh', authLimiter, refreshCookie(shopCookie), validate(v.refreshSchema), c.refresh);
+store.post('/auth/logout', refreshCookie(shopCookie, { clear: true }), validate(v.refreshSchema), c.logout);
 
 const signedIn = authenticateCustomer();
 store.get('/account', signedIn, c.getProfile);

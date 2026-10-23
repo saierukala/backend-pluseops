@@ -2972,3 +2972,20 @@ Delivered, 36a (2026-10-23, migration `20261026_phase36_reports_and_search`):
 - **Storefront listing:** filtering, price range, in-stock, sorting and paging in one SQL query (window count for the
   total) instead of loading every product; `%` and `_` in a search are literal now (they matched everything before).
 
+Delivered, 36b (2026-10-23, no migration) — auth hardening, both opt-in so nothing changes until configured:
+- **RS256 with key rotation:** `JWT_ALGORITHM=RS256` signs access tokens with `JWT_PRIVATE_KEY` (PEM, RSA ≥ 2048 bits;
+  `\n` escapes allowed). `kid` is the key's RFC 7638 thumbprint, so there are no key ids to manage. Rotation: new
+  private key in `JWT_PRIVATE_KEY`, old public key(s) in `JWT_PREVIOUS_PUBLIC_KEYS` until `JWT_ACCESS_EXPIRY` has passed,
+  then remove them. `GET /.well-known/jwks.json` publishes the current and previous public keys (empty with HS256).
+  Only RS256 tokens with a known `kid` are verified — an HS256 token signed with the public key, `alg: none`, or an old
+  HS256 token are refused. Refresh tokens are opaque (hashed in the database), so switching HS256 → RS256 only expires
+  15-minute access tokens; clients refresh.
+- **httpOnly refresh cookie:** send `X-Refresh-Token-Transport: cookie` on staff `/auth/login|refresh|logout` and
+  storefront `/auth/set-password|login|refresh|logout`: the refresh token is set as an httpOnly cookie
+  (`pulseops_refresh`, Path `/api/v1/auth`; shoppers `pulseops_shop_refresh`, Path `/api/v1/storefront/<slug>/auth`)
+  and left out of the body; logout clears it. The cookie is read only when that header is present: a cross-site page
+  can't add it without a CORS preflight, which unknown origins fail (CSRF guard), and SameSite (`REFRESH_COOKIE_SAMESITE`,
+  default `strict`) stops the browser sending it cross-site. Secure in production (`REFRESH_COOKIE_SECURE`);
+  `REFRESH_COOKIE_DOMAIN` optional. A frontend on a different *site* than the API needs `SameSite=None` (Secure).
+- Body mode is unchanged and stays the default (mobile apps, scripts).
+

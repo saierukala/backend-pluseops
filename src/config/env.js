@@ -44,6 +44,15 @@ const envSchema = z.object({
   // such secrets is refused until it is set; elsewhere a key is derived from JWT_ACCESS_SECRET. Changing it makes the
   // stored secrets unreadable (shops re-enter them).
   CREDENTIALS_ENCRYPTION_KEY: z.string().min(32).optional(),
+  // Phase 36: access tokens signed with HS256 (JWT_ACCESS_SECRET) or RS256 (JWT_PRIVATE_KEY, PEM; old public keys in
+  // JWT_PREVIOUS_PUBLIC_KEYS while rotating). Refresh tokens are opaque either way.
+  JWT_ALGORITHM: z.enum(['HS256', 'RS256']).default('HS256'),
+  JWT_PRIVATE_KEY: z.string().optional(),
+  JWT_PREVIOUS_PUBLIC_KEYS: z.string().optional(),
+  // Phase 36 cookie mode (opt-in per request with X-Refresh-Token-Transport: cookie)
+  REFRESH_COOKIE_SAMESITE: z.enum(['strict', 'lax', 'none']).default('strict'),
+  REFRESH_COOKIE_SECURE: booleanFromString.optional(),
+  REFRESH_COOKIE_DOMAIN: z.string().optional(),
   JWT_ACCESS_EXPIRY: z.string().default('15m'),
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
   PASSWORD_RESET_EXPIRY: z.string().default('1h'),
@@ -113,6 +122,13 @@ if (parsed.data.NODE_ENV === 'production' && parsed.data.CREDENTIALS_ENCRYPTION_
   throw new Error('CREDENTIALS_ENCRYPTION_KEY must differ from JWT_ACCESS_SECRET');
 }
 
+if (parsed.data.JWT_ALGORITHM === 'RS256' && !parsed.data.JWT_PRIVATE_KEY) {
+  throw new Error('JWT_ALGORITHM=RS256 needs JWT_PRIVATE_KEY');
+}
+if (parsed.data.REFRESH_COOKIE_SAMESITE === 'none' && parsed.data.REFRESH_COOKIE_SECURE === false) {
+  throw new Error('REFRESH_COOKIE_SAMESITE=none requires secure cookies');
+}
+
 // Production CORS safety: require explicit origins, reject wildcard with credentials
 if (parsed.data.NODE_ENV === 'production') {
   if (corsOrigins.includes('*')) {
@@ -128,6 +144,8 @@ export const env = {
   ...parsed.data,
   EMAIL_PROVIDER: parsed.data.EMAIL_PROVIDER || (parsed.data.SMTP_URL ? 'smtp' : 'mock'),
   JOB_SCHEDULERS_ENABLED: parsed.data.JOB_SCHEDULERS_ENABLED ?? parsed.data.NODE_ENV !== 'test',
+  // Browsers drop SameSite=None cookies that aren't Secure; production cookies are always Secure
+  REFRESH_COOKIE_SECURE: parsed.data.REFRESH_COOKIE_SECURE ?? (parsed.data.NODE_ENV === 'production' || parsed.data.REFRESH_COOKIE_SAMESITE === 'none'),
   APP_URL: (parsed.data.APP_URL || corsOrigins[0] || 'http://localhost:5173').replace(/\/$/, ''),
   corsOrigins,
   failOnDependencyError: parsed.data.FAIL_ON_DEPENDENCY_ERROR ?? parsed.data.NODE_ENV === 'production'

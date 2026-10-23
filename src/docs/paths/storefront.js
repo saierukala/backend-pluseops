@@ -21,6 +21,7 @@ const authTags = ['Storefront Auth'];
 const accountTags = ['Storefront Account'];
 
 const tokens = ok('Signed in', ref('StorefrontSession'));
+const transport = { name: 'X-Refresh-Token-Transport', in: 'header', required: false, schema: { type: 'string', enum: ['cookie'] }, description: 'Phase 36 cookie mode: the refresh token goes in the httpOnly cookie `pulseops_shop_refresh` (Path `/api/v1/storefront/{store}/auth`) instead of the body; refresh/logout read it only when this header is sent.' };
 const accepted = { description: 'Accepted — the same answer whether or not the email has an account', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean' }, data: { type: 'object', properties: { message: { type: 'string' }, devToken: { type: 'string', description: 'development/test only' } } } } } } } };
 const password = { type: 'string', minLength: 8, maxLength: 128, description: 'Upper, lower, digit and symbol' };
 const addressBody = { type: 'object', required: ['type', 'line1', 'city', 'country'], properties: { type: { type: 'string', enum: ['SHIPPING', 'BILLING'] }, label: { type: 'string' }, firstName: { type: 'string' }, lastName: { type: 'string' }, company: { type: 'string' }, line1: { type: 'string' }, line2: { type: 'string' }, city: { type: 'string' }, state: { type: 'string' }, postalCode: { type: 'string' }, country: { type: 'string', example: 'IN' }, phone: { type: 'string' }, isDefault: { type: 'boolean' } } };
@@ -80,14 +81,14 @@ export const storefrontPaths = {
     post: {
       tags: authTags, summary: 'Redeem the emailed code: set password and sign in', operationId: 'storefrontSetPassword', security: pub,
       description: 'Verifies the email, sets the password, ends other sessions and returns tokens. 400 `INVALID_TOKEN` for used/expired codes.',
-      parameters: [store], requestBody: json({ type: 'object', required: ['token', 'password'], properties: { token: { type: 'string' }, password } }),
+      parameters: [store, transport], requestBody: json({ type: 'object', required: ['token', 'password'], properties: { token: { type: 'string' }, password } }),
       responses: { 200: tokens, 400: e400, 404: e404, 429: err('Rate limited'), 500: e500 },
     },
   },
   '/api/v1/storefront/{store}/auth/login': {
     post: {
       tags: authTags, summary: 'Sign in', operationId: 'storefrontLogin', security: pub, description: '401 `INVALID_CREDENTIALS` (same for unknown email, wrong password or unverified account).',
-      parameters: [store], requestBody: json({ type: 'object', required: ['email', 'password'], properties: { email: { type: 'string', format: 'email' }, password: { type: 'string' } } }),
+      parameters: [store, transport], requestBody: json({ type: 'object', required: ['email', 'password'], properties: { email: { type: 'string', format: 'email' }, password: { type: 'string' } } }),
       responses: { 200: tokens, 400: e400, 401: err('Invalid email or password'), 404: e404, 429: err('Rate limited'), 500: e500 },
     },
   },
@@ -101,14 +102,14 @@ export const storefrontPaths = {
   '/api/v1/storefront/{store}/auth/refresh': {
     post: {
       tags: authTags, summary: 'Rotate the refresh token', operationId: 'storefrontRefresh', security: pub, description: 'Replaying an already-rotated token ends the whole session (401).',
-      parameters: [store], requestBody: json({ type: 'object', required: ['refreshToken'], properties: { refreshToken: { type: 'string' } } }),
+      parameters: [store, transport], requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { refreshToken: { type: 'string', description: 'Required unless sent as the cookie (cookie mode)' } } } } } },
       responses: { 200: tokens, 400: e400, 401: err('Invalid or expired refresh token'), 404: e404, 500: e500 },
     },
   },
   '/api/v1/storefront/{store}/auth/logout': {
     post: {
       tags: authTags, summary: 'Sign out', operationId: 'storefrontLogout', security: pub, description: 'Ends the session; its access token stops working at once.',
-      parameters: [store], requestBody: json({ type: 'object', required: ['refreshToken'], properties: { refreshToken: { type: 'string' } } }),
+      parameters: [store, transport], requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { refreshToken: { type: 'string', description: 'Required unless sent as the cookie (cookie mode)' } } } } } },
       responses: { 200: ok('Signed out', { nullable: true, example: null }), 400: e400, 404: e404, 500: e500 },
     },
   },
