@@ -245,6 +245,58 @@ export const schemas = {
       createdAt: { type: 'string', format: 'date-time' },
     },
   },
+  StorefrontStore: {
+    type: 'object',
+    properties: { slug: { type: 'string' }, name: { type: 'string' }, currency: { type: 'string', example: 'INR' }, locale: { type: 'string', nullable: true }, timezone: { type: 'string', nullable: true }, contactEmail: { type: 'string', nullable: true }, contactPhone: { type: 'string', nullable: true } },
+  },
+  StorefrontImage: {
+    type: 'object', nullable: true,
+    properties: { id: { type: 'string' }, url: { type: 'string', description: 'Signed URL, valid 1 hour' }, altText: { type: 'string', nullable: true } },
+  },
+  StorefrontProductCard: {
+    type: 'object',
+    properties: { id: { type: 'string' }, name: { type: 'string' }, brand: { type: 'string', nullable: true }, priceFrom: { type: 'string' }, priceTo: { type: 'string' }, currency: { type: 'string' }, inStock: { type: 'boolean' }, image: { $ref: '#/components/schemas/StorefrontImage' } },
+  },
+  StorefrontProduct: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' }, name: { type: 'string' }, brand: { type: 'string', nullable: true }, description: { type: 'string', nullable: true }, currency: { type: 'string' },
+      categories: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, name: { type: 'string' }, slug: { type: 'string' } } } },
+      images: { type: 'array', items: { $ref: '#/components/schemas/StorefrontImage' } },
+      variants: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, sku: { type: 'string' }, price: { type: 'string' }, attributes: { type: 'object', additionalProperties: { type: 'string' } }, inStock: { type: 'boolean' } } } },
+    },
+  },
+  StorefrontCustomer: {
+    type: 'object',
+    properties: { id: { type: 'string' }, email: { type: 'string' }, firstName: { type: 'string' }, lastName: { type: 'string' }, phone: { type: 'string', nullable: true }, emailVerified: { type: 'boolean' }, createdAt: { type: 'string', format: 'date-time' } },
+  },
+  StorefrontSession: {
+    type: 'object',
+    properties: { accessToken: { type: 'string' }, refreshToken: { type: 'string', description: 'Rotated on every refresh; valid 30 days' }, sessionId: { type: 'string' }, customer: { $ref: '#/components/schemas/StorefrontCustomer' } },
+  },
+  StorefrontCart: {
+    type: 'object',
+    properties: {
+      items: { type: 'array', items: { type: 'object', properties: { variantId: { type: 'string' }, productId: { type: 'string' }, productName: { type: 'string' }, sku: { type: 'string' }, attributes: { type: 'object' }, unitPrice: { type: 'string' }, quantity: { type: 'integer' }, lineTotal: { type: 'string' }, available: { type: 'boolean' }, issue: { type: 'string', nullable: true, enum: ['UNAVAILABLE', 'INSUFFICIENT_STOCK', null] } } } },
+      itemCount: { type: 'integer' }, subtotal: { type: 'string' }, currency: { type: 'string' }, readyForCheckout: { type: 'boolean' },
+    },
+  },
+  StorefrontPayment: {
+    type: 'object',
+    properties: { id: { type: 'string' }, status: { type: 'string' }, amount: { type: 'string' }, currency: { type: 'string' }, provider: { type: 'string', nullable: true }, providerPaymentId: { type: 'string', nullable: true } },
+  },
+  StorefrontOrder: {
+    type: 'object',
+    properties: {
+      id: { type: 'string' }, number: { type: 'string', example: '1A2B3C4D' }, status: { type: 'string' }, createdAt: { type: 'string', format: 'date-time' }, currency: { type: 'string' },
+      subtotal: { type: 'string' }, discountTotal: { type: 'string' }, taxTotal: { type: 'string' }, shippingTotal: { type: 'string' }, total: { type: 'string' },
+      items: { type: 'array', items: { type: 'object', properties: { productName: { type: 'string' }, variantName: { type: 'string' }, sku: { type: 'string' }, unitPrice: { type: 'string' }, quantity: { type: 'integer' }, lineTotal: { type: 'string' } } } },
+      shippingAddress: { $ref: '#/components/schemas/AddressSnapshot' },
+      billingAddress: { $ref: '#/components/schemas/AddressSnapshot' },
+      timeline: { type: 'array', items: { type: 'object', properties: { status: { type: 'string' }, at: { type: 'string', format: 'date-time' } } } },
+      payments: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' }, amount: { type: 'string' }, currency: { type: 'string' }, createdAt: { type: 'string', format: 'date-time' } } } },
+    },
+  },
   Report: {
     type: 'object',
     properties: {
@@ -293,7 +345,9 @@ export const schemas = {
       id: { type: 'string', format: 'uuid' },
       domain: { type: 'string', example: 'shop.example.com' },
       primary: { type: 'boolean' },
-      verified: { type: 'boolean', description: 'Always false until domain verification ships (Phase 32)' },
+      verified: { type: 'boolean' },
+      verifiedAt: { type: 'string', format: 'date-time', nullable: true },
+      verification: { type: 'object', nullable: true, description: 'DNS record to publish; null once verified', properties: { type: { type: 'string', example: 'TXT' }, name: { type: 'string', example: '_pulseops-verify.shop.example.com' }, value: { type: 'string' } } },
       createdAt: { type: 'string', format: 'date-time' },
       updatedAt: { type: 'string', format: 'date-time' },
     },

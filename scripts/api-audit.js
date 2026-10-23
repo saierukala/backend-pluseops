@@ -447,7 +447,8 @@ async function main() {
   await check('update settings', 'PATCH', '/workspace/settings', 200, { token: A, body: { currency: 'inr', timezone: 'Asia/Kolkata' }, assert: (r) => data(r)?.currency === 'INR' });
   await check('invalid timezone 400', 'PATCH', '/workspace/settings', 400, { token: A, body: { timezone: 'Mars/Olympus' } });
   const dom = await check('add domain', 'POST', '/workspace/domains', 201, { token: A, body: { domain: `shop-${RUN}.audit.test` }, assert: (r) => data(r)?.primary === true });
-  await check('domain taken by B 409', 'POST', '/workspace/domains', 409, { token: B, body: { domain: `shop-${RUN}.audit.test` } });
+  // Phase 32: an unverified claim doesn't reserve a domain (verified ones do — covered with mocked DNS in Jest)
+  await check('B may claim A unverified domain', 'POST', '/workspace/domains', 201, { token: B, body: { domain: `shop-${RUN}.audit.test` } });
   await check('malformed domain 400', 'POST', '/workspace/domains', 400, { token: A, body: { domain: 'https://x.audit.test/a' } });
   await check('list domains', 'GET', '/workspace/domains', 200, { token: A, assert: (r) => data(r).length === 1 });
   await check('B cannot touch A domain', 'DELETE', `/workspace/domains/${data(dom)?.id}`, 404, { token: B });
@@ -505,6 +506,38 @@ async function main() {
   await check('B cannot read A template', 'GET', `/notification-templates/${tplId}`, 404, { token: B });
   await check('staff cannot create template', 'POST', '/notification-templates', 403, { token: S, body: { name: 's.t', channel: 'SMS', body: 'x' } });
   await check('delete template', 'DELETE', `/notification-templates/${tplId}`, 200, { token: A });
+
+  // ── Storefront (Phase 32) ────────────────────────────────────────────
+  group = 'storefront';
+  const SF = `/storefront/audit-a-${RUN}`;
+  await check('store info (public)', 'GET', SF, 200, { assert: (r) => data(r)?.slug === `audit-a-${RUN}` });
+  await check('unknown store 404', 'GET', '/storefront/no-such-store-xyz', 404);
+  const cards = await check('public product list', 'GET', `${SF}/products`, 200, { assert: (r) => data(r).some((p) => p.id === productId) });
+  record('no cost price or stock levels in catalog', !/costPrice|quantity|warehouse/i.test(JSON.stringify(cards?.json ?? {})), 'internal fields leaked');
+  await check('public product detail', 'GET', `${SF}/products/${productId}`, 200, { assert: (r) => data(r)?.variants?.some((v) => v.id === variantId && v.inStock) });
+  await check('public categories', 'GET', `${SF}/categories`, 200);
+  const shopEmail = `shopper-${RUN}@audit.test`;
+  const shopReg = await check('shopper register (202)', 'POST', `${SF}/auth/register`, 202, { body: { email: shopEmail, firstName: 'Sia', lastName: 'Shop' } });
+  await check('login before password set 401', 'POST', `${SF}/auth/login`, 401, { body: { email: shopEmail, password: PASSWORD } });
+  const setPw = await check('shopper set password', 'POST', `${SF}/auth/set-password`, 200, { body: { token: data(shopReg)?.devToken, password: PASSWORD } });
+  const C = data(setPw)?.accessToken;
+  await check('shopper login', 'POST', `${SF}/auth/login`, 200, { body: { email: shopEmail, password: PASSWORD } });
+  await check('shopper token refused on staff API', 'GET', '/orders', 403, { token: C });
+  await check('staff token refused on storefront account', 'GET', `${SF}/account`, 403, { token: A });
+  await check('shopper token refused by other store', 'GET', `/storefront/audit-b-${RUN}/account`, 401, { token: C });
+  const shipAddr = await check('shopper adds address', 'POST', `${SF}/account/addresses`, 201, { token: C, body: { type: 'SHIPPING', line1: '1 Shop St', city: 'Pune', country: 'IN' } });
+  await check('add to cart', 'PUT', `${SF}/cart/items/${variantId}`, 200, { token: C, body: { quantity: 1 }, assert: (r) => data(r)?.readyForCheckout === true });
+  await check('over-stock cart rejected', 'PUT', `${SF}/cart/items/${variantId}`, 409, { token: C, body: { quantity: 100 } });
+  const placedOrder = await check('checkout', 'POST', `${SF}/checkout`, 201, { token: C, body: { shippingAddressId: data(shipAddr)?.id }, assert: (r) => data(r)?.order?.total === '24.50' && data(r)?.payment?.status === 'PENDING' });
+  const shopOrderId = data(placedOrder)?.order?.id;
+  await check('empty cart checkout 400', 'POST', `${SF}/checkout`, 400, { token: C, body: {} });
+  await check('track own order', 'GET', `${SF}/account/orders/${shopOrderId}`, 200, { token: C, assert: (r) => data(r)?.timeline?.[0]?.status === 'PENDING' });
+  await check('staff sees storefront order', 'GET', `/orders/${shopOrderId}`, 200, { token: A, assert: (r) => data(r)?.metadata?.source === 'storefront' });
+  await check('shopper logout', 'POST', `${SF}/auth/logout`, 200, { body: { refreshToken: data(setPw)?.refreshToken } });
+  await check('access ends at logout', 'GET', `${SF}/account`, 401, { token: C });
+  const sfDomain = await check('add storefront domain', 'POST', '/workspace/domains', 201, { token: A, body: { domain: `www.audit-${RUN}.invalid` }, assert: (r) => data(r)?.verification?.type === 'TXT' });
+  await check('unverified domain does not resolve', 'GET', `/storefront/resolve?host=www.audit-${RUN}.invalid`, 404);
+  await check('verify without DNS record 422', 'POST', `/workspace/domains/${data(sfDomain)?.id}/verify`, 422, { token: A });
 
   // ── Tenant isolation ─────────────────────────────────────────────────
   group = 'isolation';

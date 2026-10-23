@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { getWorkspace, updateWorkspace, getSettings, updateSettings, listDomains, createDomain, updateDomain, deleteDomain } from './workspace.controller.js';
+import { getWorkspace, updateWorkspace, getSettings, updateSettings, listDomains, createDomain, updateDomain, verifyDomain, deleteDomain } from './workspace.controller.js';
 import { updateWorkspaceSchema, updateSettingsSchema, createDomainSchema, updateDomainSchema, deleteDomainSchema } from './workspace.validation.js';
 import { authenticate } from '../auth/auth.middleware.js';
 import { authorize } from '../auth/authorization.middleware.js';
@@ -26,4 +26,5 @@ workspaceRouter.patch('/settings', validate(updateSettingsSchema), authorize('te
 workspaceRouter.get('/domains', authorize('tenant:read'), listDomains);
 workspaceRouter.post('/domains', validate(createDomainSchema), authorize('tenant:update'), createDomain);
 workspaceRouter.patch('/domains/:domainId', validate(updateDomainSchema), authorize('tenant:update'), updateDomain);
+workspaceRouter.post('/domains/:domainId/verify', validate(deleteDomainSchema), authorize('tenant:update'), verifyDomain);
 workspaceRouter.delete('/domains/:domainId', validate(deleteDomainSchema), authorize('tenant:update'), deleteDomain);

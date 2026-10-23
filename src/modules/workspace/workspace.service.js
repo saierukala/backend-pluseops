@@ -1,13 +1,22 @@
+import crypto from 'node:crypto';
+import dns from 'node:dns';
 import { getPrismaClient } from '../../config/database.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { WorkspaceRepository } from './workspace.repository.js';
 import { auditService } from '../audit/audit.service.js';
+import { logger } from '../../config/logger.js';
 
 export const SETTING_KEYS = ['currency', 'timezone', 'locale', 'contactEmail', 'contactPhone'];
 
 // The same message whether the domain is this tenant's or another's, so the API doesn't reveal who owns it.
 const domainTaken = () => new AppError('This domain is already registered', { statusCode: 409, code: 'DOMAIN_TAKEN' });
 const domainNotFound = () => new AppError('Domain not found', { statusCode: 404, code: 'DOMAIN_NOT_FOUND' });
+
+export const VERIFICATION_PREFIX = '_pulseops-verify';
+
+function verificationRecord(d) {
+  return { type: 'TXT', name: `${VERIFICATION_PREFIX}.${d.domain}`, value: d.verificationToken };
+}
 
 export function toSettings(metadata) {
   const settings = {};
@@ -16,7 +25,12 @@ export function toSettings(metadata) {
 }
 
 function toDomain(d) {
-  return { id: d.id, domain: d.domain, primary: d.primary, verified: d.verified, createdAt: d.createdAt, updatedAt: d.updatedAt };
+  return {
+    id: d.id, domain: d.domain, primary: d.primary, verified: d.verified, verifiedAt: d.verifiedAt ?? null,
+    // What to publish in DNS to prove ownership; gone once verified
+    verification: d.verified ? null : verificationRecord(d),
+    createdAt: d.createdAt, updatedAt: d.updatedAt,
+  };
 }
 
 export class WorkspaceService {
@@ -78,10 +92,11 @@ export class WorkspaceService {
   }
 
   async addDomain(tenantId, domain, auditContext = {}) {
-    if (await this.repository.findDomainByName(domain)) throw domainTaken();
+    // Unverified claims don't reserve a domain (anyone can type one in); a verified one does.
+    if (await this.repository.findVerifiedDomain(domain)) throw domainTaken();
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const created = await this.repository.createDomain(tenantId, domain, tx);
+        const created = await this.repository.createDomain(tenantId, domain, crypto.randomBytes(16).toString('hex'), tx);
         await this.repository.ensurePrimary(tenantId, tx);
         await this.log(tx, auditContext, {
           tenantId, action: 'CREATE', resource: 'tenant_domain', resourceId: created.id, oldValue: null, newValue: { domain },
@@ -107,6 +122,43 @@ export class WorkspaceService {
       });
       return toDomain(updated);
     });
+  }
+
+  /** Checks the TXT record; the first tenant to verify a domain keeps it and other tenants' claims are dropped. */
+  async verifyDomain(tenantId, domainId, auditContext = {}) {
+    const existing = await this.repository.findDomain(domainId, tenantId);
+    if (!existing) throw domainNotFound();
+    if (existing.verified) return toDomain(existing);
+
+    const record = verificationRecord(existing);
+    let values = [];
+    try {
+      values = (await dns.promises.resolveTxt(record.name)).map((chunks) => chunks.join(''));
+    } catch (err) {
+      // Missing record, NXDOMAIN, timeouts, no resolver: all mean "not verified (yet)"
+      logger.info({ tenantId, domain: existing.domain, code: err?.code }, 'Domain verification lookup failed');
+    }
+    if (!values.includes(record.value)) {
+      throw new AppError(`TXT record ${record.name} with the verification value was not found (DNS changes can take a while to appear)`, {
+        statusCode: 422, code: 'DOMAIN_VERIFICATION_FAILED', details: { expected: record },
+      });
+    }
+    if (await this.repository.findVerifiedDomain(existing.domain)) throw domainTaken();
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const verified = await this.repository.markVerified(domainId, tx);
+        const dropped = await this.repository.deleteUnverifiedClaims(existing.domain, domainId, tx);
+        for (const claim of dropped) await this.repository.ensurePrimary(claim.tenantId, tx);
+        await this.log(tx, auditContext, {
+          tenantId, action: 'UPDATE', resource: 'tenant_domain', resourceId: domainId, oldValue: { verified: false }, newValue: { verified: true },
+          activity: 'tenant.domain.verify', description: `Domain ${existing.domain} verified`,
+        });
+        return toDomain(verified);
+      });
+    } catch (err) {
+      if (err?.code === 'P2002') throw domainTaken();
+      throw err;
+    }
   }
 
   async removeDomain(tenantId, domainId, auditContext = {}) {

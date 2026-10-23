@@ -136,6 +136,10 @@ enum ReportStatus {
   FAILED
 }
 
+enum CustomerTokenType {
+  SET_PASSWORD
+}
+
 enum TokenType {
   REFRESH
   PASSWORD_RESET
@@ -155,6 +159,9 @@ model Tenant {
   domains               TenantDomain[]
   supportSessions       SupportSession[]
   reports               Report[]
+  customerSessions      CustomerSession[]
+  customerTokens        CustomerToken[]
+  cartItems             CartItem[]
   users                 User[]
   memberships           TenantMembership[]
   roles                 Role[]
@@ -212,13 +219,17 @@ model TenantDomain {
   domain    String
   verified  Boolean  @default(false)
   primary   Boolean  @default(false)
+  // Phase 32: DNS TXT value expected at _pulseops-verify.<domain>
+  verificationToken String?   @map("verification_token")
+  verifiedAt        DateTime? @db.Timestamptz(6) @map("verified_at")
   createdAt DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
   updatedAt DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
 
-  // A domain belongs to one tenant platform-wide (storefront resolution, Phase 32). At most one primary
-  // per tenant: partial unique index "tenant_domains_tenant_id_primary_key" (migration 20261024_phase30_tenant_workspace).
-  @@unique([domain])
-  @@index([tenantId])
+  // Several tenants may claim an unverified domain; only one may hold it verified (partial unique index
+  // "tenant_domains_domain_verified_key", migration 20261024_phase32_storefront). At most one primary per
+  // tenant: "tenant_domains_tenant_id_primary_key" (migration 20261024_phase30_tenant_workspace).
+  @@unique([tenantId, domain])
+  @@index([domain])
   @@map("tenant_domains")
 }
 
@@ -576,6 +587,7 @@ model ProductVariant {
   warehouseInventory WarehouseInventory[]
   orderItems        OrderItem[]
   inventoryMovements InventoryMovement[]
+  cartItems         CartItem[]
 
   @@unique([tenantId, sku])
   @@index([tenantId, productId])
@@ -763,16 +775,77 @@ model Customer {
   lastName      String   @map("last_name")
   phone         String?
   metadata      Json     @default("{}")
+  // Phase 32: storefront account (per tenant). Null until the shopper sets a password via the emailed link.
+  passwordHash    String?   @map("password_hash")
+  emailVerifiedAt DateTime? @db.Timestamptz(6) @map("email_verified_at")
+  lastLoginAt     DateTime? @db.Timestamptz(6) @map("last_login_at")
   createdAt     DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
   updatedAt     DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
   deletedAt     DateTime? @db.Timestamptz(6) @map("deleted_at")
 
   orders        Order[]
   addresses     CustomerAddress[]
+  sessions      CustomerSession[]
+  tokens        CustomerToken[]
+  cartItems     CartItem[]
 
   @@unique([tenantId, email])
   @@index([tenantId, createdAt])
   @@map("customers")
+}
+
+// Storefront login session; the refresh token is "<id>.<secret>" and only its hash is stored (rotated on refresh).
+model CustomerSession {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId       String    @map("customer_id")
+  customer         Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  refreshTokenHash String    @map("refresh_token_hash")
+  expiresAt        DateTime  @db.Timestamptz(6) @map("expires_at")
+  revokedAt        DateTime? @db.Timestamptz(6) @map("revoked_at")
+  lastUsedAt       DateTime? @db.Timestamptz(6) @map("last_used_at")
+  userAgent        String?   @db.VarChar(512) @map("user_agent")
+  ipAddress        String?   @db.VarChar(64) @map("ip_address")
+  createdAt        DateTime  @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@index([customerId])
+  @@index([tenantId])
+  @@map("customer_sessions")
+}
+
+// One-time emailed token: verifies the email and lets the shopper choose a password (signup and reset).
+model CustomerToken {
+  id         String            @id @default(uuid())
+  tenantId   String            @map("tenant_id")
+  tenant     Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId String            @map("customer_id")
+  customer   Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  type       CustomerTokenType
+  tokenHash  String            @unique @map("token_hash")
+  expiresAt  DateTime          @db.Timestamptz(6) @map("expires_at")
+  usedAt     DateTime?         @db.Timestamptz(6) @map("used_at")
+  createdAt  DateTime          @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@index([customerId])
+  @@map("customer_tokens")
+}
+
+model CartItem {
+  id               String         @id @default(uuid())
+  tenantId         String         @map("tenant_id")
+  tenant           Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId       String         @map("customer_id")
+  customer         Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  productVariantId String         @map("product_variant_id")
+  productVariant   ProductVariant @relation(fields: [productVariantId], references: [id], onDelete: Cascade)
+  quantity         Int
+  createdAt        DateTime       @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt        DateTime       @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  @@unique([customerId, productVariantId])
+  @@index([tenantId])
+  @@map("cart_items")
 }
 
 // At most one default address per customer and type is enforced by the partial unique index

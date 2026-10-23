@@ -25,11 +25,12 @@ function getQueue() {
   return emailQueue;
 }
 
-export async function enqueueEmail({ tenantId, to, subject, template = null, variables = {}, idempotencyKey = null }) {
+export async function enqueueEmail({ tenantId, to, subject, text = null, template = null, variables = {}, idempotencyKey = null }) {
   if (!tenantId) throw new Error('tenantId is required');
   if (!to) throw new Error('to is required');
   const queue = getQueue();
-  const payload = { tenantId, to, subject, template, variables, enqueuedAt: new Date().toISOString() };
+  // `text` is the fallback body when the tenant has no active EMAIL template named `template`
+  const payload = { tenantId, to, subject, text, template, variables, enqueuedAt: new Date().toISOString() };
   // BullMQ Custom Id cannot contain `:` — use `-`
   const rawJobId = idempotencyKey ? `email-${tenantId}-${idempotencyKey}` : undefined;
   const jobId = rawJobId ? rawJobId.replace(/:/g, '-') : undefined;

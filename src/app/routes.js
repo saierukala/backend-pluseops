@@ -24,6 +24,7 @@ import { storageRouter } from '../modules/storage/storage.routes.js';
 import { workspaceRouter } from '../modules/workspace/workspace.routes.js';
 import { reportsRouter } from '../modules/reports/reports.routes.js';
 import { notificationTemplatesRouter } from '../modules/notification-templates/notification-templates.routes.js';
+import { storefrontRouter } from '../modules/storefront/storefront.routes.js';
 import { platformRouter } from '../modules/platform/platform.routes.js';
 
 export const apiRouter = Router();
@@ -54,4 +55,5 @@ apiRouter.use('/reports', reportsRouter);
 apiRouter.use('/dashboard', dashboardRouter);
 apiRouter.use('/analytics', analyticsRouter);
 apiRouter.use('/storage', storageRouter);
+apiRouter.use('/storefront', storefrontRouter);
 apiRouter.use('/', productImagesRouter);

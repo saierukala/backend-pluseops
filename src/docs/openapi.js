@@ -7,6 +7,7 @@ import { platformPaths } from './paths/platform.js';
 import { rbacPaths } from './paths/rbac.js';
 import { catalogPaths } from './paths/catalog.js';
 import { inventoryWarehousesPaths } from './paths/inventory-warehouses.js';
+import { storefrontPaths } from './paths/storefront.js';
 import { reportsTemplatesPaths } from './paths/reports-templates.js';
 import { workspacePaths } from './paths/workspace.js';
 import { customersPaths } from './paths/customers.js';
@@ -56,6 +57,9 @@ export const openApiSpec = {
     { name: 'Dashboard', description: 'Dashboard aggregates' },
     { name: 'Analytics', description: 'Analytics aggregates' },
     { name: 'Storage', description: 'File storage (signed and authenticated)' },
+    { name: 'Storefront', description: 'Public catalog of one store (tenant slug in the URL)' },
+    { name: 'Storefront Auth', description: 'Shopper sign-up and sign-in (accounts are per store)' },
+    { name: 'Storefront Account', description: 'Signed-in shopper: profile, addresses, cart, checkout, orders' },
   ],
   components: {
     securitySchemes: {
@@ -64,6 +68,12 @@ export const openApiSpec = {
         scheme: 'bearer',
         bearerFormat: 'JWT',
         description: 'JWT access token from /api/v1/auth/login or /api/v1/auth/refresh. Send as `Authorization: Bearer <token>`.',
+      },
+      customerAuth: {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'Shopper access token (`scope: "customer"`) from the storefront auth endpoints. Only valid for the store that issued it and never on the staff API.',
       },
     },
     schemas,
@@ -115,6 +125,7 @@ export const openApiSpec = {
     ...auditNotificationsPaths,
     ...jobsPaths,
     ...reportsTemplatesPaths,
+    ...storefrontPaths,
     ...analyticsStoragePaths,
   },
   security: [],

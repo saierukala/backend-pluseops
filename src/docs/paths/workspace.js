@@ -74,7 +74,7 @@ export const workspacePaths = {
     post: {
       tags: ['Workspace'],
       summary: 'Add a domain',
-      description: 'Requires `tenant:update`. Hostname only (lower-cased, trailing dot removed). A domain belongs to one tenant platform-wide: 409 `DOMAIN_TAKEN` (same response whoever owns it). The first domain becomes primary. Domains start `verified: false`; verification arrives with the storefront (Phase 32).',
+      description: 'Requires `tenant:update`. Hostname only (lower-cased, trailing dot removed). 409 `DOMAIN_TAKEN` if this tenant already has it or another tenant has **verified** it (same response either way); unverified claims elsewhere do not block. The first domain becomes primary. Starts `verified: false` with a `verification` TXT record to publish, then `POST …/verify`.',
       operationId: 'createWorkspaceDomain',
       security,
       requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['domain'], properties: { domain: { type: 'string', example: 'shop.example.com' } } } } } },
@@ -100,6 +100,17 @@ export const workspacePaths = {
       security,
       parameters: [domainIdParam],
       responses: { 200: ok('Domain removed', { nullable: true, example: null }), 400: error400, 401: error401, 403: error403, 404: error404, 500: error500 },
+    },
+  },
+  '/api/v1/workspace/domains/{domainId}/verify': {
+    post: {
+      tags: ['Workspace'],
+      summary: 'Verify domain ownership (DNS TXT)',
+      description: 'Requires `tenant:update`. Publish the `verification` record from the domain (TXT `_pulseops-verify.<domain>` = value), then call this. The first tenant to verify a domain keeps it; other tenants\' unverified claims are removed. Only verified domains resolve to a storefront. 422 `DOMAIN_VERIFICATION_FAILED` with the expected record; 409 `DOMAIN_TAKEN` if verified elsewhere.',
+      operationId: 'verifyWorkspaceDomain',
+      security,
+      parameters: [domainIdParam],
+      responses: { 200: ok('Domain verified', domain), 400: error400, 401: error401, 403: error403, 404: error404, 409: err('Domain verified by another tenant'), 422: err('TXT record not found'), 500: error500 },
     },
   },
   '/api/v1/platform/tenants/{id}/support-sessions': {
