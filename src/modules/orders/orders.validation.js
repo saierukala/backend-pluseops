@@ -7,6 +7,8 @@ const decimalString = z.string().regex(/^\d+(\.\d{1,2})?$/, { message: 'Invalid 
 export const createOrderSchema = z.object({
   body: z.object({
     customerId: z.string().uuid(),
+    shippingAddressId: z.string().uuid().optional(),
+    billingAddressId: z.string().uuid().optional(),
     items: z.array(z.object({
       productVariantId: z.string().uuid(),
       variantId: z.string().uuid().optional(),

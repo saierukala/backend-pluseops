@@ -1,6 +1,6 @@
 # PulseOps — Project Status & Roadmap (plain-language)
 
-> Last audited: 2026-10-23 (after Phase 28) · Backend `main` @ `7e021f0` + Phase 27 work
+> Last audited: 2026-10-24 (after Phase 29) · Backend @ `cd1d8d0` (Phase 28) + Phase 29 work
 > Detailed phase specs: [`PulseOps_Backend_Codex_Master_Roadmap.md`](PulseOps_Backend_Codex_Master_Roadmap.md) (section 12 = phases 24–35)
 
 ---
@@ -16,7 +16,7 @@ Inside its workspace a business manages:
 ```text
 Catalog      products → variants (SKU/price) → attributes (color, size, voltage…) → images, categories
 Stock        warehouses → stock per variant per warehouse → adjustments, transfers, low-stock alerts
-Selling      orders (price snapshot, stock reserved atomically) → payments → refunds
+Selling      customers → addresses → orders (price + address snapshot, stock reserved atomically) → payments → refunds
 People       staff users → roles → permissions ("product:read", "order:cancel", …)
 Insight      dashboard, sales / revenue / inventory / customer analytics
 Trail        audit log (who changed what), activity log, notifications (in-app, email, SMS, push)
@@ -63,7 +63,7 @@ refresh tokens · argon2id · Zod · Pino · Jest/Supertest · OpenAPI at `/api-
 | Products, variants, variant attributes | ✅ | |
 | Product & variant images, private streaming, signed URLs | ✅ | streaming fixed in this change |
 | Warehouses, inventory adjust/transfer/movements/low-stock | ✅ | |
-| Customers | ❌ | model exists, **no API** — Phase 29 |
+| Customers & addresses (CRUD, search, soft delete, order history) | ✅ | Phase 29 — orders snapshot the shipping/billing address |
 | Orders (state machine, cancel restores stock, history) | ✅ | |
 | Payments (create, confirm, refund, signed idempotent webhooks) | ✅ | mock provider by default |
 | Audit & activity logs | ✅ | |
@@ -72,7 +72,7 @@ refresh tokens · argon2id · Zod · Pino · Jest/Supertest · OpenAPI at `/api-
 | Dashboard & analytics (cached) | ✅ | |
 | Real-time (Socket.IO, tenant rooms) | ✅ | |
 | External providers (payment, email, SMS, shipping, maps, S3) | ✅ | mock + HTTP adapters |
-| OpenAPI / Swagger | ✅ | 131 documented operations |
+| OpenAPI / Swagger | ✅ | 141 documented operations |
 | Docker / CI | ✅ | deploy job is a placeholder (Phase 35) |
 | Storefront / cart / checkout | ❌ | Phase 32 |
 
@@ -80,13 +80,13 @@ refresh tokens · argon2id · Zod · Pino · Jest/Supertest · OpenAPI at `/api-
 
 ## 3. How it was tested (2026-10-23)
 
-**Automated suite** — `npm test`: **1048/1049** after Phase 28 — the 1 failure is the known intermittent BullMQ cleanup test (§3.2).
+**Automated suite** — `npm test`: **1070/1071** after Phase 29 — the 1 failure is the known intermittent BullMQ cleanup test (§3.2); it passes on re-run.
 
 **Live end-to-end audit** — new script [`scripts/api-audit.js`](../scripts/api-audit.js) runs against a real
 server, creates two fresh tenants, and walks every mounted route as platform admin, tenant admin, a
 staff user with no role, and a second tenant trying to reach the first tenant's data.
 
-### 3.1 Live audit results (after Phase 28)
+### 3.1 Live audit results (after Phase 29)
 
 | Group | Pass | Fail | What fails |
 |---|---|---|---|
@@ -99,7 +99,8 @@ staff user with no role, and a second tenant trying to reach the first tenant's 
 | catalog (31) | 31 | 0 | |
 | images (14) | 14 | 0 | |
 | inventory (15) | 15 | 0 | |
-| orders (13) | 12 | 1 | no Customer API → Phase 29 |
+| customers (20) | 20 | 0 | new in Phase 29 |
+| orders (15) | 15 | 0 | |
 | payments (12) | 12 | 0 | |
 | audit (5) | 5 | 0 | |
 | notifications (6) | 6 | 0 | |
@@ -109,9 +110,9 @@ staff user with no role, and a second tenant trying to reach the first tenant's 
 | realtime (3) | 3 | 0 | |
 | openapi (4) | 4 | 0 | |
 | cleanup (11) | 11 | 0 | |
-| **Total 244** | **243** | **1** | the Customer API (Phase 29) |
+| **Total 266** | **266** | **0** | |
 
-History: 227/229 after Phase 27; 214/219 after Phase 26; 201/213 before it. 201/213 before Phase 26 (4 legacy-tenant, 2 jobs, 1 isolation failures). Before the first round of
+History: 243/244 after Phase 28; 227/229 after Phase 27; 214/219 after Phase 26; 201/213 before it. 201/213 before Phase 26 (4 legacy-tenant, 2 jobs, 1 isolation failures). Before the first round of
 fixes in §4 the same audit stopped early (tenant admins could not create attributes) and
 image downloads failed.
 
@@ -121,6 +122,7 @@ image downloads failed.
 |---|---|
 | Before fixes | 988 / 990 — Swagger inventory test out of date; one BullMQ cleanup test timed out while a second API instance was consuming the same queue |
 | After first fixes | **993 / 993** (30 suites) — includes 3 new permission-catalog tests |
+| After Phase 29 | **1070 / 1071** (35 suites) — 22 new Phase 29 tests; a stale `phase7 › Manipulated tenantId` assertion fixed (the forged token is rejected with 401 `INVALID_TOKEN_CLAIMS` since Phase 28 — it failed on the Phase 28 commit too); the failure is the intermittent `phase15 › POST /jobs/cleanup` |
 | After Phase 28 | **1048 / 1049** (34 suites) — 16 new Phase 28 tests; the failure is the known intermittent `phase15 › POST /jobs/cleanup` |
 | After Phase 27 | **1033 / 1033** (33 suites) — includes 32 new Phase 27 tests |
 | After Phase 26 | **1015 / 1018** (32 suites). 2 stale RBAC assertions (expected the old silent-drop 200) updated → `phase5-rbac` 98/98 on re-run. Remaining: `phase15 › POST /jobs/cleanup` times out intermittently (also failed in the very first baseline run) — an earlier test in the file calls `shutdownJobs()` and later enqueues can stall on the closed connection; direct enqueue takes 1–45 ms |
@@ -164,16 +166,16 @@ Lint: `src/`, `tests/`, `prisma/` clean. Local-only scripts listed in `.gitignor
    password reset. Every request now checks the login session is still active (401 `SESSION_REVOKED`).
 
 ### P1 — blocks frontend features
-6. No Customer API (orders can't be created from the UI). → F25, F28
+6. ~~No Customer API~~ → done in Phase 29 (customers, addresses, order address snapshots, order history).
 7. ~~No remove-role / remove-permission endpoints; `/auth/me` lacks permissions~~ → done in Phase 27.
 8. ~~No change-password, profile edit or session management~~ → done in Phase 28.
 9. No tenant settings/domains/memberships/switch-tenant API. → F08, F33
 10. No storefront, customer login, cart or checkout. → F26–F30
 
 ### P2 — completeness & consistency
-11. Report/analytics jobs are no-ops; no exports; notification templates not exposed.
+11. Report/analytics jobs are no-ops; no exports; notification templates not exposed. Analytics/dashboard customer totals still count soft-deleted customers (as with products).
 12. Mixed 400/409 for business conflicts; permissions list not paginated.
-13. Soft-deleted rows still hold unique SKUs/emails; single-column FKs (cross-tenant safety is app-only).
+13. Soft-deleted rows still hold unique SKUs/emails (incl. customer emails since Phase 29); single-column FKs (cross-tenant safety is app-only).
 14. Global unique email prevents one person from being in two tenants — needs a decision.
 
 ### P3 — operations
@@ -193,8 +195,8 @@ DONE   25     Platform admin & dual-scope auth
 DONE   26     Security corrections (P0 gaps 1–5)
 DONE   27     RBAC completion                 → unblocks frontend F07, F20
 DONE   28     Account self-service             → F06, F19
-NEXT   29     Customers & addresses            → F17, F25
-       30     Tenant workspace                 → F08, F33
+DONE   29     Customers & addresses            → F17, F25
+NEXT   30     Tenant workspace                 → F08, F33
        31     Reports, exports, templates      → F21, F23
        32     Storefront / public commerce     → F26–F30
        33     Platform operations              → F31, F32

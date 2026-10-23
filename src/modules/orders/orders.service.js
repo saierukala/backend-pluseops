@@ -2,6 +2,7 @@ import { getPrismaClient } from '../../config/database.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { OrderRepository } from './orders.repository.js';
 import { auditService } from '../audit/audit.service.js';
+import { CustomerService, toAddressSnapshot } from '../customers/customers.service.js';
 import { emitOrderCreated, emitOrderUpdated } from '../../realtime/realtime.service.js';
 
 const ORDER_STATUS_TRANSITIONS = {
@@ -29,6 +30,7 @@ export class OrderService {
   constructor() {
     this.repository = new OrderRepository();
     this.prisma = getPrismaClient();
+    this.customerService = new CustomerService();
   }
 
   async create(tenantId, userId, body, auditContext = {}) {
@@ -39,8 +41,12 @@ export class OrderService {
     const metadata = body.metadata || {};
 
     // Validate customer exists tenant-scoped
-    const customer = await this.prisma.customer.findFirst({ where: { id: customerId, tenantId } });
+    const customer = await this.prisma.customer.findFirst({ where: { id: customerId, tenantId, deletedAt: null } });
     if (!customer) throw new AppError('Customer not found', { statusCode: 404, code: 'CUSTOMER_NOT_FOUND' });
+
+    // Snapshot the chosen (or default) addresses so later address edits don't rewrite the order
+    const shippingAddress = toAddressSnapshot(await this.customerService.resolveOrderAddress(customerId, tenantId, 'SHIPPING', body.shippingAddressId));
+    const billingAddress = toAddressSnapshot(await this.customerService.resolveOrderAddress(customerId, tenantId, 'BILLING', body.billingAddressId));
 
     // Normalize items: resolve productVariantId
     const normalizedItems = itemsInput.map((it) => ({
@@ -160,6 +166,8 @@ export class OrderService {
                 total: totalStr,
                 currency,
                 metadata,
+                shippingAddress: shippingAddress ?? undefined,
+                billingAddress: billingAddress ?? undefined,
               },
             });
 

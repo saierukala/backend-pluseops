@@ -9,7 +9,7 @@ export const ordersPaymentsPaths = {
     post: {
       tags: ['Orders'],
       summary: 'Create order',
-      description: 'Requires `order:create`. Validates productId forbidden (use items.productVariantId).',
+      description: 'Requires `order:create`. Validates productId forbidden (use items.productVariantId). The chosen (or default) shipping/billing addresses are copied onto the order; `ADDRESS_NOT_FOUND` (404) if the address is not the customer\'s, `ADDRESS_TYPE_MISMATCH` (400) if its type is wrong.',
       operationId: 'createOrder',
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -21,6 +21,8 @@ export const ordersPaymentsPaths = {
               required: ['customerId', 'items'],
               properties: {
                 customerId: { type: 'string', format: 'uuid' },
+                shippingAddressId: { type: 'string', format: 'uuid', description: "Customer's SHIPPING address to snapshot; defaults to their default shipping address (none → null)" },
+                billingAddressId: { type: 'string', format: 'uuid', description: "Customer's BILLING address to snapshot; defaults to their default billing address (none → null)" },
                 items: {
                   type: 'array',
                   minItems: 1,

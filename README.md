@@ -296,7 +296,17 @@ Never commit `.env`. The repository `.gitignore` excludes `.env` and `.dockerign
 | POST | `/api/v1/inventory/transfer` | Transfer stock between warehouses (atomic) |
 | GET | `/api/v1/inventory/movements` | List inventory movements (paginated, filtered) |
 | GET | `/api/v1/inventory/low-stock` | List low-stock inventory (threshold default 10) |
-| POST | `/api/v1/orders` | Create order (variant/SKU, warehouse, snapshots, atomic inventory) |
+| POST | `/api/v1/customers` | Create customer (`customer:create`; email unique per tenant, optional inline `addresses[]`) |
+| GET | `/api/v1/customers` | List customers (paginated, `search` on email/name/phone, `sortBy`, `sortOrder`) |
+| GET | `/api/v1/customers/:id` | Get customer with addresses |
+| PATCH | `/api/v1/customers/:id` | Update customer (email, name, phone, metadata) |
+| DELETE | `/api/v1/customers/:id` | Soft-delete customer (orders are kept; no new orders) |
+| GET | `/api/v1/customers/:id/orders` | Customer order history (`customer:read` + `order:read`, `status` filter) |
+| GET | `/api/v1/customers/:id/addresses` | List shipping/billing addresses (`type` filter) |
+| POST | `/api/v1/customers/:id/addresses` | Add address (first of a type becomes default; `isDefault: true` moves the default) |
+| PATCH | `/api/v1/customers/:id/addresses/:addressId` | Update address |
+| DELETE | `/api/v1/customers/:id/addresses/:addressId` | Delete address (default passes to the oldest remaining) |
+| POST | `/api/v1/orders` | Create order (variant/SKU, warehouse, snapshots, atomic inventory; snapshots `shippingAddressId`/`billingAddressId` or the customer's defaults) |
 | GET | `/api/v1/orders` | List orders (paginated, status filter) |
 | GET | `/api/v1/orders/:id` | Get order with items and snapshots |
 | PATCH | `/api/v1/orders/:id/status` | Update order status (state machine) |

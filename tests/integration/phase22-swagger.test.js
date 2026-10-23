@@ -200,6 +200,17 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'GET /api/v1/auth/sessions',
     'DELETE /api/v1/auth/sessions/{sessionId}',
     'POST /api/v1/auth/logout-all',
+    // Customers & addresses (Phase 29) 10
+    'POST /api/v1/customers',
+    'GET /api/v1/customers',
+    'GET /api/v1/customers/{id}',
+    'PATCH /api/v1/customers/{id}',
+    'DELETE /api/v1/customers/{id}',
+    'GET /api/v1/customers/{id}/orders',
+    'GET /api/v1/customers/{id}/addresses',
+    'POST /api/v1/customers/{id}/addresses',
+    'PATCH /api/v1/customers/{id}/addresses/{addressId}',
+    'DELETE /api/v1/customers/{id}/addresses/{addressId}',
   ];
 
   it('OpenAPI JSON endpoint responds successfully', async () => {

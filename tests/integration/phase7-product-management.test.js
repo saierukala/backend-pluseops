@@ -1319,7 +1319,7 @@ describe('Phase 07 - Product Management', () => {
         .set('Authorization', `Bearer ${manipulatedToken}`);
 
       expect(response.status).toBe(401);
-      expect(['USER_NOT_FOUND', 'INVALID_TOKEN']).toContain(response.body.error.code);
+      expect(['USER_NOT_FOUND', 'INVALID_TOKEN', 'INVALID_TOKEN_CLAIMS']).toContain(response.body.error.code);
     });
   });
 

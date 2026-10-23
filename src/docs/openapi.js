@@ -7,6 +7,7 @@ import { platformPaths } from './paths/platform.js';
 import { rbacPaths } from './paths/rbac.js';
 import { catalogPaths } from './paths/catalog.js';
 import { inventoryWarehousesPaths } from './paths/inventory-warehouses.js';
+import { customersPaths } from './paths/customers.js';
 import { ordersPaymentsPaths } from './paths/orders-payments.js';
 import { auditNotificationsPaths } from './paths/audit-notifications.js';
 import { jobsPaths } from './paths/jobs.js';
@@ -41,6 +42,7 @@ export const openApiSpec = {
     { name: 'Product Images', description: 'Product and variant images (multipart)' },
     { name: 'Warehouses', description: 'Warehouse management' },
     { name: 'Inventory', description: 'Inventory and movements' },
+    { name: 'Customers', description: 'Customers, shipping/billing addresses and order history' },
     { name: 'Orders', description: 'Order lifecycle' },
     { name: 'Payments', description: 'Payments and webhooks' },
     { name: 'Audit', description: 'Audit and activity logs' },
@@ -102,6 +104,7 @@ export const openApiSpec = {
     ...rbacPaths,
     ...catalogPaths,
     ...inventoryWarehousesPaths,
+    ...customersPaths,
     ...ordersPaymentsPaths,
     ...auditNotificationsPaths,
     ...jobsPaths,

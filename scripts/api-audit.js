@@ -8,9 +8,8 @@
  * Usage:
  *   AUDIT_BASE_URL=http://localhost:3100 node scripts/api-audit.js [--out report.json]
  *
- * Needs: running API (raise RATE_LIMIT_MAX / AUTH_RATE_LIMIT_MAX for the run),
- * seeded platform admin (npm run db:seed), DATABASE_URL in .env (used only to
- * insert a Customer row, because there is no Customer API yet).
+ * Needs: running API (raise RATE_LIMIT_MAX / AUTH_RATE_LIMIT_MAX for the run) and a
+ * seeded platform admin (npm run db:seed). Everything goes through the HTTP API.
  *
  * Creates two tenants with slug prefix `audit-` per run. There is no tenant
  * delete on the platform API, so they remain in the database afterwards.
@@ -18,7 +17,6 @@
 import crypto from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { io as ioClient } from 'socket.io-client';
-import { PrismaClient } from '@prisma/client';
 import { env } from '../src/config/env.js';
 
 const BASE = process.env.AUDIT_BASE_URL || 'http://localhost:3000';
@@ -28,7 +26,6 @@ const PLATFORM_PASSWORD = process.env.PLATFORM_ADMIN_PASSWORD || 'Sairram@123';
 const RUN = Date.now().toString(36);
 const PASSWORD = 'Audit#Pass123';
 
-const prisma = new PrismaClient();
 const results = [];
 let group = 'general';
 
@@ -333,12 +330,38 @@ async function main() {
   };
   record('stock after adjust+transfer is 40/10', stockOf(vinv, W1) === 40 && stockOf(vinv, W2) === 10, `W1=${stockOf(vinv, W1)} W2=${stockOf(vinv, W2)}`);
 
-  // ── Customers (no API) & orders ──────────────────────────────────────
+  // ── Customers & addresses ────────────────────────────────────────────
+  group = 'customers';
+  const shipTo = { type: 'SHIPPING', line1: '1 Main St', city: 'Hyderabad', postalCode: '500001', country: 'IN' };
+  const c1 = await check('create customer with address', 'POST', '/customers', 201, { token: A, body: { email: `Buyer-${RUN}@Audit.test`, firstName: 'Bea', lastName: 'Buyer', addresses: [shipTo] } });
+  const customer = data(c1);
+  record('customer email normalised', customer?.email === `buyer-${RUN}@audit.test`, `email=${customer?.email}`);
+  record('first address is default', customer?.addresses?.[0]?.isDefault === true, JSON.stringify(customer?.addresses?.[0]));
+  await check('duplicate customer email 409', 'POST', '/customers', 409, { token: A, body: { email: `buyer-${RUN}@audit.test`, firstName: 'X', lastName: 'Y' } });
+  await check('invalid customer 400', 'POST', '/customers', 400, { token: A, body: { email: 'nope', firstName: 'X', lastName: 'Y' } });
+  await check('list customers (search)', 'GET', `/customers?search=buyer-${RUN}`, 200, { token: A, assert: (r) => data(r).length === 1 });
+  await check('get customer', 'GET', `/customers/${customer.id}`, 200, { token: A });
+  await check('update customer', 'PATCH', `/customers/${customer.id}`, 200, { token: A, body: { phone: '+91 90000 00000' } });
+  const billTo = await check('add billing address', 'POST', `/customers/${customer.id}/addresses`, 201, { token: A, body: { type: 'BILLING', line1: '9 Ledger Rd', city: 'Pune', country: 'IN' } });
+  const ship2 = await check('add 2nd shipping address', 'POST', `/customers/${customer.id}/addresses`, 201, { token: A, body: { ...shipTo, line1: '2 Side St' } });
+  await check('update address', 'PATCH', `/customers/${customer.id}/addresses/${data(ship2).id}`, 200, { token: A, body: { city: 'Chennai' } });
+  await check('list addresses', 'GET', `/customers/${customer.id}/addresses`, 200, { token: A, assert: (r) => data(r).length === 3 });
+  await check('delete address', 'DELETE', `/customers/${customer.id}/addresses/${data(ship2).id}`, 200, { token: A });
+  await check('staff cannot list customers', 'GET', '/customers', 403, { token: S });
+  await check('customers need auth', 'GET', '/customers', 401);
+  await check('B cannot read A customer', 'GET', `/customers/${customer.id}`, 404, { token: B });
+  await check('B cannot list A customer addresses', 'GET', `/customers/${customer.id}/addresses`, 404, { token: B });
+  const gone = await check('create throwaway customer', 'POST', '/customers', 201, { token: A, body: { email: `gone-${RUN}@audit.test`, firstName: 'Gone', lastName: 'Soon' } });
+  await check('delete customer', 'DELETE', `/customers/${data(gone).id}`, 200, { token: A });
+  await check('deleted customer 404', 'GET', `/customers/${data(gone).id}`, 404, { token: A });
+
+  // ── Orders ───────────────────────────────────────────────────────────
   group = 'orders';
-  await check('customers API exists', 'GET', '/customers', 200, { token: A, note: 'no Customer API — orders need a customerId that cannot be created via REST' });
-  const customer = await prisma.customer.create({ data: { tenantId: tenantA.id, email: `buyer-${RUN}@audit.test`, firstName: 'Bea', lastName: 'Buyer' } });
   const o1 = await check('create order', 'POST', '/orders', 201, { token: A, body: { customerId: customer.id, items: [{ productVariantId: variantId, warehouseId: W1, quantity: 2 }], currency: 'USD' } });
   const order1 = data(o1);
+  record('order snapshots default addresses', order1?.shippingAddress?.line1 === '1 Main St' && order1?.billingAddress?.addressId === data(billTo)?.id, JSON.stringify({ ship: order1?.shippingAddress?.line1, bill: order1?.billingAddress?.addressId }));
+  await check('order with deleted customer rejected', 'POST', '/orders', 404, { token: A, body: { customerId: data(gone).id, items: [{ productVariantId: variantId, warehouseId: W1, quantity: 1 }] } });
+  await check('order with wrong address type rejected', 'POST', '/orders', 400, { token: A, body: { customerId: customer.id, shippingAddressId: data(billTo).id, items: [{ productVariantId: variantId, warehouseId: W1, quantity: 1 }] } });
   await check('oversell rejected', 'POST', '/orders', [400, 409, 422], { token: A, body: { customerId: customer.id, items: [{ productVariantId: variantId, warehouseId: W1, quantity: 99999 }] } });
   await check('order with foreign customer rejected', 'POST', '/orders', [400, 404], { token: B, body: { customerId: customer.id, items: [{ productVariantId: variantId, warehouseId: W1, quantity: 1 }] } });
   await check('list orders', 'GET', '/orders', 200, { token: A });
@@ -458,8 +481,7 @@ async function main() {
 
 main()
   .catch((err) => { results.push({ group, name: 'audit aborted', method: '-', path: '-', expected: '-', actual: 'error', ok: false, note: err.stack }); })
-  .finally(async () => {
-    await prisma.$disconnect();
+  .finally(() => {
     const failed = results.filter((r) => !r.ok);
     const byGroup = {};
     for (const r of results) { byGroup[r.group] ??= { pass: 0, fail: 0 }; byGroup[r.group][r.ok ? 'pass' : 'fail'] += 1; }

@@ -437,7 +437,7 @@ PHASE 25 → Platform Admin & Dual-Scope Auth      (done)
 PHASE 26 → Security Corrections                  (done — storage secret moved to 34)
 PHASE 27 → RBAC Completion                       (done)
 PHASE 28 → Account Self-Service                  (done)
-PHASE 29 → Customers & Addresses
+PHASE 29 → Customers & Addresses                (done)
 PHASE 30 → Tenant Workspace (settings, domains, memberships)
 PHASE 31 → Reports, Exports & Notification Templates
 PHASE 32 → Storefront / Public Commerce API
@@ -2753,7 +2753,7 @@ session's family. Self-service endpoints accept tenant **and** platform tokens (
 `PATCH /auth/me` and resend-verification (tenant only, like `GET /auth/me`). Security fix: reset/verification dev tokens
 are only exposed in development/test.
 
-## PHASE 29 — CUSTOMERS & ADDRESSES
+## PHASE 29 — CUSTOMERS & ADDRESSES (DONE 2026-10-24)
 
 Orders require a `customerId`, but no API can create a customer (the audit inserts one through Prisma).
 
@@ -2761,6 +2761,16 @@ Orders require a `customerId`, but no API can create a customer (the audit inser
 - Structured `CustomerAddress` model (shipping/billing) instead of free-form `metadata`; order snapshots
   the chosen address.
 - Customer order history: `GET /customers/:id/orders`.
+
+Delivered as above. Migration `20261024_phase29_customer_addresses`: `customer_addresses` table (`AddressType`
+SHIPPING/BILLING, ISO-2 `country`, `is_default` with a partial unique index → at most one default per customer and
+type), `orders.shipping_address` / `billing_address` JSONB snapshots. Email is trimmed + lower-cased, 409
+`CUSTOMER_EMAIL_EXISTS`. Delete is soft (`deletedAt`): hidden from reads, new orders 404 `CUSTOMER_NOT_FOUND`, existing
+orders untouched, email stays reserved until Phase 34. First address of a type becomes the default; deleting the
+default promotes the oldest remaining. `POST /orders` takes optional `shippingAddressId` / `billingAddressId`
+(404 `ADDRESS_NOT_FOUND`, 400 `ADDRESS_TYPE_MISMATCH`), else snapshots the customer's defaults (or null). Address
+writes use `customer:update`; order history needs `customer:read` + `order:read`. Every write is audit-logged.
+Not done: analytics/dashboard customer totals still count soft-deleted customers (same as products today).
 
 ## PHASE 30 — TENANT WORKSPACE
 
