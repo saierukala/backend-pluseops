@@ -129,6 +129,12 @@ enum ReportType {
   CUSTOMERS
 }
 
+enum ReportFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
 enum ReportStatus {
   PENDING
   PROCESSING
@@ -160,6 +166,7 @@ model Tenant {
   paymentGateway        TenantPaymentGateway?
   supportSessions       SupportSession[]
   reports               Report[]
+  reportSchedules       ReportSchedule[]
   platformAuditLogs     PlatformAuditLog[]
   customerSessions      CustomerSession[]
   customerTokens        CustomerToken[]
@@ -258,6 +265,8 @@ model Report {
   tenant      Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   requestedBy String?      @map("requested_by")
   requester   User?        @relation(fields: [requestedBy], references: [id], onDelete: SetNull)
+  scheduleId  String?      @map("schedule_id")
+  schedule    ReportSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   type        ReportType
   format      String       @default("csv")
   status      ReportStatus @default(PENDING)
@@ -273,7 +282,35 @@ model Report {
 
   @@index([tenantId, createdAt])
   @@index([tenantId, status])
+  @@index([createdAt])
   @@map("reports")
+}
+
+// Phase 36: a report re-run every day/week/month for the period just ended (UTC); recipients get a link by email.
+model ReportSchedule {
+  id               String          @id @default(uuid())
+  tenantId         String          @map("tenant_id")
+  tenant           Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy        String?         @map("created_by")
+  creator          User?           @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  name             String
+  type             ReportType
+  frequency        ReportFrequency
+  filters          Json            @default("{}")
+  recipientUserIds String[]        @map("recipient_user_ids")
+  enabled          Boolean         @default(true)
+  lastPeriod       String?         @map("last_period")
+  lastRunAt        DateTime?       @db.Timestamptz(6) @map("last_run_at")
+  lastReportId     String?         @map("last_report_id")
+  lastError        String?         @map("last_error")
+  createdAt        DateTime        @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt        DateTime        @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  reports          Report[]
+
+  @@index([tenantId])
+  @@index([enabled])
+  @@map("report_schedules")
 }
 
 // Read-only platform support access to one tenant (Phase 30, frontend F33).
@@ -317,6 +354,7 @@ model User {
   memberships         TenantMembership[]
   supportSessions     SupportSession[]
   reports             Report[]
+  reportSchedules     ReportSchedule[]
   platformAuditLogs   PlatformAuditLog[]
   platformUserRoles   PlatformUserRole[]
 

@@ -1,6 +1,6 @@
 # PulseOps — Project Status & Roadmap (plain-language)
 
-> Last audited: 2026-10-23 (after Phase 35 part 1: Razorpay + email) · Backend `main` @ `d7d678d` + Phase 35 work
+> Last audited: 2026-10-23 (after Phase 36a: reports, analytics, storefront search) · Backend `main` @ `7b3fb55` + Phase 36a work
 > Detailed phase specs: [`PulseOps_Backend_Codex_Master_Roadmap.md`](PulseOps_Backend_Codex_Master_Roadmap.md) (section 12 = phases 24–35)
 
 ---
@@ -85,13 +85,13 @@ refresh tokens · argon2id · Zod · Pino · Jest/Supertest · OpenAPI at `/api-
 
 ## 3. How it was tested (2026-10-23)
 
-**Automated suite** — `npm test`: **1184/1184** after Phase 35 part 1, run with Redis as in CI, on its own `pulseops_test` database (the former BullMQ cleanup flake was a real bug, fixed in PR #1).
+**Automated suite** — `npm test`: **1199/1199** after Phase 36a, run with Redis as in CI, on its own `pulseops_test` database (the former BullMQ cleanup flake was a real bug, fixed in PR #1).
 
 **Live end-to-end audit** — new script [`scripts/api-audit.js`](../scripts/api-audit.js) runs against a real
 server, creates two fresh tenants, and walks every mounted route as platform admin, tenant admin, a
 staff user with no role, and a second tenant trying to reach the first tenant's data.
 
-### 3.1 Live audit results (after Phase 35 part 1)
+### 3.1 Live audit results (after Phase 36a)
 
 | Group | Pass | Fail | What fails |
 |---|---|---|---|
@@ -108,9 +108,9 @@ staff user with no role, and a second tenant trying to reach the first tenant's 
 | orders (15) | 15 | 0 | |
 | workspace (12) | 12 | 0 | new in Phase 30 |
 | support (12) | 12 | 0 | new in Phase 30 |
-| reports (9) | 9 | 0 | new in Phase 31 — needs the worker running |
+| reports (18) | 18 | 0 | new in Phase 31 — needs the worker running; schedules + retention date since Phase 36 |
 | templates (9) | 9 | 0 | new in Phase 31 |
-| storefront (25) | 25 | 0 | new in Phase 32 |
+| storefront (27) | 27 | 0 | new in Phase 32; literal search + paging since Phase 36 |
 | razorpay (11) | 11 | 0 | new in Phase 35 — without real Razorpay keys (the sandbox can't reach api.razorpay.com; made-up keys answer 502 there, 422 where Razorpay is reachable) |
 | platform-ops (18) | 18 | 0 | new in Phase 33 |
 | payments (12) | 12 | 0 | |
@@ -122,9 +122,9 @@ staff user with no role, and a second tenant trying to reach the first tenant's 
 | realtime (3) | 3 | 0 | |
 | openapi (4) | 4 | 0 | |
 | cleanup (11) | 11 | 0 | |
-| **Total 363** | **363** | **0** | |
+| **Total 374** | **374** | **0** | |
 
-History: 352/352 after Phase 34; 351/351 after Phase 33; 333/333 after Phase 32; 308/308 after Phase 31; 290/290 after Phase 30; 266/266 after Phase 29; 243/244 after Phase 28; 227/229 after Phase 27; 214/219 after Phase 26; 201/213 before it. 201/213 before Phase 26 (4 legacy-tenant, 2 jobs, 1 isolation failures). Before the first round of
+History: 363/363 after Phase 35 part 1; 352/352 after Phase 34; 351/351 after Phase 33; 333/333 after Phase 32; 308/308 after Phase 31; 290/290 after Phase 30; 266/266 after Phase 29; 243/244 after Phase 28; 227/229 after Phase 27; 214/219 after Phase 26; 201/213 before it. 201/213 before Phase 26 (4 legacy-tenant, 2 jobs, 1 isolation failures). Before the first round of
 fixes in §4 the same audit stopped early (tenant admins could not create attributes) and
 image downloads failed.
 
@@ -134,6 +134,7 @@ image downloads failed.
 |---|---|
 | Before fixes | 988 / 990 — Swagger inventory test out of date; one BullMQ cleanup test timed out while a second API instance was consuming the same queue |
 | After first fixes | **993 / 993** (30 suites) — includes 3 new permission-catalog tests |
+| After Phase 36a | **1199 / 1199** (42 suites) — 15 new Phase 36 tests |
 | After Phase 35 part 1 | **1184 / 1184** (41 suites) — 18 new Phase 35 tests (fake Razorpay behind `fetch`, SMTP via nodemailer's JSON transport); one Phase 22 list updated for the new PUT |
 | After Phase 34 | **1166 / 1166** (40 suites) — 9 new Phase 34 tests; 24 assertions moved from 400 to 409; the Phase 3 "cross-tenant link succeeds" test now expects the database to refuse it |
 | After Phase 33 | **1157 / 1157** (39 suites) — 18 new Phase 33 tests |
@@ -193,8 +194,8 @@ Lint: `src/`, `tests/`, `prisma/` clean. Local-only scripts listed in `.gitignor
 ### P2 — completeness & consistency
 - ~~Staff sign-up, password-reset and verification emails are never sent~~ → Phase 35: sent through the email job
   (SMTP via `SMTP_URL`), with links to `APP_URL`.
-- Storefront catalog ranks products in memory per request — fine for thousands, not hundreds of thousands.
-11. ~~Report/analytics jobs are no-ops; no exports; templates not exposed~~ → done in Phase 31. Still open: report files are never cleaned up (no retention), no scheduled reports. Analytics/dashboard customer totals still count soft-deleted customers (as with products).
+- ~~Storefront catalog ranks products in memory per request~~ → Phase 36: one SQL query (filter, price range, stock, sort, page). Search is still `ILIKE` without a trigram index — fine to tens of thousands of products.
+11. ~~Report/analytics jobs are no-ops; no exports; templates not exposed~~ → done in Phase 31. ~~No retention, no scheduled reports, analytics counting deleted customers~~ → Phase 36 (reports deleted after `REPORT_RETENTION_DAYS`, daily/weekly/monthly schedules, deleted customers no longer counted).
 12. ~~Mixed 400/409 for business conflicts~~ → Phase 34: state conflicts are 409 (list in the roadmap §12).
 13. ~~Soft-deleted customer emails stay reserved; cross-tenant safety is app-only~~ → Phase 34: partial unique index; database triggers refuse cross-tenant references.
 14. ~~Global unique email~~ → decided in Phase 30: kept on purpose (one person = one account = one business).
@@ -227,6 +228,8 @@ DONE   32     Storefront / public commerce     → F26–F30
 DONE   33     Platform operations              → F31, F32
 DONE   34     Data integrity & consistency
 PART   35     Razorpay per shop + SMTP email done; deployment target, S3 presigned uploads waiting on the hosting choice
+PART   36     36a done: report retention + schedules, analytics without deleted customers, storefront listing in SQL
+              36b next: RS256 with key rotation, httpOnly refresh-token cookie mode
 ```
 
 Frontend (`Frontend-PluseOps`, Next.js): F01–F06 committed; F07 (RBAC UI) in progress. Backend 27 is

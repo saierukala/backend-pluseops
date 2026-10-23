@@ -59,7 +59,8 @@ export class AnalyticsRepository {
     }
 
     const ordersWhere = { tenantId, ...where };
-    const customersWhere = { tenantId, ...where };
+    // Soft-deleted customers are gone from the shop's point of view; their orders and revenue still count
+    const customersWhere = { tenantId, deletedAt: null, ...where };
     const paymentsWhereCompleted = { tenantId, status: 'COMPLETED' };
     if (filters.from || filters.to) {
       paymentsWhereCompleted.createdAt = {};
@@ -469,7 +470,7 @@ export class AnalyticsRepository {
     const trunc = groupBy ? GROUP_BY_MAP[groupBy] : null;
 
     // Summary: total customers, total orders, avg orders per customer
-    const customerWhere = { tenantId };
+    const customerWhere = { tenantId, deletedAt: null };
     if (fromDate || toDate) {
       customerWhere.createdAt = {};
       if (fromDate) customerWhere.createdAt.gte = fromDate;
@@ -501,7 +502,7 @@ export class AnalyticsRepository {
     let bucketMeta = null;
     if (trunc) {
       assertSafeTrunc(trunc);
-      const cond = [`c."tenant_id" = $1`];
+      const cond = [`c."tenant_id" = $1`, `c."deleted_at" IS NULL`];
       const params = [tenantId];
       let idx = 2;
       if (fromDate) { cond.push(`c."created_at" >= $${idx}`); params.push(fromDate); idx++; }

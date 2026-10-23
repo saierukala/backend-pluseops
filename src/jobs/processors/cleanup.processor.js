@@ -77,3 +77,11 @@ export async function processCleanupExpiredTokens(payload, opts = {}) {
     throw err;
   }
 }
+
+/** Phase 36: nightly — deletes reports and their files past REPORT_RETENTION_DAYS (all tenants, or one). */
+export async function processPruneReports(payload = {}, opts = {}) {
+  const { reportService } = await import('../../modules/reports/reports.service.js');
+  const result = await reportService.prune(new Date(), { tenantId: payload.tenantId || null });
+  logger.info({ queue: QUEUE_NAMES.CLEANUP, jobId: opts.jobId || 'unknown', jobName: JOB_NAMES.PRUNE_REPORTS, ...result }, 'Report retention ran');
+  return result;
+}

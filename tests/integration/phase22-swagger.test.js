@@ -246,6 +246,12 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'GET /api/v1/reports',
     'GET /api/v1/reports/{id}',
     'GET /api/v1/reports/{id}/download',
+    // Phase 36
+    'POST /api/v1/report-schedules',
+    'GET /api/v1/report-schedules',
+    'GET /api/v1/report-schedules/{id}',
+    'PATCH /api/v1/report-schedules/{id}',
+    'DELETE /api/v1/report-schedules/{id}',
     'GET /api/v1/notification-templates',
     'POST /api/v1/notification-templates',
     'GET /api/v1/notification-templates/{id}',

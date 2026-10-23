@@ -361,6 +361,20 @@ export const schemas = {
       payments: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, status: { type: 'string' }, amount: { type: 'string' }, currency: { type: 'string' }, createdAt: { type: 'string', format: 'date-time' } } } },
     },
   },
+  ReportSchedule: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' }, name: { type: 'string' },
+      type: { type: 'string', enum: ['ORDERS', 'INVENTORY', 'CUSTOMERS'] }, frequency: { type: 'string', enum: ['DAILY', 'WEEKLY', 'MONTHLY'] },
+      filters: { type: 'object', description: 'Fixed filters (ORDERS `status`, INVENTORY `warehouseId`); the date range comes from the period' },
+      recipientUserIds: { type: 'array', items: { type: 'string', format: 'uuid' } }, enabled: { type: 'boolean' },
+      createdBy: { type: 'string', format: 'uuid', nullable: true },
+      lastPeriod: { type: 'string', nullable: true, example: '2026-10-22', description: 'Last period reported: a day, `week-of-<Monday>`, or a month (YYYY-MM)' },
+      lastRunAt: { type: 'string', format: 'date-time', nullable: true }, lastReportId: { type: 'string', format: 'uuid', nullable: true },
+      lastError: { type: 'string', nullable: true, description: 'Why the last run failed or the schedule paused itself' },
+      createdAt: { type: 'string', format: 'date-time' }, updatedAt: { type: 'string', format: 'date-time' },
+    },
+  },
   Report: {
     type: 'object',
     properties: {
@@ -373,6 +387,8 @@ export const schemas = {
       sizeBytes: { type: 'integer', nullable: true },
       error: { type: 'string', nullable: true, description: 'Generic message when FAILED (no internals)' },
       requestedBy: { type: 'string', format: 'uuid', nullable: true },
+      scheduleId: { type: 'string', format: 'uuid', nullable: true, description: 'Phase 36: set when a schedule requested it' },
+      expiresAt: { type: 'string', format: 'date-time', nullable: true, description: 'Phase 36: when retention deletes the report and its file (`REPORT_RETENTION_DAYS`, default 30); null = kept' },
       startedAt: { type: 'string', format: 'date-time', nullable: true },
       completedAt: { type: 'string', format: 'date-time', nullable: true },
       createdAt: { type: 'string', format: 'date-time' },

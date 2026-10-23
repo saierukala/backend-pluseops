@@ -6,16 +6,21 @@ import { auditService } from '../audit/audit.service.js';
 import { logger } from '../../config/logger.js';
 import { REPORT_DEFINITIONS, MAX_ROWS } from './reports.builders.js';
 import { csvLine } from './reports.csv.js';
+import { env } from '../../config/env.js';
 
 export const DOWNLOAD_URL_TTL_SECONDS = 300;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const PRUNE_BATCH = 200;
 
 const notFound = () => new AppError('Report not found', { statusCode: 404, code: 'REPORT_NOT_FOUND' });
 
 function toReport(r) {
   return {
     id: r.id, type: r.type, format: r.format, status: r.status, filters: r.filters,
-    rowCount: r.rowCount, sizeBytes: r.sizeBytes, error: r.error, requestedBy: r.requestedBy,
+    rowCount: r.rowCount, sizeBytes: r.sizeBytes, error: r.error, requestedBy: r.requestedBy, scheduleId: r.scheduleId ?? null,
     startedAt: r.startedAt, completedAt: r.completedAt, createdAt: r.createdAt, updatedAt: r.updatedAt,
+    // Phase 36: when the retention job deletes it (null = kept forever)
+    expiresAt: env.REPORT_RETENTION_DAYS ? new Date(r.createdAt.getTime() + env.REPORT_RETENTION_DAYS * DAY_MS) : null,
   };
 }
 
@@ -37,11 +42,11 @@ export class ReportService {
     }
   }
 
-  async request(context, { type, filters = {} }, client = {}) {
+  async request(context, { type, filters = {} }, client = {}, { scheduleId = null } = {}) {
     await this.assertCanRead(type, context);
     const { tenantId, userId } = context;
     const report = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.report.create({ data: { tenantId, requestedBy: userId, type, filters } });
+      const created = await tx.report.create({ data: { tenantId, requestedBy: userId, type, filters, scheduleId } });
       await auditService.logAudit({
         tenantId, userId, action: 'EXPORT', resource: 'report', resourceId: created.id, oldValue: null, newValue: { type, filters },
         ipAddress: client.ipAddress, userAgent: client.userAgent, tx,
@@ -106,10 +111,19 @@ export class ReportService {
       const buffer = Buffer.from(`\uFEFF${chunks.join('')}`, 'utf8');
       const storageKey = `tenants/${tenantId}/reports/${reportId}.csv`;
       await this.storage.upload(storageKey, buffer, 'text/csv');
-      await this.prisma.report.update({
+      const completed = await this.prisma.report.update({
         where: { id: reportId },
         data: { status: 'COMPLETED', storageKey, rowCount, sizeBytes: buffer.length, completedAt: new Date() },
       });
+      if (completed.scheduleId) {
+        // The report is done either way; a mail problem must not mark it failed
+        try {
+          const { reportScheduleService } = await import('./report-schedules.service.js');
+          await reportScheduleService.notifyRecipients(completed);
+        } catch (err) {
+          logger.warn({ err: err?.message, tenantId, reportId }, 'Scheduled report recipients not notified');
+        }
+      }
       return { reportId, tenantId, status: 'COMPLETED', rowCount };
     } catch (err) {
       logger.warn({ err, tenantId, reportId }, 'Report generation failed');
@@ -119,6 +133,37 @@ export class ReportService {
       });
       throw err;
     }
+  }
+
+  /**
+   * Phase 36 retention: deletes reports (and their files) created more than REPORT_RETENTION_DAYS ago, any status.
+   * A file already gone is fine; a file that can't be deleted keeps its row for the next run.
+   */
+  async prune(now = new Date(), { tenantId = null } = {}) {
+    if (!env.REPORT_RETENTION_DAYS) return { deleted: 0, retentionDays: 0 };
+    const cutoff = new Date(now.getTime() - env.REPORT_RETENTION_DAYS * DAY_MS);
+    let deleted = 0;
+    let failed = 0;
+    for (;;) {
+      const batch = await this.prisma.report.findMany({
+        where: { createdAt: { lt: cutoff }, ...(tenantId ? { tenantId } : {}) },
+        orderBy: { createdAt: 'asc' }, take: PRUNE_BATCH, skip: failed, select: { id: true, tenantId: true, storageKey: true },
+      });
+      if (!batch.length) break;
+      const removable = [];
+      for (const r of batch) {
+        try {
+          if (r.storageKey) await this.storage.delete(r.storageKey);
+          removable.push(r.id);
+        } catch (err) {
+          failed += 1;
+          logger.warn({ err: err?.message, tenantId: r.tenantId, reportId: r.id }, 'Report file could not be deleted; kept for the next run');
+        }
+      }
+      if (removable.length) deleted += (await this.prisma.report.deleteMany({ where: { id: { in: removable } } })).count;
+      if (batch.length < PRUNE_BATCH) break;
+    }
+    return { deleted, failed, retentionDays: env.REPORT_RETENTION_DAYS, cutoff };
   }
 }
 

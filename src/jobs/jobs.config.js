@@ -20,6 +20,9 @@ export const JOB_NAMES = {
   SEND_EMAIL: 'send-email',
   GENERATE_REPORT: 'generate-report',
   CALCULATE_ANALYTICS: 'calculate-analytics',
+  // Phase 36 recurring jobs (registered as BullMQ job schedulers)
+  PRUNE_REPORTS: 'prune-reports',
+  RUN_REPORT_SCHEDULES: 'run-report-schedules',
 };
 
 export const DEFAULT_JOB_OPTIONS = {

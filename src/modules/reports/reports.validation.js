@@ -35,3 +35,30 @@ export const listReportsSchema = z.object({
 });
 
 export const reportIdSchema = z.object({ params: z.object({ id: z.string().uuid() }) });
+
+// Phase 36: schedules. from/to come from the period (yesterday / last week / last month, UTC); other filters stay fixed.
+const scheduleFilters = z.object({ status: orderStatusEnum.optional(), warehouseId: z.string().uuid().optional() }).strict();
+const scheduleBody = z.object({
+  name: z.string().trim().min(1).max(120),
+  type: z.string().trim().toUpperCase().pipe(reportTypeEnum),
+  frequency: z.enum(['DAILY', 'WEEKLY', 'MONTHLY']),
+  filters: scheduleFilters.default({}),
+  recipientUserIds: z.array(z.string().uuid()).min(1).max(20).optional(),
+  enabled: z.boolean().optional(),
+});
+const checkFilters = (data, ctx) => {
+  if (!data.type || !data.filters) return;
+  const allowed = REPORT_DEFINITIONS[data.type].filters;
+  for (const key of Object.keys(data.filters)) {
+    if (!allowed.includes(key)) ctx.addIssue({ code: 'custom', path: ['filters', key], message: `${data.type} reports accept filters: ${allowed.filter((f) => f !== 'from' && f !== 'to').join(', ') || 'none'}` });
+  }
+};
+
+export const createReportScheduleSchema = z.object({ body: scheduleBody.superRefine(checkFilters) });
+export const updateReportScheduleSchema = z.object({
+  params: z.object({ id: z.string().uuid() }),
+  body: scheduleBody.omit({ type: true }).partial().refine((d) => Object.keys(d).length > 0, { message: 'At least one field must be provided' }),
+});
+export const listReportSchedulesSchema = z.object({
+  query: z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().positive().max(100).default(20) }),
+});

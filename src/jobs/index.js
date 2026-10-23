@@ -10,6 +10,11 @@ export async function initJobs() {
     return { enabled: false };
   }
   const workers = await startWorkers();
+  const { env } = await import('../config/env.js');
+  if (env.JOB_SCHEDULERS_ENABLED) {
+    const { registerSchedulers } = await import('./schedulers.js');
+    await registerSchedulers();
+  }
   return { enabled: true, workers, queues: getAllQueues() };
 }
 

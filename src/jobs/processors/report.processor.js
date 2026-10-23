@@ -17,3 +17,11 @@ export async function processGenerateReport(payload, opts = {}) {
   logger.info({ queue: QUEUE_NAMES.REPORT, jobId, tenantId, reportId, rowCount: result.rowCount, durationMs: Date.now() - start }, 'Report job finished');
   return result;
 }
+
+/** Phase 36: hourly — requests the reports whose schedule period has just ended (all tenants, server-triggered). */
+export async function processRunReportSchedules(payload, opts = {}) {
+  const { reportScheduleService } = await import('../../modules/reports/report-schedules.service.js');
+  const result = await reportScheduleService.runDue(new Date());
+  logger.info({ queue: QUEUE_NAMES.REPORT, jobId: opts.jobId || 'unknown', checked: result.checked, ran: result.ran }, 'Report schedules checked');
+  return { checked: result.checked, ran: result.ran };
+}

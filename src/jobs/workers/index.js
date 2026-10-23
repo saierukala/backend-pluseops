@@ -4,10 +4,10 @@ import { QUEUE_NAMES, JOB_NAMES, QUEUE_PREFIX } from '../jobs.config.js';
 import { logger } from '../../config/logger.js';
 import { recordQueueMetric } from '../../config/metrics.js';
 import { processSendNotification } from '../processors/notification.processor.js';
-import { processCleanupExpiredTokens } from '../processors/cleanup.processor.js';
+import { processCleanupExpiredTokens, processPruneReports } from '../processors/cleanup.processor.js';
 import { processWebhook } from '../processors/webhook.processor.js';
 import { processSendEmail } from '../processors/email.processor.js';
-import { processGenerateReport } from '../processors/report.processor.js';
+import { processGenerateReport, processRunReportSchedules } from '../processors/report.processor.js';
 import { processCalculateAnalytics } from '../processors/analytics.processor.js';
 
 let workers = [];
@@ -19,6 +19,7 @@ const PROCESSORS = {
   },
   [QUEUE_NAMES.CLEANUP]: {
     [JOB_NAMES.CLEANUP_EXPIRED_TOKENS]: processCleanupExpiredTokens,
+    [JOB_NAMES.PRUNE_REPORTS]: processPruneReports,
   },
   [QUEUE_NAMES.WEBHOOK]: {
     [JOB_NAMES.PROCESS_WEBHOOK]: processWebhook,
@@ -28,6 +29,7 @@ const PROCESSORS = {
   },
   [QUEUE_NAMES.REPORT]: {
     [JOB_NAMES.GENERATE_REPORT]: processGenerateReport,
+    [JOB_NAMES.RUN_REPORT_SCHEDULES]: processRunReportSchedules,
   },
   [QUEUE_NAMES.ANALYTICS]: {
     [JOB_NAMES.CALCULATE_ANALYTICS]: processCalculateAnalytics,
