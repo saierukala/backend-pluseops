@@ -4,6 +4,20 @@ import { AuthRepository } from './auth.repository.js';
 import { getPrismaClient } from '../../config/database.js';
 
 const PLATFORM_TENANT_SLUG = '__platform';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Phase 28: an access token is only valid while its login session still holds a live refresh token,
+ * so logout, session revocation, logout-all and password changes take effect immediately.
+ */
+async function assertSessionActive(repo, decoded) {
+  if (!UUID_RE.test(decoded.sessionId)) {
+    throw new AppError('Invalid token claims', { statusCode: 401, code: 'INVALID_TOKEN_CLAIMS' });
+  }
+  if (!(await repo.isSessionActive(decoded.sessionId, decoded.sub))) {
+    throw new AppError('Session has ended. Please sign in again.', { statusCode: 401, code: 'SESSION_REVOKED' });
+  }
+}
 
 export function authenticate() {
   return async (req, res, next) => {
@@ -43,6 +57,7 @@ export function authenticate() {
 
       // Verify user exists and is active within tenant
       const repo = new AuthRepository();
+      await assertSessionActive(repo, decoded);
       const user = await repo.findUserByIdAndTenant(decoded.sub, decoded.tenantId);
       if (!user || user.status !== 'ACTIVE') {
         throw new AppError('User not found or inactive', {
@@ -125,6 +140,8 @@ export function authenticatePlatform() {
         });
       }
 
+      await assertSessionActive(new AuthRepository(), decoded);
+
       // Verify user has platform role
       const prisma = getPrismaClient();
       const platformGrant = await prisma.platformUserRole.findFirst({
@@ -171,6 +188,22 @@ export function authenticatePlatform() {
 }
 
 // Optional authentication - doesn't throw if no token
+/** Accepts tenant or platform tokens — for endpoints about the caller's own account. */
+export function authenticateAnyScope() {
+  const tenant = authenticate();
+  const platform = authenticatePlatform();
+  return (req, res, next) => {
+    let scope = 'tenant';
+    try {
+      const header = req.headers.authorization ?? '';
+      if (header.startsWith('Bearer ')) scope = verifyAccessToken(header.substring(7)).scope || 'tenant';
+    } catch {
+      // Let the tenant middleware produce the standard invalid/expired token error
+    }
+    return (scope === 'platform' ? platform : tenant)(req, res, next);
+  };
+}
+
 export function optionalAuthenticate() {
   return async (req, res, next) => {
     try {

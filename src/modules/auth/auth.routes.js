@@ -9,6 +9,12 @@ import {
   resetPassword,
   verifyEmail,
   me,
+  changePassword,
+  updateMe,
+  resendVerification,
+  listSessions,
+  revokeSession,
+  logoutAll,
 } from './auth.controller.js';
 import {
   registerSchema,
@@ -18,8 +24,11 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   verifyEmailSchema,
+  changePasswordSchema,
+  updateMeSchema,
+  sessionIdParamSchema,
 } from './auth.validation.js';
-import { authenticate } from './auth.middleware.js';
+import { authenticate, authenticateAnyScope } from './auth.middleware.js';
 import { createAuthLimiter } from '../../common/middleware/rate-limiters.js';
 import { env } from '../../config/env.js';
 
@@ -55,3 +64,11 @@ authRouter.post('/verify-email', authLimiter, validate(verifyEmailSchema), verif
 
 // Protected endpoints
 authRouter.get('/me', authenticate(), me);
+authRouter.patch('/me', authenticate(), validate(updateMeSchema), updateMe);
+
+// Account self-service (Phase 28) — tenant and platform users alike
+authRouter.post('/change-password', authLimiter, authenticateAnyScope(), validate(changePasswordSchema), changePassword);
+authRouter.post('/resend-verification', authLimiter, authenticate(), resendVerification);
+authRouter.get('/sessions', authenticateAnyScope(), listSessions);
+authRouter.delete('/sessions/:sessionId', authenticateAnyScope(), validate(sessionIdParamSchema), revokeSession);
+authRouter.post('/logout-all', authenticateAnyScope(), logoutAll);

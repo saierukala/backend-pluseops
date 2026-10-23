@@ -164,7 +164,10 @@ async function main() {
   await check('tenant token cannot delete tenant (legacy route)', 'DELETE', `/tenants/${tenantA.id}`, 403, { token: A });
   const rf = await check('refresh', 'POST', '/auth/refresh', 200, { body: { refreshToken: aRefresh } });
   await check('refresh token reuse rejected', 'POST', '/auth/refresh', 401, { body: { refreshToken: aRefresh } });
-  A = data(rf)?.accessToken || A;
+  // Replaying a rotated token ends that whole session (Phase 28), including the access token it just issued
+  await check('token reuse ends the session', 'GET', '/auth/me', 401, { token: data(rf)?.accessToken, assert: (r) => r.json?.error?.code === 'SESSION_REVOKED' });
+  const aRelogin = data(await call('POST', '/auth/login', { body: { email: adminA.email, password: PASSWORD } }));
+  A = aRelogin.accessToken;
   const bLogin = await check('tenant B login', 'POST', '/auth/login', 200, { body: { email: adminB.email, password: PASSWORD } });
   const B = data(bLogin).accessToken;
   const staff = { email: `staff-${RUN}@audit.test`, password: PASSWORD, firstName: 'Sam', lastName: 'Staff' };
@@ -178,7 +181,29 @@ async function main() {
   await check('forgot password unknown email still 200', 'POST', '/auth/forgot-password', 200, { body: { email: `ghost-${RUN}@audit.test` } });
   await check('reset password bad token', 'POST', '/auth/reset-password', [400, 401], { body: { token: 'bogus', password: PASSWORD } });
   await check('verify email bad token', 'POST', '/auth/verify-email', [400, 401], { body: { token: 'bogus' } });
-  await check('change password endpoint exists', 'POST', '/auth/change-password', [200, 400, 401], { token: S, body: { currentPassword: PASSWORD, newPassword: 'Audit#Pass456' }, note: 'no authenticated change-password endpoint' });
+
+  // ── Account self-service (Phase 28) — on a throwaway user, logout-all must not touch the staff session
+  group = 'self-service';
+  const self = { email: `self-${RUN}@audit.test`, password: PASSWORD, firstName: 'Sel', lastName: 'Fie' };
+  await call('POST', '/auth/register', { body: { ...self, tenantId: tenantA.id } });
+  const selfA = data(await call('POST', '/auth/login', { body: { email: self.email, password: PASSWORD }, headers: { 'User-Agent': 'audit-laptop' } }));
+  const selfB = data(await call('POST', '/auth/login', { body: { email: self.email, password: PASSWORD }, headers: { 'User-Agent': 'audit-phone' } }));
+  await check('list sessions', 'GET', '/auth/sessions', 200, { token: selfA.accessToken, assert: (r) => data(r).length === 2 && data(r).filter((x) => x.current).length === 1 });
+  const rot = await check('refresh keeps session id', 'POST', '/auth/refresh', 200, { body: { refreshToken: selfB.refreshToken }, assert: (r) => data(r).sessionId === selfB.sessionId });
+  await check('revoke other session', 'DELETE', `/auth/sessions/${selfB.sessionId}`, 200, { token: selfA.accessToken });
+  await check('revoked session access token rejected', 'GET', '/auth/me', 401, { token: data(rot)?.accessToken, assert: (r) => r.json?.error?.code === 'SESSION_REVOKED' });
+  await check('revoke unknown session 404', 'DELETE', '/auth/sessions/00000000-0000-4000-8000-000000000000', 404, { token: selfA.accessToken });
+  await check('update own profile', 'PATCH', '/auth/me', 200, { token: selfA.accessToken, body: { firstName: 'Selma' }, assert: (r) => data(r).firstName === 'Selma' });
+  await check('profile rejects email change', 'PATCH', '/auth/me', 400, { token: selfA.accessToken, body: { email: `x-${RUN}@audit.test` } });
+  await check('resend verification', 'POST', '/auth/resend-verification', 200, { token: selfA.accessToken });
+  await check('change password wrong current 400', 'POST', '/auth/change-password', 400, { token: selfA.accessToken, body: { currentPassword: 'Wrong#Pass999', newPassword: 'Audit#Pass456' } });
+  const selfC = data(await call('POST', '/auth/login', { body: { email: self.email, password: PASSWORD } }));
+  await check('change password', 'POST', '/auth/change-password', 200, { token: selfA.accessToken, body: { currentPassword: PASSWORD, newPassword: 'Audit#Pass456' } });
+  await check('other sessions signed out after password change', 'GET', '/auth/me', 401, { token: selfC.accessToken });
+  await check('current session survives password change', 'GET', '/auth/me', 200, { token: selfA.accessToken });
+  await check('logout-all', 'POST', '/auth/logout-all', 200, { token: selfA.accessToken });
+  await check('signed out everywhere', 'GET', '/auth/me', 401, { token: selfA.accessToken });
+  group = 'auth';
 
   // ── RBAC & users ─────────────────────────────────────────────────────
   group = 'rbac';
@@ -425,8 +450,9 @@ async function main() {
   await check('delete product with variants blocked', 'DELETE', `/products/${productId}`, [400, 409], { token: A });
   await check('delete staff user', 'DELETE', `/users/${staffId}`, [200, 204], { token: A });
   await check('deleted user token rejected', 'GET', '/auth/me', 401, { token: S });
-  await check('logout', 'POST', '/auth/logout', 200, { token: A, body: { refreshToken: data(rf)?.refreshToken } });
-  await check('refresh after logout rejected', 'POST', '/auth/refresh', 401, { body: { refreshToken: data(rf)?.refreshToken } });
+  await check('logout', 'POST', '/auth/logout', 200, { token: A, body: { refreshToken: aRelogin.refreshToken } });
+  await check('refresh after logout rejected', 'POST', '/auth/refresh', 401, { body: { refreshToken: aRelogin.refreshToken } });
+  await check('access token rejected after logout', 'GET', '/auth/me', 401, { token: A });
 
 }
 

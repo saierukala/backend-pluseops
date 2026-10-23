@@ -44,7 +44,7 @@ const metricsOperation = {
 
 export const metricsPaths = {
   '/metrics': { get: metricsOperation },
-  '/metrics/metrics': { get: metricsOperation },
+  '/metrics/metrics': { get: { ...metricsOperation, operationId: 'getMetricsAlt' } },
   '/api/v1/metrics': { get: { ...metricsOperation, operationId: 'getMetricsV1' } },
   '/api/v1/metrics/metrics': { get: { ...metricsOperation, operationId: 'getMetricsV1Alt' } },
 };

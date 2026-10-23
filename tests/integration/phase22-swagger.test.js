@@ -193,6 +193,13 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'PUT /api/v1/roles/{id}/permissions',
     'DELETE /api/v1/roles/{id}/permissions/{permissionId}',
     'DELETE /api/v1/users/{id}/roles/{roleId}',
+    // Account self-service (Phase 28) 6
+    'PATCH /api/v1/auth/me',
+    'POST /api/v1/auth/change-password',
+    'POST /api/v1/auth/resend-verification',
+    'GET /api/v1/auth/sessions',
+    'DELETE /api/v1/auth/sessions/{sessionId}',
+    'POST /api/v1/auth/logout-all',
   ];
 
   it('OpenAPI JSON endpoint responds successfully', async () => {

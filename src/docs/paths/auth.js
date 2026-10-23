@@ -257,5 +257,104 @@ export const authPaths = {
         500: error500,
       },
     },
+    patch: {
+      tags: ['Auth'],
+      summary: 'Update own profile',
+      description: 'Tenant token. Only `firstName` / `lastName` (trimmed); any other field → 400. Returns the same shape as GET /auth/me.',
+      operationId: 'updateMe',
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: { 'application/json': { schema: { type: 'object', minProperties: 1, additionalProperties: false, properties: { firstName: { type: 'string', minLength: 1, maxLength: 100 }, lastName: { type: 'string', minLength: 1, maxLength: 100 } } } } },
+      },
+      responses: {
+        200: { description: 'Profile updated', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { $ref: '#/components/schemas/User' }, message: { type: 'string' } } } } } },
+        400: error400,
+        401: error401,
+        403: error403,
+        500: error500,
+      },
+    },
+  },
+  '/api/v1/auth/change-password': {
+    post: {
+      tags: ['Auth'],
+      summary: 'Change own password',
+      description: 'Tenant or platform token. Rate-limited. Wrong current password → 400 `INVALID_CURRENT_PASSWORD` (deliberately not 401); same password → 400 `PASSWORD_UNCHANGED`. On success every other session is signed out; the calling session stays valid.',
+      operationId: 'changePassword',
+      security: [{ bearerAuth: [] }],
+      requestBody: {
+        required: true,
+        content: { 'application/json': { schema: { type: 'object', required: ['currentPassword', 'newPassword'], additionalProperties: false, properties: { currentPassword: { type: 'string' }, newPassword: { type: 'string', minLength: 8, maxLength: 128, description: 'Upper, lower, digit and symbol required' } } } } },
+      },
+      responses: {
+        200: { description: 'Password changed', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object', properties: { success: { type: 'boolean' }, otherSessionsRevoked: { type: 'integer' } } }, message: { type: 'string' } } } } } },
+        400: error400,
+        401: error401,
+        429: error429,
+        500: error500,
+      },
+    },
+  },
+  '/api/v1/auth/resend-verification': {
+    post: {
+      tags: ['Auth'],
+      summary: 'Resend email verification',
+      description: 'Tenant token. Rate-limited. Invalidates earlier unused verification links. 409 `EMAIL_ALREADY_VERIFIED` when already verified. `devToken` is only returned in development/test.',
+      operationId: 'resendVerification',
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: { description: 'Verification email sent', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object', properties: { success: { type: 'boolean' } } }, message: { type: 'string' } } } } } },
+        401: error401,
+        409: { description: 'Email already verified', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        429: error429,
+        500: error500,
+      },
+    },
+  },
+  '/api/v1/auth/sessions': {
+    get: {
+      tags: ['Auth'],
+      summary: 'List own active sessions',
+      description: 'Tenant or platform token. One entry per login (a session survives refresh-token rotation); `current` marks the caller.',
+      operationId: 'listSessions',
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: { description: 'Active sessions', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'array', items: { type: 'object', properties: { id: { type: 'string', format: 'uuid', description: 'Session id (= JWT sessionId)' }, current: { type: 'boolean' }, userAgent: { type: 'string', nullable: true }, ipAddress: { type: 'string', nullable: true }, createdAt: { type: 'string', format: 'date-time' }, lastUsedAt: { type: 'string', format: 'date-time' }, expiresAt: { type: 'string', format: 'date-time' } } } }, message: { type: 'string' } } } } } },
+        401: error401,
+        500: error500,
+      },
+    },
+  },
+  '/api/v1/auth/sessions/{sessionId}': {
+    delete: {
+      tags: ['Auth'],
+      summary: 'Revoke one of own sessions',
+      description: 'Tenant or platform token. Its access and refresh tokens stop working immediately (401 `SESSION_REVOKED`). Revoking the current session signs the caller out. 404 `SESSION_NOT_FOUND` for unknown sessions or sessions of other users.',
+      operationId: 'revokeSession',
+      security: [{ bearerAuth: [] }],
+      parameters: [{ name: 'sessionId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } }],
+      responses: {
+        200: { description: 'Session revoked', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object', properties: { success: { type: 'boolean' } } }, message: { type: 'string' } } } } } },
+        400: error400,
+        401: error401,
+        404: { description: 'Session not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } },
+        500: error500,
+      },
+    },
+  },
+  '/api/v1/auth/logout-all': {
+    post: {
+      tags: ['Auth'],
+      summary: 'Sign out everywhere',
+      description: 'Tenant or platform token. Revokes every session of the caller, including the current one.',
+      operationId: 'logoutAll',
+      security: [{ bearerAuth: [] }],
+      responses: {
+        200: { description: 'All sessions revoked', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object', properties: { success: { type: 'boolean' }, sessionsRevoked: { type: 'integer' } } }, message: { type: 'string' } } } } } },
+        401: error401,
+        500: error500,
+      },
+    },
   },
 };

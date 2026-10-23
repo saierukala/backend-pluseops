@@ -128,7 +128,61 @@ export class AuthRepository {
         userId: data.userId,
         tokenHash: data.tokenHash,
         expiresAt: data.expiresAt,
+        sessionId: data.sessionId ?? null,
+        userAgent: data.userAgent ?? null,
+        ipAddress: data.ipAddress ?? null,
+        lastUsedAt: new Date(),
       },
+    });
+  }
+
+  // A session is active while it holds an unrevoked, unexpired refresh token
+  async isSessionActive(sessionId, userId) {
+    const count = await this.prisma.refreshToken.count({
+      where: { sessionId, userId, revokedAt: null, expiresAt: { gt: new Date() } },
+    });
+    return count > 0;
+  }
+
+  // Active sessions for one user in one tenant, oldest token first (that row carries the session's start)
+  async findActiveSessionTokens(userId, tenantId) {
+    const active = await this.prisma.refreshToken.findMany({
+      where: { userId, tenantId, sessionId: { not: null }, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (active.length === 0) return [];
+    const starts = await this.prisma.refreshToken.groupBy({
+      by: ['sessionId'],
+      where: { sessionId: { in: active.map((t) => t.sessionId) } },
+      _min: { createdAt: true },
+    });
+    const startedAt = new Map(starts.map((s) => [s.sessionId, s._min.createdAt]));
+    return active.map((t) => ({ ...t, startedAt: startedAt.get(t.sessionId) ?? t.createdAt }));
+  }
+
+  async revokeSession(sessionId, userId, tenantId) {
+    return this.prisma.refreshToken.updateMany({
+      where: { sessionId, userId, tenantId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  // Revokes every session of the user except `keepSessionId` (null keeps none)
+  async revokeUserSessions(userId, { keepSessionId = null } = {}) {
+    return this.prisma.refreshToken.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+        ...(keepSessionId ? { OR: [{ sessionId: null }, { sessionId: { not: keepSessionId } }] } : {}),
+      },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  async invalidateUnusedEmailVerificationTokens(userId) {
+    return this.prisma.emailVerificationToken.updateMany({
+      where: { userId, usedAt: null },
+      data: { usedAt: new Date() },
     });
   }
 

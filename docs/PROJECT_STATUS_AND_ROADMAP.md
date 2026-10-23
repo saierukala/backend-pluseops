@@ -1,6 +1,6 @@
 # PulseOps — Project Status & Roadmap (plain-language)
 
-> Last audited: 2026-10-23 (after Phase 27) · Backend `main` @ `7e021f0` + Phase 27 work
+> Last audited: 2026-10-23 (after Phase 28) · Backend `main` @ `7e021f0` + Phase 27 work
 > Detailed phase specs: [`PulseOps_Backend_Codex_Master_Roadmap.md`](PulseOps_Backend_Codex_Master_Roadmap.md) (section 12 = phases 24–35)
 
 ---
@@ -53,7 +53,8 @@ refresh tokens · argon2id · Zod · Pino · Jest/Supertest · OpenAPI at `/api-
 | Health / readiness / metrics | ✅ | `/health`, `/health/db`, `/health/redis`, `/ready`, `/metrics` |
 | Platform admin (tenants) | ✅ | `/api/v1/platform/tenants*`; legacy `/api/v1/tenants` is platform-only (Phase 26) |
 | Login, refresh rotation, logout, forgot/reset, verify email | ✅ | auto tenant resolution, `tenantSlug` |
-| Change password while logged in | ❌ | Phase 28 |
+| Change password, edit own profile, resend verification | ✅ | Phase 28 |
+| Sessions: list, revoke one, sign out everywhere | ✅ | Phase 28 — revocation is immediate (access tokens are session-checked) |
 | Roles & permissions (add, replace, remove) | ✅ | `PUT`/`DELETE` added in Phase 27; built-in roles are immutable system roles |
 | "My permissions" (`/auth/me` roles + permissions) | ✅ | Phase 27 |
 | Remove role from user (last-admin guard) | ✅ | Phase 27 |
@@ -79,20 +80,21 @@ refresh tokens · argon2id · Zod · Pino · Jest/Supertest · OpenAPI at `/api-
 
 ## 3. How it was tested (2026-10-23)
 
-**Automated suite** — `npm test`: **1033/1033** after Phase 27 (§3.2).
+**Automated suite** — `npm test`: **1048/1049** after Phase 28 — the 1 failure is the known intermittent BullMQ cleanup test (§3.2).
 
 **Live end-to-end audit** — new script [`scripts/api-audit.js`](../scripts/api-audit.js) runs against a real
 server, creates two fresh tenants, and walks every mounted route as platform admin, tenant admin, a
 staff user with no role, and a second tenant trying to reach the first tenant's data.
 
-### 3.1 Live audit results (after Phase 27)
+### 3.1 Live audit results (after Phase 28)
 
 | Group | Pass | Fail | What fails |
 |---|---|---|---|
 | health (13) | 13 | 0 | |
 | platform (17) | 17 | 0 | |
 | legacy-tenants (9) | 9 | 0 | |
-| auth (22) | 21 | 1 | no change-password endpoint → Phase 28 |
+| auth (22) | 22 | 0 | |
+| self-service (14) | 14 | 0 | |
 | rbac (31) | 31 | 0 | |
 | catalog (31) | 31 | 0 | |
 | images (14) | 14 | 0 | |
@@ -106,10 +108,10 @@ staff user with no role, and a second tenant trying to reach the first tenant's 
 | isolation (8) | 8 | 0 | |
 | realtime (3) | 3 | 0 | |
 | openapi (4) | 4 | 0 | |
-| cleanup (10) | 10 | 0 | |
-| **Total 229** | **227** | **2** | both are missing features with a planned phase |
+| cleanup (11) | 11 | 0 | |
+| **Total 244** | **243** | **1** | the Customer API (Phase 29) |
 
-History: 214/219 after Phase 26; 201/213 before it. 201/213 before Phase 26 (4 legacy-tenant, 2 jobs, 1 isolation failures). Before the first round of
+History: 227/229 after Phase 27; 214/219 after Phase 26; 201/213 before it. 201/213 before Phase 26 (4 legacy-tenant, 2 jobs, 1 isolation failures). Before the first round of
 fixes in §4 the same audit stopped early (tenant admins could not create attributes) and
 image downloads failed.
 
@@ -119,6 +121,7 @@ image downloads failed.
 |---|---|
 | Before fixes | 988 / 990 — Swagger inventory test out of date; one BullMQ cleanup test timed out while a second API instance was consuming the same queue |
 | After first fixes | **993 / 993** (30 suites) — includes 3 new permission-catalog tests |
+| After Phase 28 | **1048 / 1049** (34 suites) — 16 new Phase 28 tests; the failure is the known intermittent `phase15 › POST /jobs/cleanup` |
 | After Phase 27 | **1033 / 1033** (33 suites) — includes 32 new Phase 27 tests |
 | After Phase 26 | **1015 / 1018** (32 suites). 2 stale RBAC assertions (expected the old silent-drop 200) updated → `phase5-rbac` 98/98 on re-run. Remaining: `phase15 › POST /jobs/cleanup` times out intermittently (also failed in the very first baseline run) — an earlier test in the file calls `shutdownJobs()` and later enqueues can stall on the closed connection; direct enqueue takes 1–45 ms |
 
@@ -154,11 +157,16 @@ Lint: `src/`, `tests/`, `prisma/` clean. Local-only scripts listed in `.gitignor
 5. **Test suites wiped the database** — `auth.test.js` and `tenants.test.js` ended with `tenant.deleteMany()` on the
    shared dev DB, deleting every tenant (incl. the platform admin). Both now delete only their own rows.
    Remaining (Phase 34): give tests their own database, separate storage signing secret.
+6. ✅ **Password-reset token leaked in API responses** (fixed in Phase 28) — `POST /auth/forgot-password` returned the reset
+   token (`devToken`) in every environment, so anyone knowing an email could reset that account's password. It is now
+   only returned in development/test; the email-verification token is no longer written to logs outside development/test.
+7. ✅ **Sign-out did not end access** (fixed in Phase 28) — access tokens stayed valid for up to 15 min after logout or a
+   password reset. Every request now checks the login session is still active (401 `SESSION_REVOKED`).
 
 ### P1 — blocks frontend features
 6. No Customer API (orders can't be created from the UI). → F25, F28
 7. ~~No remove-role / remove-permission endpoints; `/auth/me` lacks permissions~~ → done in Phase 27.
-8. No change-password, profile edit or session management. → F06, F19
+8. ~~No change-password, profile edit or session management~~ → done in Phase 28.
 9. No tenant settings/domains/memberships/switch-tenant API. → F08, F33
 10. No storefront, customer login, cart or checkout. → F26–F30
 
@@ -184,8 +192,8 @@ DONE   24     Observability & reliability
 DONE   25     Platform admin & dual-scope auth
 DONE   26     Security corrections (P0 gaps 1–5)
 DONE   27     RBAC completion                 → unblocks frontend F07, F20
-NEXT   28     Account self-service             → F06, F19
-       29     Customers & addresses            → F17, F25
+DONE   28     Account self-service             → F06, F19
+NEXT   29     Customers & addresses            → F17, F25
        30     Tenant workspace                 → F08, F33
        31     Reports, exports, templates      → F21, F23
        32     Storefront / public commerce     → F26–F30

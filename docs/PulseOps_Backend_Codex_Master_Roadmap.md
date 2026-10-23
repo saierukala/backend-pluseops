@@ -436,7 +436,7 @@ PHASE 24 → Observability & Reliability            (done)
 PHASE 25 → Platform Admin & Dual-Scope Auth      (done)
 PHASE 26 → Security Corrections                  (done — storage secret moved to 34)
 PHASE 27 → RBAC Completion                       (done)
-PHASE 28 → Account Self-Service
+PHASE 28 → Account Self-Service                  (done)
 PHASE 29 → Customers & Addresses
 PHASE 30 → Tenant Workspace (settings, domains, memberships)
 PHASE 31 → Reports, Exports & Notification Templates
@@ -2740,11 +2740,18 @@ now `isSystem: true` (immutable; the seed backfills existing tenants). Every cha
 - `GET /auth/me` returns `roles[]` and effective `permissions[]` (or add `GET /auth/me/permissions`).
 - Paginate `GET /permissions` like roles/users.
 
-## PHASE 28 — ACCOUNT SELF-SERVICE
+## PHASE 28 — ACCOUNT SELF-SERVICE (DONE 2026-10-23)
 
 - `POST /auth/change-password` (current + new password, revokes other sessions).
 - `PATCH /auth/me` (own name), `POST /auth/resend-verification`.
 - `GET /auth/sessions`, `DELETE /auth/sessions/:id`, `POST /auth/logout-all`.
+
+Delivered as above, plus: migration `20261023_phase28_refresh_token_sessions` adds `session_id`, `user_agent`, `ip_address`,
+`last_used_at` to `refresh_tokens`; the JWT `sessionId` now survives rotation and every authenticated request (HTTP and
+socket handshake) checks the session is still active → 401 `SESSION_REVOKED`. Refresh-token reuse ends only the leaked
+session's family. Self-service endpoints accept tenant **and** platform tokens (`authenticateAnyScope`), except
+`PATCH /auth/me` and resend-verification (tenant only, like `GET /auth/me`). Security fix: reset/verification dev tokens
+are only exposed in development/test.
 
 ## PHASE 29 — CUSTOMERS & ADDRESSES
 

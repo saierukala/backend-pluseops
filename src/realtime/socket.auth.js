@@ -2,6 +2,8 @@ import { verifyAccessToken } from '../modules/auth/jwt.util.js';
 import { AuthRepository } from '../modules/auth/auth.repository.js';
 import { logger } from '../config/logger.js';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function extractToken(socket) {
   // Token via auth payload (preferred)
   const authToken = socket.handshake?.auth?.token;
@@ -51,9 +53,16 @@ export async function socketAuthMiddleware(socket, next) {
     }
 
     const scope = decoded.scope || 'tenant';
-    if (!decoded.sub || !decoded.tenantId || !decoded.sessionId) {
+    if (!decoded.sub || !decoded.tenantId || !decoded.sessionId || !UUID_RE.test(decoded.sessionId)) {
       const err = new Error('Invalid token claims');
       err.data = { code: 'INVALID_TOKEN_CLAIMS' };
+      return next(err);
+    }
+
+    // Phase 28: a signed-out or revoked session cannot open new sockets
+    if (!(await new AuthRepository().isSessionActive(decoded.sessionId, decoded.sub))) {
+      const err = new Error('Session has ended');
+      err.data = { code: 'SESSION_REVOKED' };
       return next(err);
     }
 

@@ -5,8 +5,13 @@ import { hashPassword, verifyPassword } from './password.util.js';
 import { parseExpiry } from './token-expiry.util.js';
 import { randomUUID } from 'node:crypto';
 import { getPrismaClient } from '../../config/database.js';
+import { env } from '../../config/env.js';
+import { logger } from '../../config/logger.js';
 
 const PLATFORM_TENANT_SLUG = '__platform';
+
+// One-time tokens (reset / verification) may be echoed to the caller only where there is no real email delivery
+const EXPOSE_DEV_TOKENS = env.NODE_ENV === 'development' || env.NODE_ENV === 'test';
 
 export class AuthService {
   constructor() {
@@ -67,19 +72,19 @@ export class AuthService {
     return this.toSafeUser(user);
   }
 
-  async login(data) {
+  async login(data, client = {}) {
     const { email, password, scope, tenantId, tenantSlug } = data;
     const resolvedScope = scope || 'tenant';
 
     if (resolvedScope === 'platform') {
-      return this.platformLogin(email, password);
+      return this.platformLogin(email, password, client);
     }
 
     // TENANT scope
-    return this.tenantLogin({ email, password, tenantId, tenantSlug });
+    return this.tenantLogin({ email, password, tenantId, tenantSlug }, client);
   }
 
-  async platformLogin(email, password) {
+  async platformLogin(email, password, client = {}) {
     // Find user by email globally
     const user = await this.repository.findUserByEmail(email);
     if (!user) {
@@ -129,7 +134,7 @@ export class AuthService {
 
     const sessionId = randomUUID();
     const accessToken = this.generateAccessToken(user, sessionId, platformTenantId, 'platform');
-    const refreshToken = await this.generateRefreshToken(user, sessionId, platformTenantId);
+    const refreshToken = await this.generateRefreshToken(user, sessionId, platformTenantId, client);
 
     return {
       user: this.toSafeUser(user, platformTenantId, 'platform'),
@@ -140,7 +145,7 @@ export class AuthService {
     };
   }
 
-  async tenantLogin({ email, password, tenantId, tenantSlug }) {
+  async tenantLogin({ email, password, tenantId, tenantSlug }, client = {}) {
     let resolvedTenantId = tenantId;
     let resolvedTenant = null;
 
@@ -260,7 +265,7 @@ export class AuthService {
 
     const sessionId = randomUUID();
     const accessToken = this.generateAccessToken(user, sessionId, effectiveTenantId, 'tenant');
-    const refreshToken = await this.generateRefreshToken(user, sessionId, effectiveTenantId);
+    const refreshToken = await this.generateRefreshToken(user, sessionId, effectiveTenantId, client);
 
     return {
       user: this.toSafeUser(user, effectiveTenantId, 'tenant'),
@@ -271,7 +276,7 @@ export class AuthService {
     };
   }
 
-  async refresh(data) {
+  async refresh(data, client = {}) {
     const { refreshToken } = data;
 
     const tokenHash = AuthRepository.hashToken(refreshToken);
@@ -292,7 +297,13 @@ export class AuthService {
     }
 
     if (storedToken.revokedAt) {
-      await this.repository.revokeAllUserRefreshTokens(storedToken.userId);
+      // Replay of a rotated token means this session's chain leaked: end that session (its whole token family).
+      // Legacy tokens have no session id, so fall back to signing the user out everywhere.
+      if (storedToken.sessionId) {
+        await this.repository.revokeSession(storedToken.sessionId, storedToken.userId, storedToken.tenantId);
+      } else {
+        await this.repository.revokeAllUserRefreshTokens(storedToken.userId);
+      }
       throw new AppError('Refresh token has been revoked', {
         statusCode: 401,
         code: 'REFRESH_TOKEN_REVOKED',
@@ -346,6 +357,9 @@ export class AuthService {
       }
     }
 
+    // The session survives rotation; legacy tokens (pre-Phase 28) start a session on first refresh
+    const sessionId = storedToken.sessionId ?? randomUUID();
+
     // Perform refresh token rotation atomically using Prisma transaction
     const newRefreshTokenRaw = AuthRepository.generateSecureToken();
     const newTokenHash = AuthRepository.hashToken(newRefreshTokenRaw);
@@ -371,11 +385,13 @@ export class AuthService {
           userId: user.id,
           tokenHash: newTokenHash,
           expiresAt: new Date(Date.now() + parseExpiry('7d')),
+          sessionId,
+          userAgent: client.userAgent ?? storedToken.userAgent ?? null,
+          ipAddress: client.ipAddress ?? storedToken.ipAddress ?? null,
+          lastUsedAt: new Date(),
         },
       });
     });
-
-    const sessionId = randomUUID();
 
     return {
       user: this.toSafeUser(user, storedToken.tenantId, scope),
@@ -395,6 +411,83 @@ export class AuthService {
     }
 
     return { success: true, message: 'Logged out successfully' };
+  }
+
+  // ── Phase 28: account self-service ─────────────────────────────────
+
+  async findActiveUser(userId) {
+    const user = await this.repository.findUserById(userId);
+    if (!user || user.status !== 'ACTIVE') {
+      throw new AppError('User not found or inactive', { statusCode: 401, code: 'USER_NOT_FOUND' });
+    }
+    return user;
+  }
+
+  /** Changes the password and signs out every other session; the caller's session stays valid. */
+  async changePassword(userId, sessionId, { currentPassword, newPassword }) {
+    const user = await this.findActiveUser(userId);
+    // 400, not 401: a wrong current password must not look like an expired login to the client
+    if (!(await verifyPassword(user.passwordHash, currentPassword))) {
+      throw new AppError('Current password is incorrect', { statusCode: 400, code: 'INVALID_CURRENT_PASSWORD' });
+    }
+    if (await verifyPassword(user.passwordHash, newPassword)) {
+      throw new AppError('New password must be different from the current password', { statusCode: 400, code: 'PASSWORD_UNCHANGED' });
+    }
+
+    await this.repository.updateUser(userId, { passwordHash: await hashPassword(newPassword) });
+    const { count } = await this.repository.revokeUserSessions(userId, { keepSessionId: sessionId });
+    return { success: true, otherSessionsRevoked: count };
+  }
+
+  async updateMe(userId, tenantId, { firstName, lastName }) {
+    await this.findActiveUser(userId);
+    await this.repository.updateUser(userId, {
+      ...(firstName !== undefined ? { firstName } : {}),
+      ...(lastName !== undefined ? { lastName } : {}),
+    });
+    return this.getMe(userId, tenantId, 'tenant');
+  }
+
+  async resendVerification(userId, tenantId) {
+    const user = await this.findActiveUser(userId);
+    if (user.emailVerified) {
+      throw new AppError('Email is already verified', { statusCode: 409, code: 'EMAIL_ALREADY_VERIFIED' });
+    }
+    // Only the newest link works
+    await this.repository.invalidateUnusedEmailVerificationTokens(userId);
+    const devToken = await this.sendEmailVerification(userId, tenantId);
+    return { success: true, ...(devToken ? { devToken } : {}) };
+  }
+
+  async listSessions(userId, tenantId, currentSessionId) {
+    const tokens = await this.repository.findActiveSessionTokens(userId, tenantId);
+    const sessions = new Map();
+    for (const t of tokens) {
+      if (sessions.has(t.sessionId)) continue; // newest token per session wins (ordered desc)
+      sessions.set(t.sessionId, {
+        id: t.sessionId,
+        current: t.sessionId === currentSessionId,
+        userAgent: t.userAgent,
+        ipAddress: t.ipAddress,
+        createdAt: t.startedAt,
+        lastUsedAt: t.lastUsedAt ?? t.createdAt,
+        expiresAt: t.expiresAt,
+      });
+    }
+    return [...sessions.values()];
+  }
+
+  async revokeSession(userId, tenantId, sessionId) {
+    const { count } = await this.repository.revokeSession(sessionId, userId, tenantId);
+    if (count === 0) {
+      throw new AppError('Session not found', { statusCode: 404, code: 'SESSION_NOT_FOUND' });
+    }
+    return { success: true };
+  }
+
+  async logoutAll(userId) {
+    const { count } = await this.repository.revokeUserSessions(userId);
+    return { success: true, sessionsRevoked: count };
   }
 
   async forgotPassword(data) {
@@ -448,7 +541,7 @@ export class AuthService {
     return {
       success: true,
       message: 'If the email exists, a reset link has been sent',
-      devToken: rawToken,
+      ...(EXPOSE_DEV_TOKENS ? { devToken: rawToken } : {}),
     };
   }
 
@@ -597,7 +690,7 @@ export class AuthService {
     });
   }
 
-  async generateRefreshToken(user, _sessionId, tenantId = user.memberships?.[0]?.tenantId) {
+  async generateRefreshToken(user, sessionId, tenantId = user.memberships?.[0]?.tenantId, client = {}) {
     const rawToken = AuthRepository.generateSecureToken();
     const tokenHash = AuthRepository.hashToken(rawToken);
     const expiresAt = new Date(Date.now() + parseExpiry('7d'));
@@ -607,6 +700,9 @@ export class AuthService {
       userId: user.id,
       tokenHash,
       expiresAt,
+      sessionId,
+      userAgent: client.userAgent,
+      ipAddress: client.ipAddress,
     });
 
     return rawToken;
@@ -624,9 +720,11 @@ export class AuthService {
       expiresAt,
     });
 
-    // Development only - in production this would send an email
-    // eslint-disable-next-line no-console
-    console.log(`[DEV] Email verification token for user ${userId}: ${rawToken}`);
+    // No email delivery yet: surface the token only in development/test, never in deployed logs
+    if (EXPOSE_DEV_TOKENS) {
+      logger.info({ userId }, `[DEV] Email verification token: ${rawToken}`);
+    }
+    return EXPOSE_DEV_TOKENS ? rawToken : undefined;
   }
 
   toSafeUser(user, tenantIdOverride = null, scope = null) {

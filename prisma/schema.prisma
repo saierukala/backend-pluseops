@@ -257,9 +257,16 @@ model RefreshToken {
   expiresAt DateTime @db.Timestamptz(6) @map("expires_at")
   revokedAt DateTime? @db.Timestamptz(6) @map("revoked_at")
   createdAt DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  // Phase 28: login session carried across rotation (= JWT sessionId); null for legacy rows
+  sessionId  String?   @db.Uuid @map("session_id")
+  userAgent  String?   @db.VarChar(512) @map("user_agent")
+  ipAddress  String?   @db.VarChar(64) @map("ip_address")
+  lastUsedAt DateTime? @db.Timestamptz(6) @map("last_used_at")
 
   @@index([tenantId, userId])
   @@index([tokenHash])
+  @@index([sessionId])
+  @@index([userId, revokedAt])
   @@map("refresh_tokens")
 }
 

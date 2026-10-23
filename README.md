@@ -230,6 +230,12 @@ Never commit `.env`. The repository `.gitignore` excludes `.env` and `.dockerign
 | POST | `/api/v1/auth/reset-password` | Reset password |
 | POST | `/api/v1/auth/verify-email` | Verify email |
 | GET | `/api/v1/auth/me` | Get current user profile, roles and effective permission names |
+| PATCH | `/api/v1/auth/me` | Update own first/last name |
+| POST | `/api/v1/auth/change-password` | Change own password (current + new); signs out other sessions |
+| POST | `/api/v1/auth/resend-verification` | Resend email verification (409 if already verified) |
+| GET | `/api/v1/auth/sessions` | List own active sessions (device, IP, last used, `current`) |
+| DELETE | `/api/v1/auth/sessions/:sessionId` | Revoke one session — its tokens stop working immediately |
+| POST | `/api/v1/auth/logout-all` | Sign out of every session |
 | GET | `/api/v1/users` | List users (tenant-scoped, paginated, search, filter, sort) |
 | GET | `/api/v1/users/:id` | Get user by ID (tenant-scoped) |
 | PATCH | `/api/v1/users/:id` | Update user (firstName, lastName, status) |

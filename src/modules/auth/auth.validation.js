@@ -52,3 +52,29 @@ export const verifyEmailSchema = z.object({
     token: z.string().min(1),
   }),
 });
+// ── Phase 28: account self-service ───────────────────────────────────
+
+const strongPassword = z.string().min(8).max(128).regex(/[A-Z]/).regex(/[a-z]/).regex(/[0-9]/).regex(/[^A-Za-z0-9]/);
+
+export const changePasswordSchema = z.object({
+  body: z.object({
+    currentPassword: z.string().min(1).max(128),
+    newPassword: strongPassword,
+  }).strict(),
+});
+
+// Only display-name fields: email, status and password have their own flows
+export const updateMeSchema = z.object({
+  body: z.object({
+    firstName: z.string().trim().min(1).max(100).optional(),
+    lastName: z.string().trim().min(1).max(100).optional(),
+  }).strict().refine((data) => Object.keys(data).length > 0, {
+    message: 'At least one field is required',
+  }),
+});
+
+export const sessionIdParamSchema = z.object({
+  params: z.object({
+    sessionId: z.string().uuid(),
+  }),
+});
