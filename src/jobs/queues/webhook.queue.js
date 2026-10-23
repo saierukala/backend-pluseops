@@ -7,7 +7,8 @@ import { recordQueueMetric } from '../../config/metrics.js';
 let webhookQueue = null;
 
 function getQueue() {
-  if (webhookQueue) return webhookQueue;
+  // A queue closed by shutdownJobs() never reconnects; build a new one instead of hanging on add().
+  if (webhookQueue && !webhookQueue.closing) return webhookQueue;
   const connection = getBullMqRedisConnection();
   if (!connection) return null;
   webhookQueue = new Queue(QUEUE_NAMES.WEBHOOK, {
