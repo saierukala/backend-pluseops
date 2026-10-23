@@ -18,6 +18,8 @@ import {
   createTenantAdminSchema,
 } from './platform.validation.js';
 import { authenticatePlatform } from '../auth/auth.middleware.js';
+import { startSupportSession, endSupportSession } from '../support/support.controller.js';
+import { startSupportSessionSchema, endSupportSessionSchema } from '../support/support.validation.js';
 import { authorizePlatform } from '../auth/authorization.middleware.js';
 
 function validate(schema) {
@@ -70,3 +72,6 @@ platformRouter.get('/tenants/:id', validate(getTenantParamsSchema), authorizePla
 platformRouter.patch('/tenants/:id', validate(updateTenantSchema), authorizePlatform('platform:tenant:update'), updateTenant);
 platformRouter.patch('/tenants/:id/status', validate(updateTenantStatusSchema), authorizePlatform('platform:tenant:suspend'), updateTenantStatus);
 platformRouter.post('/tenants/:id/admin', validate(createTenantAdminSchema), authorizePlatform('platform:tenant:create'), createTenantAdmin);
+// Phase 30 (F33): read-only support access to a tenant workspace
+platformRouter.post('/tenants/:id/support-sessions', validate(startSupportSessionSchema), authorizePlatform('platform:tenant:access'), startSupportSession);
+platformRouter.delete('/support-sessions/:sessionId', validate(endSupportSessionSchema), authorizePlatform('platform:tenant:access'), endSupportSession);

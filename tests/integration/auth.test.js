@@ -498,7 +498,7 @@ describe('Authentication endpoints', () => {
       const rawToken = AuthRepository.generateSecureToken();
 
       // Create a fresh verification token
-      const user = await prisma.user.findUnique({ where: { tenantId_email: { tenantId: testTenantId, email: testUserEmail } } });
+      const user = await prisma.user.findUnique({ where: { email: testUserEmail } });
       const repo = new (await import('../../src/modules/auth/auth.repository.js')).AuthRepository();
       await repo.createEmailVerificationToken({
         tenantId: testTenantId,
@@ -516,7 +516,7 @@ describe('Authentication endpoints', () => {
       expect(response.body.message).toBe('Email verified successfully');
 
       // Verify emailVerified is now true
-      const verifiedUser = await prisma.user.findUnique({ where: { tenantId_email: { tenantId: testTenantId, email: testUserEmail } } });
+      const verifiedUser = await prisma.user.findUnique({ where: { email: testUserEmail } });
       expect(verifiedUser.emailVerified).toBe(true);
     });
 
@@ -532,7 +532,7 @@ describe('Authentication endpoints', () => {
     it('rejects expired verification token', async () => {
       const { AuthRepository } = await import('../../src/modules/auth/auth.repository.js');
       const repo = new AuthRepository();
-      const user = await prisma.user.findUnique({ where: { tenantId_email: { tenantId: testTenantId, email: testUserEmail } } });
+      const user = await prisma.user.findUnique({ where: { email: testUserEmail } });
       const expiredToken = AuthRepository.generateSecureToken();
       const tokenHash = AuthRepository.hashToken(expiredToken);
       await repo.createEmailVerificationToken({
@@ -553,7 +553,7 @@ describe('Authentication endpoints', () => {
     it('rejects already-used verification token', async () => {
       const { AuthRepository } = await import('../../src/modules/auth/auth.repository.js');
       const repo = new AuthRepository();
-      const user = await prisma.user.findUnique({ where: { tenantId_email: { tenantId: testTenantId, email: testUserEmail } } });
+      const user = await prisma.user.findUnique({ where: { email: testUserEmail } });
       const token = AuthRepository.generateSecureToken();
       const tokenHash = AuthRepository.hashToken(token);
       await repo.createEmailVerificationToken({

@@ -211,6 +211,17 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'POST /api/v1/customers/{id}/addresses',
     'PATCH /api/v1/customers/{id}/addresses/{addressId}',
     'DELETE /api/v1/customers/{id}/addresses/{addressId}',
+    // Tenant workspace + support sessions (Phase 30) 10
+    'GET /api/v1/workspace',
+    'PATCH /api/v1/workspace',
+    'GET /api/v1/workspace/settings',
+    'PATCH /api/v1/workspace/settings',
+    'GET /api/v1/workspace/domains',
+    'POST /api/v1/workspace/domains',
+    'PATCH /api/v1/workspace/domains/{domainId}',
+    'DELETE /api/v1/workspace/domains/{domainId}',
+    'POST /api/v1/platform/tenants/{id}/support-sessions',
+    'DELETE /api/v1/platform/support-sessions/{sessionId}',
   ];
 
   it('OpenAPI JSON endpoint responds successfully', async () => {

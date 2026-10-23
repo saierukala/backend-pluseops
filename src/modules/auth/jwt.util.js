@@ -18,9 +18,9 @@ if (isProduction && (!env.JWT_ACCESS_SECRET || !env.JWT_REFRESH_SECRET)) {
   throw new Error('JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must be set in production');
 }
 
-export function signAccessToken(payload) {
+export function signAccessToken(payload, { expiresIn = env.JWT_ACCESS_EXPIRY } = {}) {
   return jwt.sign(payload, accessSecret, {
-    expiresIn: env.JWT_ACCESS_EXPIRY,
+    expiresIn,
     issuer: 'pulseops',
     audience: 'pulseops-api',
     algorithm: 'HS256',

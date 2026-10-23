@@ -35,7 +35,7 @@ export const SYSTEM_PERMISSIONS = [
 
 // Global platform permissions (no tenantId), granted to platform roles only.
 export const PLATFORM_PERMISSIONS = [
-  ...perms('platform:tenant', ['create', 'read', 'update', 'suspend', 'delete']),
+  ...perms('platform:tenant', ['create', 'read', 'update', 'suspend', 'delete', 'access']),
   ...perms('platform:billing', ['read', 'update']),
 ];
 

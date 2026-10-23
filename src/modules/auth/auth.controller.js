@@ -1,4 +1,5 @@
 import { AuthService } from './auth.service.js';
+import { supportService } from '../support/support.service.js';
 
 const authService = new AuthService();
 
@@ -115,7 +116,7 @@ export async function me(req, res, next) {
       });
     }
 
-    const user = await authService.getMe(userId, tenantId, scope);
+    const user = scope === 'support' ? await supportService.describe(req.context) : await authService.getMe(userId, tenantId, scope);
     res.status(200).json({
       success: true,
       data: user,

@@ -1,0 +1,124 @@
+import { getPrismaClient } from '../../config/database.js';
+import { AppError } from '../../common/errors/app-error.js';
+import { WorkspaceRepository } from './workspace.repository.js';
+import { auditService } from '../audit/audit.service.js';
+
+export const SETTING_KEYS = ['currency', 'timezone', 'locale', 'contactEmail', 'contactPhone'];
+
+// The same message whether the domain is this tenant's or another's, so the API doesn't reveal who owns it.
+const domainTaken = () => new AppError('This domain is already registered', { statusCode: 409, code: 'DOMAIN_TAKEN' });
+const domainNotFound = () => new AppError('Domain not found', { statusCode: 404, code: 'DOMAIN_NOT_FOUND' });
+
+export function toSettings(metadata) {
+  const settings = {};
+  for (const key of SETTING_KEYS) settings[key] = metadata?.[key] ?? null;
+  return settings;
+}
+
+function toDomain(d) {
+  return { id: d.id, domain: d.domain, primary: d.primary, verified: d.verified, createdAt: d.createdAt, updatedAt: d.updatedAt };
+}
+
+export class WorkspaceService {
+  constructor() {
+    this.repository = new WorkspaceRepository();
+    this.prisma = getPrismaClient();
+  }
+
+  async log(tx, auditContext, { tenantId, action, resource, resourceId, oldValue, newValue, activity, description }) {
+    const { userId = null, ipAddress = null, userAgent = null } = auditContext;
+    await auditService.logAudit({ tenantId, userId, action, resource, resourceId, oldValue, newValue, ipAddress, userAgent, tx });
+    await auditService.logActivity({ tenantId, userId, action: activity, description, metadata: { resourceId }, ipAddress, userAgent, tx });
+  }
+
+  async get(tenantId) {
+    const tenant = await this.repository.findTenant(tenantId);
+    if (!tenant) throw new AppError('Tenant not found', { statusCode: 404, code: 'TENANT_NOT_FOUND' });
+    const { settings, domains, ...profile } = tenant;
+    return { ...profile, settings: toSettings(settings?.metadata), domains: domains.map(toDomain) };
+  }
+
+  async updateName(tenantId, name, auditContext = {}) {
+    const before = await this.get(tenantId);
+    await this.prisma.$transaction(async (tx) => {
+      await this.repository.updateTenantName(tenantId, name, tx);
+      await this.log(tx, auditContext, {
+        tenantId, action: 'UPDATE', resource: 'tenant', resourceId: tenantId, oldValue: { name: before.name }, newValue: { name },
+        activity: 'tenant.update', description: 'Workspace renamed',
+      });
+    });
+    return this.get(tenantId);
+  }
+
+  async getSettings(tenantId) {
+    return toSettings((await this.repository.findSettings(tenantId))?.metadata);
+  }
+
+  // Partial update: given keys are set, null clears them, other stored metadata is kept.
+  async updateSettings(tenantId, changes, auditContext = {}) {
+    return this.prisma.$transaction(async (tx) => {
+      const current = (await this.repository.findSettings(tenantId, tx))?.metadata ?? {};
+      const next = { ...current };
+      for (const [key, value] of Object.entries(changes)) {
+        if (value === null) delete next[key];
+        else next[key] = value;
+      }
+      await this.repository.saveSettings(tenantId, next, tx);
+      await this.log(tx, auditContext, {
+        tenantId, action: 'UPDATE', resource: 'tenant_settings', resourceId: tenantId,
+        oldValue: toSettings(current), newValue: toSettings(next),
+        activity: 'tenant.settings.update', description: `Workspace settings updated (${Object.keys(changes).join(', ')})`,
+      });
+      return toSettings(next);
+    });
+  }
+
+  async listDomains(tenantId) {
+    return (await this.repository.listDomains(tenantId)).map(toDomain);
+  }
+
+  async addDomain(tenantId, domain, auditContext = {}) {
+    if (await this.repository.findDomainByName(domain)) throw domainTaken();
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const created = await this.repository.createDomain(tenantId, domain, tx);
+        await this.repository.ensurePrimary(tenantId, tx);
+        await this.log(tx, auditContext, {
+          tenantId, action: 'CREATE', resource: 'tenant_domain', resourceId: created.id, oldValue: null, newValue: { domain },
+          activity: 'tenant.domain.create', description: `Domain ${domain} added`,
+        });
+        return toDomain(await this.repository.findDomain(created.id, tenantId, tx));
+      });
+    } catch (err) {
+      if (err?.code === 'P2002') throw domainTaken();
+      throw err;
+    }
+  }
+
+  async makePrimary(tenantId, domainId, auditContext = {}) {
+    const existing = await this.repository.findDomain(domainId, tenantId);
+    if (!existing) throw domainNotFound();
+    if (existing.primary) return toDomain(existing);
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await this.repository.setPrimary(domainId, tenantId, tx);
+      await this.log(tx, auditContext, {
+        tenantId, action: 'UPDATE', resource: 'tenant_domain', resourceId: domainId, oldValue: { primary: false }, newValue: { primary: true },
+        activity: 'tenant.domain.primary', description: `Domain ${existing.domain} made primary`,
+      });
+      return toDomain(updated);
+    });
+  }
+
+  async removeDomain(tenantId, domainId, auditContext = {}) {
+    const existing = await this.repository.findDomain(domainId, tenantId);
+    if (!existing) throw domainNotFound();
+    await this.prisma.$transaction(async (tx) => {
+      await this.repository.deleteDomain(domainId, tx);
+      await this.repository.ensurePrimary(tenantId, tx);
+      await this.log(tx, auditContext, {
+        tenantId, action: 'DELETE', resource: 'tenant_domain', resourceId: domainId, oldValue: { domain: existing.domain }, newValue: null,
+        activity: 'tenant.domain.delete', description: `Domain ${existing.domain} removed`,
+      });
+    });
+  }
+}

@@ -231,6 +231,16 @@ Never commit `.env`. The repository `.gitignore` excludes `.env` and `.dockerign
 | POST | `/api/v1/auth/verify-email` | Verify email |
 | GET | `/api/v1/auth/me` | Get current user profile, roles and effective permission names |
 | PATCH | `/api/v1/auth/me` | Update own first/last name |
+| GET | `/api/v1/workspace` | Own tenant: profile, settings, domains (`tenant:read`) |
+| PATCH | `/api/v1/workspace` | Rename own tenant (`tenant:update`) |
+| GET | `/api/v1/workspace/settings` | Workspace settings (currency, timezone, locale, contact) |
+| PATCH | `/api/v1/workspace/settings` | Partial settings update (`null` clears) |
+| GET | `/api/v1/workspace/domains` | List domains (primary first) |
+| POST | `/api/v1/workspace/domains` | Add a domain (globally unique; first is primary; unverified) |
+| PATCH | `/api/v1/workspace/domains/:domainId` | Make a domain primary (`{ "primary": true }`) |
+| DELETE | `/api/v1/workspace/domains/:domainId` | Remove a domain |
+| POST | `/api/v1/platform/tenants/:id/support-sessions` | Platform: start a 30-min read-only support session (`platform:tenant:access`, `reason`) |
+| DELETE | `/api/v1/platform/support-sessions/:sessionId` | Platform: end your support session |
 | POST | `/api/v1/auth/change-password` | Change own password (current + new); signs out other sessions |
 | POST | `/api/v1/auth/resend-verification` | Resend email verification (409 if already verified) |
 | GET | `/api/v1/auth/sessions` | List own active sessions (device, IP, last used, `current`) |

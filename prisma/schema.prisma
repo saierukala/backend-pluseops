@@ -140,6 +140,7 @@ model Tenant {
 
   settings              TenantSettings?
   domains               TenantDomain[]
+  supportSessions       SupportSession[]
   users                 User[]
   memberships           TenantMembership[]
   roles                 Role[]
@@ -200,8 +201,28 @@ model TenantDomain {
   createdAt DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
   updatedAt DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
 
-  @@unique([tenantId, domain])
+  // A domain belongs to one tenant platform-wide (storefront resolution, Phase 32). At most one primary
+  // per tenant: partial unique index "tenant_domains_tenant_id_primary_key" (migration 20261024_phase30_tenant_workspace).
+  @@unique([domain])
+  @@index([tenantId])
   @@map("tenant_domains")
+}
+
+// Read-only platform support access to one tenant (Phase 30, frontend F33).
+model SupportSession {
+  id             String    @id @default(uuid())
+  tenantId       String    @map("tenant_id")
+  tenant         Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  platformUserId String    @map("platform_user_id")
+  platformUser   User      @relation(fields: [platformUserId], references: [id], onDelete: Cascade)
+  reason         String
+  expiresAt      DateTime  @db.Timestamptz(6) @map("expires_at")
+  endedAt        DateTime? @db.Timestamptz(6) @map("ended_at")
+  createdAt      DateTime  @db.Timestamptz(6) @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([platformUserId])
+  @@map("support_sessions")
 }
 
 model User {
@@ -226,9 +247,10 @@ model User {
   passwordResetTokens PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
   memberships         TenantMembership[]
+  supportSessions     SupportSession[]
   platformUserRoles   PlatformUserRole[]
 
-  @@unique([tenantId, email])
+  // One person = one account = one business (decided in Phase 30); email is unique platform-wide.
   @@unique([email])
   @@index([tenantId, status])
   @@index([tenantId, createdAt])

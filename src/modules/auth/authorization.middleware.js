@@ -15,6 +15,11 @@ export function authorize(permission) {
         });
       }
 
+      if (req.context.scope === 'support') {
+        if (permission.endsWith(':read')) return next();
+        throw new AppError('Support sessions are read-only', { statusCode: 403, code: 'SUPPORT_READ_ONLY' });
+      }
+
       const { userId, tenantId } = req.context;
       const prisma = getPrismaClient();
 
