@@ -2,12 +2,14 @@
 
 ## Git workflow (owner's standing instruction)
 
-- Commit every finished change and push it to `main`, in addition to the session's working branch.
-- Before pushing to `main`, run `npm run lint`, `npm test`, and the live audit (`/pulseops-audit` steps, or
-  `scripts/api-audit.js` against a server on port 3100). Push only when they pass; the known intermittent
-  `phase15 › POST /jobs/cleanup` failure must pass on re-run.
-- Fast-forward only: `git fetch origin main`, merge `origin/main` into the branch if it moved, re-run the checks,
-  then `git push origin HEAD:main`. Never force-push or rewrite `main`.
+- Never push directly to `main`. Commit finished work to the session's working branch, push it, and open a
+  pull request into `main` (one per phase or change).
+- Before pushing, run `npm run lint`, `npm test`, and the live audit (`/pulseops-audit` steps, or
+  `scripts/api-audit.js` against a server on port 3100). The known intermittent `phase15 › POST /jobs/cleanup`
+  failure must pass on re-run.
+- Merge the PR only once CI is green on its latest commit and there is no merge conflict. If `main` moved, merge
+  `origin/main` into the branch (no rebase/force-push), re-run the checks, and push.
+- Never force-push or rewrite `main`.
 - Don't commit local artifacts (`.env`, `dump.rdb`, `storage/`, logs).
 
 ## Conventions
