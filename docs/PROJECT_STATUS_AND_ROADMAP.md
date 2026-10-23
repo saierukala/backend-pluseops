@@ -72,7 +72,7 @@ refresh tokens · argon2id · Zod · Pino · Jest/Supertest · OpenAPI at `/api-
 | Dashboard & analytics (cached) | ✅ | |
 | Real-time (Socket.IO, tenant rooms) | ✅ | |
 | External providers (payment, email, SMS, shipping, maps, S3) | ✅ | mock + HTTP adapters |
-| OpenAPI / Swagger | ✅ | 141 documented operations |
+| OpenAPI / Swagger | ✅ | 150 documented operations |
 | Docker / CI | ✅ | deploy job is a placeholder (Phase 35) |
 | Storefront / cart / checkout | ❌ | Phase 32 |
 

@@ -19,3 +19,4 @@ scripts/check-platform.js
 scripts/list-tenants.js
 scripts/platform-verify.js
 scripts/verify-pw.js
+dump.rdb
