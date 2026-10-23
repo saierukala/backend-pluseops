@@ -59,6 +59,7 @@ This document is the Phase 23 production reference. It covers environment variab
 | `FAIL_ON_DEPENDENCY_ERROR` | No | `true` in prod, `false` otherwise | When `true`, missing Postgres/Redis stops startup (correct for prod). |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | **Yes** (prod) | — | Min 32 chars. Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Optional in `test`. |
 | `STORAGE_SIGNING_SECRET` | **Yes** (prod) | derived from `JWT_ACCESS_SECRET` outside production | Min 32 chars, must differ from `JWT_ACCESS_SECRET`. Signs storage download URLs (Phase 34). Both the API and the worker need it. |
+| `CREDENTIALS_ENCRYPTION_KEY` | **Yes** to use Razorpay (prod) | derived from `JWT_ACCESS_SECRET` outside production | Min 32 chars, must differ from `JWT_ACCESS_SECRET`. AES-256-GCM key for each shop's stored Razorpay secrets (Phase 35). Without it, production refuses to save Razorpay keys (503). Changing it makes stored keys unreadable — shops re-enter them. API needs it (the worker does not). |
 | `JWT_ACCESS_EXPIRY` / `JWT_REFRESH_EXPIRY` | No | `15m` / `7d` | |
 | `PASSWORD_RESET_EXPIRY` / `EMAIL_VERIFICATION_EXPIRY` | No | `1h` / `24h` | |
 | `PAYMENT_WEBHOOK_SECRET` | No | `test-webhook-secret-…` | HMAC for `x-webhook-signature`/`x-payment-signature`. Must be set in prod. |
@@ -66,7 +67,10 @@ This document is the Phase 23 production reference. It covers environment variab
 | `STORAGE_PROVIDER` | No | `local` | `local` (dev) / `s3` (prod). See § 5. |
 | `LOCAL_STORAGE_PATH` / `LOCAL_STORAGE_URL` | No | `./storage` / `/storage` | Only when `STORAGE_PROVIDER=local`. |
 | `S3_BUCKET` / `S3_REGION` / `S3_ENDPOINT` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_PUBLIC_BASE_URL` / `S3_FORCE_PATH_STYLE` / `STORAGE_TIMEOUT_MS` | When `s3` | — | See § 5. |
-| `EMAIL_PROVIDER` / `SMS_PROVIDER` / `SHIPPING_PROVIDER` / `MAPS_PROVIDER` + `*_URL`/`*_API_KEY`/`*_TIMEOUT_MS` | No | `mock` | Provider adapters (Phase 16). |
+| `SMTP_URL` / `EMAIL_FROM` | **Yes** for real email | unset → mock (logs only) | Phase 35. `smtp(s)://user:pass@host:port` (URL-encode `@` in the user as `%40`), e.g. Brevo `smtp://login%40smtp-brevo.com:KEY@smtp-relay.brevo.com:587`. Needed by the **worker** (it sends) and the API (inline send when Redis is down). |
+| `APP_URL` | Yes (prod) | first `CORS_ORIGINS` entry | Staff web app origin; verification links go to `/verify-email?token=`, reset links to `/reset-password?token=`. Needed by the API. |
+| `RAZORPAY_API_URL` / `RAZORPAY_TIMEOUT_MS` | No | `https://api.razorpay.com/v1` / `10000` | Phase 35. Keys are per shop (workspace settings), not env vars. Each shop sets the webhook URL `https://<api>/api/v1/payments/webhook/razorpay/<tenantId>` (events `payment.captured`, `order.paid`) in its Razorpay dashboard. |
+| `EMAIL_PROVIDER` / `SMS_PROVIDER` / `SHIPPING_PROVIDER` / `MAPS_PROVIDER` + `*_URL`/`*_API_KEY`/`*_TIMEOUT_MS` | No | `mock` (`smtp` for email when `SMTP_URL` is set) | Provider adapters (Phase 16). |
 
 ### 2.2 Local development
 
@@ -88,7 +92,11 @@ CORS_ORIGINS=https://app.example.com,https://admin.example.com
 JWT_ACCESS_SECRET=<64-hex>
 JWT_REFRESH_SECRET=<64-hex>
 STORAGE_SIGNING_SECRET=<64-hex>
+CREDENTIALS_ENCRYPTION_KEY=<64-hex>
 PAYMENT_WEBHOOK_SECRET=<64-hex>
+SMTP_URL=smtp://login%40smtp-brevo.com:<key>@smtp-relay.brevo.com:587
+EMAIL_FROM=Your Brand <no-reply@your-domain.com>
+APP_URL=https://app.example.com
 STORAGE_PROVIDER=s3
 S3_BUCKET=pulseops-prod-assets
 S3_REGION=us-east-1

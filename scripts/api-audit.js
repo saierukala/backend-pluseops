@@ -540,6 +540,21 @@ async function main() {
   await check('unverified domain does not resolve', 'GET', `/storefront/resolve?host=www.audit-${RUN}.invalid`, 404);
   await check('verify without DNS record 422', 'POST', `/workspace/domains/${data(sfDomain)?.id}/verify`, 422, { token: A });
 
+  // ── Razorpay per shop (Phase 35) ─────────────────────────────────────
+  group = 'razorpay';
+  await check('gateway starts unconfigured', 'GET', '/workspace/payment-gateway', 200, { token: A, assert: (r) => data(r)?.configured === false && data(r)?.webhookUrlPath === `/api/v1/payments/webhook/razorpay/${tenantA.id}` });
+  await check('store says online payment off', 'GET', SF, 200, { assert: (r) => data(r)?.onlinePayment?.enabled === false });
+  record('without Razorpay, checkout payment has no checkout block', data(placedOrder)?.payment?.checkout === null, 'checkout block present without a gateway');
+  await check('staff cannot connect Razorpay', 'PUT', '/workspace/payment-gateway', 403, { token: S, body: { keyId: 'rzp_test_AuditKey0001', keySecret: 'audit-secret-123' } });
+  await check('malformed key id 400', 'PUT', '/workspace/payment-gateway', 400, { token: A, body: { keyId: 'pk_test_123', keySecret: 'audit-secret-123' } });
+  // Razorpay itself is asked: made-up keys are rejected (422), or 502 where Razorpay can't be reached
+  await check('made-up keys not saved', 'PUT', '/workspace/payment-gateway', [422, 502], { token: A, body: { keyId: 'rzp_test_AuditKey0001', keySecret: 'audit-secret-123' } });
+  await check('still unconfigured', 'GET', '/workspace/payment-gateway', 200, { token: A, assert: (r) => data(r)?.configured === false });
+  await check('webhook: bad tenant id 400', 'POST', '/payments/webhook/razorpay/not-a-uuid', 400, { body: { event: 'payment.captured' } });
+  await check('webhook: unsigned 401', 'POST', `/payments/webhook/razorpay/${tenantA.id}`, 401, { body: { event: 'payment.captured' } });
+  await check('verify needs a shopper', 'POST', `${SF}/account/payments/${data(placedOrder)?.payment?.id}/verify`, 401, { body: { razorpayOrderId: 'order_x', razorpayPaymentId: 'pay_x', razorpaySignature: 'a'.repeat(64) } });
+  await check('disconnect when none 404', 'DELETE', '/workspace/payment-gateway', 404, { token: A });
+
   // ── Platform operations (Phase 33) ───────────────────────────────────
   group = 'platform-ops';
   await check('platform overview', 'GET', '/platform/overview', 200, { token: P, assert: (r) => data(r)?.tenants?.total >= 2 });

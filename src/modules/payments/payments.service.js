@@ -7,6 +7,7 @@ import { env } from '../../config/env.js';
 import { emitPaymentCompleted } from '../../realtime/realtime.service.js';
 import { createPaymentProvider } from '../../integrations/payment/payment.provider.js';
 import { IntegrationError } from '../../integrations/errors/integration-error.js';
+import { razorpayPaymentsService, PROVIDER as RAZORPAY, RAZORPAY_TX_OPTIONS } from './razorpay-payments.service.js';
 
 const PAYMENT_TRANSITIONS = {
   PENDING: ['PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED'],
@@ -239,7 +240,11 @@ export class PaymentService {
         throw new AppError(`Refund not allowed in payment status ${freshPayment.status}`, { statusCode: 409, code: 'INVALID_REFUND_STATE' });
       }
 
-      const providerRefundId = `ref_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+      // Phase 35: money taken through the shop's Razorpay goes back through it (row locked, checks above passed)
+      let providerRefundId = `ref_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
+      if (freshPayment.provider === RAZORPAY) {
+        ({ providerRefundId } = await razorpayPaymentsService.refundAtProvider(freshPayment, fromCents(requestedCents), { reason }));
+      }
 
       const refund = await tx.refund.create({
         data: {
@@ -281,7 +286,7 @@ export class PaymentService {
         where: { id: paymentId, tenantId },
         include: { transactions: true, refunds: true, order: true },
       });
-    });
+    }, payment.provider === RAZORPAY ? RAZORPAY_TX_OPTIONS : undefined);
 
     return result;
   }

@@ -50,3 +50,6 @@ export const refundPaymentSchema = z.object({
     metadata: z.record(z.string(), z.unknown()).optional(),
   }).strict(),
 });
+
+// Phase 35: Razorpay's body is verified byte-for-byte (rawBody) in the service; only the tenant id is checked here
+export const razorpayWebhookSchema = z.object({ params: z.object({ tenantId: z.string().uuid() }), body: z.any() });

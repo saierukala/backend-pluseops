@@ -40,6 +40,10 @@ const envSchema = z.object({
   // Phase 34: HMAC key for signed storage URLs, separate from the JWT secrets. Required in production; elsewhere a
   // key is derived from JWT_ACCESS_SECRET so local setups keep working.
   STORAGE_SIGNING_SECRET: process.env.NODE_ENV === 'production' ? z.string().min(32) : z.string().min(32).optional(),
+  // Phase 35: AES-256-GCM key for secrets stored in the database (each shop's Razorpay keys). In production, saving
+  // such secrets is refused until it is set; elsewhere a key is derived from JWT_ACCESS_SECRET. Changing it makes the
+  // stored secrets unreadable (shops re-enter them).
+  CREDENTIALS_ENCRYPTION_KEY: z.string().min(32).optional(),
   JWT_ACCESS_EXPIRY: z.string().default('15m'),
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
   PASSWORD_RESET_EXPIRY: z.string().default('1h'),
@@ -49,6 +53,9 @@ const envSchema = z.object({
   PAYMENT_PROVIDER_URL: z.string().url().optional(),
   PAYMENT_PROVIDER_API_KEY: z.string().optional(),
   PAYMENT_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  // Phase 35: Razorpay API base (overridable for tests/sandboxes); keys are per shop, not here
+  RAZORPAY_API_URL: z.string().url().default('https://api.razorpay.com/v1'),
+  RAZORPAY_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   // Phase 32: optional; <slug>.<STOREFRONT_BASE_DOMAIN> resolves to that tenant's store
   STOREFRONT_BASE_DOMAIN: z.string().optional(),
   STORAGE_PROVIDER: z.enum(['local', 's3']).default('local'),
@@ -62,7 +69,13 @@ const envSchema = z.object({
   S3_PUBLIC_BASE_URL: z.string().url().optional(),
   S3_FORCE_PATH_STYLE: booleanFromString.default(false),
   STORAGE_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
-  EMAIL_PROVIDER: z.string().default('mock'),
+  // Phase 35: unset = 'smtp' when SMTP_URL is set, else 'mock'
+  EMAIL_PROVIDER: z.string().optional(),
+  // smtp(s)://user:pass@host:port, e.g. Brevo smtp://login%40smtp-brevo.com:KEY@smtp-relay.brevo.com:587
+  SMTP_URL: z.string().url().optional(),
+  EMAIL_FROM: z.string().default('PulseOps <no-reply@pulseops.local>'),
+  // Staff web app; links in verification / password-reset emails point here (default: first CORS origin)
+  APP_URL: z.string().url().optional(),
   EMAIL_PROVIDER_URL: z.string().url().optional(),
   EMAIL_PROVIDER_API_KEY: z.string().optional(),
   EMAIL_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
@@ -80,7 +93,8 @@ const envSchema = z.object({
   MAPS_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
 });
 
-const parsed = envSchema.safeParse(process.env);
+// An empty variable (e.g. compose's `${S3_ENDPOINT:-}`) counts as unset, so optional values and defaults apply.
+const parsed = envSchema.safeParse(Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== '')));
 if (!parsed.success) {
   const issues = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ');
   throw new Error(`Invalid environment configuration: ${issues}`);
@@ -90,6 +104,9 @@ const corsOrigins = parsed.data.CORS_ORIGINS.split(',').map((origin) => origin.t
 
 if (parsed.data.NODE_ENV === 'production' && parsed.data.STORAGE_SIGNING_SECRET === parsed.data.JWT_ACCESS_SECRET) {
   throw new Error('STORAGE_SIGNING_SECRET must differ from JWT_ACCESS_SECRET');
+}
+if (parsed.data.NODE_ENV === 'production' && parsed.data.CREDENTIALS_ENCRYPTION_KEY === parsed.data.JWT_ACCESS_SECRET) {
+  throw new Error('CREDENTIALS_ENCRYPTION_KEY must differ from JWT_ACCESS_SECRET');
 }
 
 // Production CORS safety: require explicit origins, reject wildcard with credentials
@@ -105,6 +122,8 @@ if (parsed.data.NODE_ENV === 'production') {
 
 export const env = {
   ...parsed.data,
+  EMAIL_PROVIDER: parsed.data.EMAIL_PROVIDER || (parsed.data.SMTP_URL ? 'smtp' : 'mock'),
+  APP_URL: (parsed.data.APP_URL || corsOrigins[0] || 'http://localhost:5173').replace(/\/$/, ''),
   corsOrigins,
   failOnDependencyError: parsed.data.FAIL_ON_DEPENDENCY_ERROR ?? parsed.data.NODE_ENV === 'production'
 };

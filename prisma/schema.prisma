@@ -157,6 +157,7 @@ model Tenant {
 
   settings              TenantSettings?
   domains               TenantDomain[]
+  paymentGateway        TenantPaymentGateway?
   supportSessions       SupportSession[]
   reports               Report[]
   platformAuditLogs     PlatformAuditLog[]
@@ -211,6 +212,22 @@ model TenantSettings {
   updatedAt DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
 
   @@map("tenant_settings")
+}
+
+// Phase 35: the shop's own Razorpay account; money goes straight to it. Secrets are encrypted (secret-box.js).
+model TenantPaymentGateway {
+  id                     String   @id @default(uuid())
+  tenantId               String   @unique @map("tenant_id")
+  tenant                 Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  provider               String   @default("razorpay")
+  keyId                  String   @map("key_id")
+  keySecretEncrypted     String   @map("key_secret_encrypted")
+  webhookSecretEncrypted String?  @map("webhook_secret_encrypted")
+  enabled                Boolean  @default(true)
+  createdAt              DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
+  updatedAt              DateTime @db.Timestamptz(6) @updatedAt @map("updated_at")
+
+  @@map("tenant_payment_gateways")
 }
 
 model TenantDomain {

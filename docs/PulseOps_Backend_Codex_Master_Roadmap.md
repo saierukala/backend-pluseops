@@ -2917,3 +2917,33 @@ Delivered (DONE 2026-10-24, migration `20261024_phase34_data_integrity`):
 - Browser → S3 presigned image uploads with a post-upload content check (moved from Phase 34).
 - Staff signup / password-reset / verification emails (only shopper emails are sent today).
 - Optional: RS256 with key rotation, httpOnly refresh-token cookie mode.
+
+Delivered, part 1 (2026-10-23, migration `20261025_phase35_razorpay_email`) — payment and email, built the way
+`businesshub-backend` does them:
+- **Razorpay, each shop's own account** (decision: money goes straight to the shop, no platform account or Route
+  split). `PUT /workspace/payment-gateway` (`tenant:update`) takes the shop's key id, key secret and webhook secret;
+  Razorpay is asked whether the keys work before they are saved. Secrets are AES-256-GCM encrypted
+  (`CREDENTIALS_ENCRYPTION_KEY`; in production saving is refused with 503 until it is set) and never returned.
+  `PATCH` switches it on/off, `DELETE` disconnects.
+- **Storefront checkout** with Razorpay connected creates a Razorpay order on the shop's account for the server-priced
+  total (minor units, `payment_capture: 1`) and returns `payment.checkout` (key id, order id, amount, prefill) for
+  Razorpay's web checkout. Pressing Pay again reuses the order while the amount and keys are unchanged.
+  `POST /storefront/:store/account/payments/:paymentId/verify` checks the HMAC of `order_id|payment_id` with the
+  shop's key secret and completes the payment. Without a gateway the old pending payment (settled by hand) is used.
+- **Webhook** `POST /payments/webhook/razorpay/:tenantId`: signed with that shop's webhook secret over the raw body;
+  `payment.captured` / `order.paid` complete the payment (amount must match), `X-Razorpay-Event-Id` makes repeats no-ops.
+  Browser and webhook racing each other complete it once (row lock). Money captured for a payment that is no longer
+  open is recorded with a "refund needed" note.
+- **Refunds** of Razorpay payments (`POST /payments/:id/refund`) are sent to Razorpay first, on the shop's keys.
+- **Email over SMTP** (nodemailer): `SMTP_URL` (Brevo, Gmail app password, SES SMTP…) + `EMAIL_FROM`; with `SMTP_URL`
+  set, `EMAIL_PROVIDER` defaults to `smtp`. SMTP 5xx = permanent failure, connection errors are retried by the job.
+  Without Redis an email is now sent inline instead of dropped.
+- **Staff emails:** sign-up verification, resend-verification and forgot-password send links to
+  `APP_URL/verify-email?token=…` and `APP_URL/reset-password?token=…` (`APP_URL` defaults to the first CORS origin).
+  Tenants can reword them with EMAIL templates `auth.verify_email` / `auth.reset_password`.
+- Empty environment variables now count as unset (compose's `${X:-}` no longer fails URL validation).
+
+Still open in Phase 35 (waiting on the hosting choice): deploy target, managed Postgres/Redis, secrets, backups,
+monitoring; browser → S3 presigned uploads; RS256/cookie mode. **Before going live with Razorpay:** run one real
+test-mode payment with a shop's `rzp_test_` keys (this environment cannot reach api.razorpay.com), set
+`CREDENTIALS_ENCRYPTION_KEY`, and register the webhook URL in each shop's Razorpay dashboard.

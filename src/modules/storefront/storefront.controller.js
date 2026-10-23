@@ -39,7 +39,7 @@ export const resolveHost = handle(async (req, res) => {
   ok(res, storeInfo(store), 'Store resolved');
 });
 
-export const getStore = handle(async (req, res) => ok(res, storeInfo(req.store), 'Store retrieved'));
+export const getStore = handle(async (req, res) => ok(res, { ...storeInfo(req.store), onlinePayment: await shop.onlinePaymentInfo(req.store) }, 'Store retrieved'));
 export const listCategories = handle(async (req, res) => ok(res, await catalog.listCategories(req.store.id), 'Categories retrieved'));
 export const listProducts = handle(async (req, res) => {
   const result = await catalog.listProducts(req.store, res.locals.query);
@@ -74,6 +74,7 @@ export const listOrders = handle(async (req, res) => {
   ok(res, result.data, 'Orders retrieved', 200, { meta: result.meta });
 });
 export const getOrder = handle(async (req, res) => ok(res, await shop.getOrder(req.store, req.customer.id, req.params.orderId), 'Order retrieved'));
+export const verifyPayment = handle(async (req, res) => ok(res, await shop.verifyPayment(req.store, req.customer.id, req.params.paymentId, req.body), 'Payment confirmed'));
 export const payOrder = handle(async (req, res) => ok(res, await shop.payOrder(req.store, req.customer.id, req.params.orderId), 'Payment started', 201));
 
 export const getCart = handle(async (req, res) => ok(res, await shop.getCart(req.store, req.customer.id), 'Cart retrieved'));

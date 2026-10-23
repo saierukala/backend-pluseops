@@ -135,7 +135,16 @@ export const storefrontPaths = {
     get: { tags: accountTags, summary: 'Track an order', operationId: 'getStorefrontOrder', security: shopper, description: 'Own orders only. `timeline` lists each status with its time; `payments` the payment attempts.', parameters: [store, uuidParam('orderId')], responses: { 200: ok('Order', ref('StorefrontOrder')), 400: e400, 401: e401, 403: e403, 404: e404, 500: e500 } },
   },
   '/api/v1/storefront/{store}/account/orders/{orderId}/pay': {
-    post: { tags: accountTags, summary: 'Start a payment for my order', operationId: 'payStorefrontOrder', security: shopper, description: 'For when checkout could not start the payment. 409 `PAYMENT_ALREADY_PENDING` if one is pending.', parameters: [store, uuidParam('orderId')], responses: { 201: ok('Payment', ref('StorefrontPayment')), 409: e409('A payment is already pending'), 400: e400, 401: e401, 403: e403, 404: e404, 500: e500 } },
+    post: { tags: accountTags, summary: 'Start a payment for my order', operationId: 'payStorefrontOrder', security: shopper, description: 'For when checkout could not start the payment, or the shopper closed Razorpay\'s window. With Razorpay connected, the same Razorpay order is reused while the amount is unchanged; 409 `ORDER_ALREADY_PAID`. Without it, 409 `PAYMENT_ALREADY_PENDING` if one is pending.', parameters: [store, uuidParam('orderId')], responses: { 201: ok('Payment', ref('StorefrontPayment')), 409: e409('A payment is already pending'), 400: e400, 401: e401, 403: e403, 404: e404, 500: e500 } },
+  },
+  '/api/v1/storefront/{store}/account/payments/{paymentId}/verify': {
+    post: {
+      tags: accountTags, summary: 'Confirm a Razorpay payment', operationId: 'verifyStorefrontPayment', security: shopper,
+      description: 'Phase 35. Send what Razorpay checkout\'s handler received. The HMAC of `razorpayOrderId|razorpayPaymentId` with the shop\'s key secret must match, and the order id must be this payment\'s; then the payment is COMPLETED. Repeats are harmless. 400 `INVALID_PAYMENT_SIGNATURE`; 404 if the payment is not one of my orders. The shop\'s webhook confirms the payment too, if this call never arrives.',
+      parameters: [store, uuidParam('paymentId')],
+      requestBody: json({ type: 'object', required: ['razorpayOrderId', 'razorpayPaymentId', 'razorpaySignature'], properties: { razorpayOrderId: { type: 'string' }, razorpayPaymentId: { type: 'string' }, razorpaySignature: { type: 'string', pattern: '^[a-f0-9]{64}$' } } }),
+      responses: { 200: ok('Payment confirmed', ref('StorefrontPayment')), 400: e400, 401: e401, 403: e403, 404: e404, 409: e409('`PAYMENT_GATEWAY_NOT_CONFIGURED`'), 500: e500 },
+    },
   },
   '/api/v1/storefront/{store}/cart': {
     get: { tags: accountTags, summary: 'My cart (server-priced)', operationId: 'getStorefrontCart', security: shopper, description: 'Current prices; each line says whether it can be bought (`issue`: UNAVAILABLE | INSUFFICIENT_STOCK). `subtotal` counts only buyable lines.', parameters: [store], responses: { 200: ok('Cart', ref('StorefrontCart')), 401: e401, 403: e403, 404: e404, 500: e500 } },

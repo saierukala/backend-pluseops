@@ -30,6 +30,7 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'POST /api/v1/auth/reset-password',
     'POST /api/v1/auth/verify-email',
     'POST /api/v1/payments/webhook',
+    'POST /api/v1/payments/webhook/razorpay/{tenantId}',
     'GET /api/v1/storage/signed',
     // Phase 32 public storefront
     'GET /api/v1/storefront/resolve',
@@ -160,8 +161,9 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'PATCH /api/v1/orders/{id}/status',
     'POST /api/v1/orders/{id}/cancel',
     'GET /api/v1/orders/{id}/history',
-    // Payments 5
+    // Payments 6
     'POST /api/v1/payments/webhook',
+    'POST /api/v1/payments/webhook/razorpay/{tenantId}',
     'POST /api/v1/payments/create',
     'POST /api/v1/payments/confirm',
     'GET /api/v1/payments/{id}',
@@ -228,6 +230,11 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'PATCH /api/v1/workspace',
     'GET /api/v1/workspace/settings',
     'PATCH /api/v1/workspace/settings',
+    // Phase 35
+    'GET /api/v1/workspace/payment-gateway',
+    'PUT /api/v1/workspace/payment-gateway',
+    'PATCH /api/v1/workspace/payment-gateway',
+    'DELETE /api/v1/workspace/payment-gateway',
     'GET /api/v1/workspace/domains',
     'POST /api/v1/workspace/domains',
     'PATCH /api/v1/workspace/domains/{domainId}',
@@ -267,6 +274,7 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'GET /api/v1/storefront/{store}/account/orders',
     'GET /api/v1/storefront/{store}/account/orders/{orderId}',
     'POST /api/v1/storefront/{store}/account/orders/{orderId}/pay',
+    'POST /api/v1/storefront/{store}/account/payments/{paymentId}/verify',
     'GET /api/v1/storefront/{store}/cart',
     'DELETE /api/v1/storefront/{store}/cart',
     'PUT /api/v1/storefront/{store}/cart/items/{variantId}',
@@ -360,6 +368,8 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
       '/api/v1/roles/{id}/permissions',
       // Phase 32: sets a cart line's quantity (idempotent; 0 removes)
       '/api/v1/storefront/{store}/cart/items/{variantId}',
+      // Phase 35: replaces the whole Razorpay connection (keys and webhook secret)
+      '/api/v1/workspace/payment-gateway',
     ].sort());
   });
 

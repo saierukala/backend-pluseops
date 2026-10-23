@@ -52,6 +52,7 @@ store.delete('/account/addresses/:addressId', signedIn, validate(v.addressParams
 store.get('/account/orders', signedIn, validate(v.listOrdersSchema), c.listOrders);
 store.get('/account/orders/:orderId', signedIn, validate(v.orderParamsSchema), c.getOrder);
 store.post('/account/orders/:orderId/pay', signedIn, validate(v.orderParamsSchema), c.payOrder);
+store.post('/account/payments/:paymentId/verify', signedIn, validate(v.verifyPaymentSchema), c.verifyPayment);
 
 store.get('/cart', signedIn, c.getCart);
 store.put('/cart/items/:variantId', signedIn, validate(v.setCartItemSchema), c.setCartItem);

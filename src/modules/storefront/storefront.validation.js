@@ -56,3 +56,13 @@ export const setCartItemSchema = z.object({
 export const cartItemParamsSchema = z.object({ params: z.object({ store: z.string(), variantId: uuid }) });
 
 export const checkoutSchema = z.object({ body: z.object({ shippingAddressId: uuid.optional(), billingAddressId: uuid.optional() }).default({}) });
+
+// Phase 35: the three fields Razorpay's checkout handler receives (razorpay_order_id, razorpay_payment_id, razorpay_signature)
+export const verifyPaymentSchema = z.object({
+  params: z.object({ store: z.string(), paymentId: uuid }),
+  body: z.object({
+    razorpayOrderId: z.string().min(1).max(64),
+    razorpayPaymentId: z.string().min(1).max(64),
+    razorpaySignature: z.string().regex(/^[a-f0-9]{64}$/i, 'razorpaySignature must be a hex HMAC-SHA256'),
+  }),
+});

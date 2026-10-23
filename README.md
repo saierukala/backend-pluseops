@@ -192,7 +192,10 @@ Use this workflow when you manage PostgreSQL and Redis outside Docker (e.g., loc
 | `S3_PUBLIC_BASE_URL` | No | Public base URL for S3 objects; defaults to endpoint/bucket or virtual-hosted URL. |
 | `S3_FORCE_PATH_STYLE` | No | `true`/`false`; path-style `endpoint/bucket/key`; defaults to `false`. |
 | `STORAGE_TIMEOUT_MS` | No | Timeout for storage provider HTTP (S3 REST); defaults to `5000`. |
-| `EMAIL_PROVIDER` | No | `mock` or `http` (or `sendgrid`, `ses`, `mailgun`); defaults to `mock`. |
+| `EMAIL_PROVIDER` | No | `smtp`, `mock` or `http` (or `sendgrid`, `ses`, `mailgun`); defaults to `smtp` when `SMTP_URL` is set, else `mock`. |
+| `SMTP_URL` / `EMAIL_FROM` | No | Phase 35 SMTP email (nodemailer), e.g. Brevo `smtp://login%40smtp-brevo.com:KEY@smtp-relay.brevo.com:587`. |
+| `APP_URL` | No | Staff web app origin for verification / password-reset links (default: first CORS origin). |
+| `CREDENTIALS_ENCRYPTION_KEY` | Prod, for Razorpay | Encrypts each shop's Razorpay secrets (min 32 chars). Shops enter their own Razorpay keys under `/workspace/payment-gateway`. |
 | `EMAIL_PROVIDER_URL` | No | Base URL for HTTP email provider; required when `EMAIL_PROVIDER=http`. |
 | `EMAIL_PROVIDER_API_KEY` | No | API key for HTTP email provider. |
 | `EMAIL_PROVIDER_TIMEOUT_MS` | No | Timeout for email provider HTTP; defaults to `5000`. |
@@ -358,6 +361,9 @@ Never commit `.env`. The repository `.gitignore` excludes `.env` and `.dockerign
 | GET | `/api/v1/storefront/:store/products` | Public product cards (search, category, minPrice/maxPrice, inStock, sort) |
 | GET | `/api/v1/storefront/:store/products/:productId` | Public product detail (variants, `inStock`, images) |
 | POST | `/api/v1/storefront/:store/auth/{register,set-password,login,forgot-password,refresh,logout}` | Shopper accounts (per store; password set via emailed code) |
+| POST | `/api/v1/storefront/:store/account/payments/:paymentId/verify` | Confirm a Razorpay checkout (signature checked with the shop's key secret) |
+| GET/PUT/PATCH/DELETE | `/api/v1/workspace/payment-gateway` | The shop's own Razorpay account (`tenant:read` / `tenant:update`; secrets write-only) |
+| POST | `/api/v1/payments/webhook/razorpay/:tenantId` | A shop's Razorpay webhook (public, signed with its webhook secret) |
 | GET/PATCH | `/api/v1/storefront/:store/account` | Shopper profile |
 | GET/POST/PATCH/DELETE | `/api/v1/storefront/:store/account/addresses[/:addressId]` | Shopper addresses |
 | GET | `/api/v1/storefront/:store/account/orders[/:orderId]` | Shopper orders with timeline and payments |

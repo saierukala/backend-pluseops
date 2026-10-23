@@ -540,6 +540,7 @@ export class AuthService {
       tokenHash,
       expiresAt,
     });
+    await this.deliverAuthEmail(effectiveTenantId, user, 'reset', rawToken);
 
     return {
       success: true,
@@ -726,11 +727,37 @@ export class AuthService {
       expiresAt,
     });
 
-    // No email delivery yet: surface the token only in development/test, never in deployed logs
-    if (EXPOSE_DEV_TOKENS) {
-      logger.info({ userId }, `[DEV] Email verification token: ${rawToken}`);
-    }
+    const user = await getPrismaClient().user.findUnique({ where: { id: userId }, select: { email: true, firstName: true } });
+    await this.deliverAuthEmail(tenantId, user, 'verify', rawToken);
+    // The token itself is echoed only in development/test (no inbox needed there), never in deployed logs
     return EXPOSE_DEV_TOKENS ? rawToken : undefined;
+  }
+
+  // Phase 35: verification and password-reset links go out by email (SMTP in deployments). A tenant can override the
+  // wording with an EMAIL template named auth.verify_email / auth.reset_password ({{link}}, {{firstName}}, {{tenantName}}).
+  async deliverAuthEmail(tenantId, user, kind, rawToken) {
+    if (!user?.email) return;
+    try {
+      const tenant = await this.repository.findTenantById(tenantId);
+      const tenantName = tenant?.name || 'PulseOps';
+      const reset = kind === 'reset';
+      const link = `${env.APP_URL}/${reset ? 'reset-password' : 'verify-email'}?token=${encodeURIComponent(rawToken)}`;
+      const greeting = user.firstName ? `Hi ${user.firstName},` : 'Hi,';
+      const { enqueueEmail } = await import('../../jobs/queues/email.queue.js');
+      await enqueueEmail({
+        tenantId,
+        to: user.email,
+        subject: reset ? `Reset your ${tenantName} password` : `Verify your email for ${tenantName}`,
+        text: reset
+          ? `${greeting}\n\nSomeone asked to reset the password of your ${tenantName} account. Choose a new one here (the link works once, for 1 hour):\n${link}\n\nIf it wasn't you, ignore this email; your password stays the same.`
+          : `${greeting}\n\nConfirm your email address for ${tenantName} (the link works for 24 hours):\n${link}\n\nIf you didn't create this account, ignore this email.`,
+        template: reset ? 'auth.reset_password' : 'auth.verify_email',
+        variables: { tenantName, firstName: user.firstName || '', link },
+      });
+    } catch (err) {
+      // The token stays valid; the user can ask again (resend / forgot password)
+      logger.warn({ err: err?.message, tenantId, kind }, 'Could not send auth email');
+    }
   }
 
   toSafeUser(user, tenantIdOverride = null, scope = null) {
