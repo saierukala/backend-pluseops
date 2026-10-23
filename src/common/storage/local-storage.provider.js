@@ -5,6 +5,14 @@ import path from 'node:path';
 import { env } from '../../config/env.js';
 import { AppError } from '../errors/app-error.js';
 
+// Phase 34: its own key, so a leaked signed-URL secret can't mint access tokens (and vice versa).
+// Outside production, a key is derived from JWT_ACCESS_SECRET when STORAGE_SIGNING_SECRET is not set.
+export function storageSigningSecret() {
+  if (env.STORAGE_SIGNING_SECRET) return env.STORAGE_SIGNING_SECRET;
+  const base = env.JWT_ACCESS_SECRET || 'test-storage-secret-min-32-chars-long-for-testing';
+  return crypto.createHmac('sha256', base).update('pulseops:storage-signing').digest('hex');
+}
+
 export class LocalStorageProvider {
   constructor() {
     this.basePath = env.LOCAL_STORAGE_PATH || './storage';
@@ -121,7 +129,7 @@ export class LocalStorageProvider {
   async getSignedUrl(storageKey, expiresInSec = 900) {
     // Validate key before signing
     this.getFullPath(storageKey); // also checks traversal via getFullPath
-    const secret = env.JWT_ACCESS_SECRET || env.PAYMENT_WEBHOOK_SECRET || 'test-storage-secret-min-32-chars-long-for-testing';
+    const secret = storageSigningSecret();
     const expires = Math.floor(Date.now() / 1000) + expiresInSec;
     const data = `${storageKey}:${expires}`;
     const signature = crypto.createHmac('sha256', secret).update(data).digest('hex');
@@ -131,7 +139,7 @@ export class LocalStorageProvider {
   }
 
   static verifySignedUrl(storageKey, expires, signature) {
-    const secret = env.JWT_ACCESS_SECRET || env.PAYMENT_WEBHOOK_SECRET || 'test-storage-secret-min-32-chars-long-for-testing';
+    const secret = storageSigningSecret();
     if (!expires || !signature) return false;
     const now = Math.floor(Date.now() / 1000);
     if (Number(expires) < now) return false;

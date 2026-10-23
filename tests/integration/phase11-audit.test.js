@@ -397,7 +397,7 @@ describe('Phase 11 - Audit & Activity Logs', () => {
       const beforeAudit = await prisma.auditLog.count({ where: { tenantId: tenantAId } });
       const beforeActivity = await prisma.activityLog.count({ where: { tenantId: tenantAId } });
       const res = await request(app).post('/api/v1/orders').set('Authorization', `Bearer ${tokenA}`).send({ customerId: customerAId, items: [{ productVariantId: variantAId, warehouseId: warehouseAId, quantity: 99999 }] });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('INSUFFICIENT_STOCK');
       expect(await prisma.auditLog.count({ where: { tenantId: tenantAId } })).toBe(beforeAudit);
       expect(await prisma.activityLog.count({ where: { tenantId: tenantAId } })).toBe(beforeActivity);

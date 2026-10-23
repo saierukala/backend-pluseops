@@ -129,7 +129,7 @@ export class ProductService {
     });
     if (variantCount > 0) {
       throw new AppError('Cannot delete product with existing variants. Delete variants first.', {
-        statusCode: 400,
+        statusCode: 409,
         code: 'PRODUCT_HAS_VARIANTS',
       });
     }

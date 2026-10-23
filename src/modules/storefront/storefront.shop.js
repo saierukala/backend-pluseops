@@ -143,7 +143,7 @@ function pickWarehouse(variant, quantity) {
 export async function checkout(store, customerId, { shippingAddressId, billingAddressId }, client = {}) {
   const prisma = getPrismaClient();
   const items = await prisma.cartItem.findMany({ where: { tenantId: store.id, customerId }, include: cartInclude });
-  if (items.length === 0) throw new AppError('Your cart is empty', { statusCode: 400, code: 'CART_EMPTY' });
+  if (items.length === 0) throw new AppError('Your cart is empty', { statusCode: 409, code: 'CART_EMPTY' });
   const lines = [];
   for (const item of items) {
     const v = item.productVariant;

@@ -813,36 +813,20 @@ describe('Phase 3 schema integration tests', () => {
   });
 
   describe('Cross-tenant isolation', () => {
-    it('prevents cross-tenant references at application level (database FK limitation)', async () => {
-      // Note: Prisma/PostgreSQL doesn't support composite foreign keys with tenant_id
-      // Cross-tenant protection must be enforced at the application/service layer
-      // This test documents the current behavior
-
-      const tenantA = await prisma.tenant.create({ data: { name: 'Tenant A', slug: 'tenant-a-x' } });
-      const tenantB = await prisma.tenant.create({ data: { name: 'Tenant B', slug: 'tenant-b-x' } });
-
-      const productA = await prisma.product.create({
-        data: { tenantId: tenantA.id, name: 'Product A', status: 'ACTIVE' },
-      });
-
-      const categoryB = await prisma.category.create({
-        data: { tenantId: tenantB.id, name: 'Category B', slug: 'cat-b-x' },
-      });
-
-      // This currently SUCCEEDS at database level (known limitation)
-      // Application layer must enforce tenant isolation
-      const link = await prisma.productCategory.create({
-        data: {
-          tenantId: tenantA.id,
-          productId: productA.id,
-          categoryId: categoryB.id,
-        },
-      });
-
-      expect(link).toBeDefined();
-      expect(link.tenantId).toBe(tenantA.id);
-
-      await prisma.tenant.deleteMany({ where: { id: { in: [tenantA.id, tenantB.id] } } });
+    it('rejects cross-tenant references at the database level (Phase 34 triggers)', async () => {
+      // Before Phase 34 this link succeeded and only the application layer prevented it.
+      const suffix = Date.now().toString(36);
+      const tenantA = await prisma.tenant.create({ data: { name: 'Tenant A', slug: `tenant-a-x-${suffix}` } });
+      const tenantB = await prisma.tenant.create({ data: { name: 'Tenant B', slug: `tenant-b-x-${suffix}` } });
+      try {
+        const productA = await prisma.product.create({ data: { tenantId: tenantA.id, name: 'Product A', status: 'ACTIVE' } });
+        const categoryB = await prisma.category.create({ data: { tenantId: tenantB.id, name: 'Category B', slug: 'cat-b-x' } });
+        await expect(prisma.productCategory.create({
+          data: { tenantId: tenantA.id, productId: productA.id, categoryId: categoryB.id },
+        })).rejects.toThrow(/cross-tenant reference: product_categories\.category_id/);
+      } finally {
+        await prisma.tenant.deleteMany({ where: { id: { in: [tenantA.id, tenantB.id] } } });
+      }
     });
   });
 

@@ -37,6 +37,9 @@ const envSchema = z.object({
   FAIL_ON_DEPENDENCY_ERROR: booleanFromString.optional(),
   JWT_ACCESS_SECRET: isTestEnv ? z.string().optional() : z.string().min(32),
   JWT_REFRESH_SECRET: isTestEnv ? z.string().optional() : z.string().min(32),
+  // Phase 34: HMAC key for signed storage URLs, separate from the JWT secrets. Required in production; elsewhere a
+  // key is derived from JWT_ACCESS_SECRET so local setups keep working.
+  STORAGE_SIGNING_SECRET: process.env.NODE_ENV === 'production' ? z.string().min(32) : z.string().min(32).optional(),
   JWT_ACCESS_EXPIRY: z.string().default('15m'),
   JWT_REFRESH_EXPIRY: z.string().default('7d'),
   PASSWORD_RESET_EXPIRY: z.string().default('1h'),
@@ -84,6 +87,10 @@ if (!parsed.success) {
 }
 
 const corsOrigins = parsed.data.CORS_ORIGINS.split(',').map((origin) => origin.trim()).filter(Boolean);
+
+if (parsed.data.NODE_ENV === 'production' && parsed.data.STORAGE_SIGNING_SECRET === parsed.data.JWT_ACCESS_SECRET) {
+  throw new Error('STORAGE_SIGNING_SECRET must differ from JWT_ACCESS_SECRET');
+}
 
 // Production CORS safety: require explicit origins, reject wildcard with credentials
 if (parsed.data.NODE_ENV === 'production') {

@@ -189,6 +189,7 @@ describe('Phase 23 — Docker / CI/CD / Deployment', () => {
             REDIS_URL: 'redis://localhost:6379',
             JWT_ACCESS_SECRET: 'test-access-secret-min-32-chars-long-for-testing',
             JWT_REFRESH_SECRET: 'test-refresh-secret-min-32-chars-long-for-testing',
+            STORAGE_SIGNING_SECRET: 'test-storage-signing-secret-min-32-chars-long',
             PAYMENT_WEBHOOK_SECRET: 'test-webhook-secret-min-32-chars-long-for-testing',
           },
         });

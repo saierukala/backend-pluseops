@@ -190,7 +190,7 @@ describe('Phase 09 - Order Management', () => {
         customerId: customerAId,
         items: [{ productVariantId: variantA1Id, warehouseId: warehouseAId, quantity: 999 }],
       });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('INSUFFICIENT_STOCK');
       const invAfter = await prisma.inventory.findFirst({ where: { tenantId: tenantAId, productVariantId: variantA1Id, warehouseId: warehouseAId } });
       expect(invAfter.quantity).toBe(invBefore.quantity);
@@ -222,7 +222,7 @@ describe('Phase 09 - Order Management', () => {
         customerId: customerAId,
         items: [{ productVariantId: draftVar.body.data.id, warehouseId: warehouseAId, quantity: 1 }],
       });
-      expect(res2.status).toBe(400);
+      expect(res2.status).toBe(409);
       expect(res2.body.error.code).toBe('VARIANT_NOT_SELLABLE');
     });
 
@@ -350,7 +350,7 @@ describe('Phase 09 - Order Management', () => {
       });
       const id = createRes.body.data.id;
       const res = await request(app).patch(`/api/v1/orders/${id}/status`).set('Authorization', `Bearer ${tokenA}`).send({ status: 'DELIVERED' });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('INVALID_STATUS_TRANSITION');
     });
 
@@ -362,7 +362,7 @@ describe('Phase 09 - Order Management', () => {
       const id = createRes.body.data.id;
       await request(app).post(`/api/v1/orders/${id}/cancel`).set('Authorization', `Bearer ${tokenA}`).send({});
       const res = await request(app).patch(`/api/v1/orders/${id}/status`).set('Authorization', `Bearer ${tokenA}`).send({ status: 'CONFIRMED' });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('INVALID_STATUS_TRANSITION');
     });
   });
@@ -400,7 +400,7 @@ describe('Phase 09 - Order Management', () => {
       await request(app).patch(`/api/v1/orders/${id}/status`).set('Authorization', `Bearer ${tokenA}`).send({ status: 'PROCESSING' });
       await request(app).patch(`/api/v1/orders/${id}/status`).set('Authorization', `Bearer ${tokenA}`).send({ status: 'SHIPPED' });
       const res = await request(app).post(`/api/v1/orders/${id}/cancel`).set('Authorization', `Bearer ${tokenA}`).send({});
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('CANCELLATION_NOT_ALLOWED');
     });
 
@@ -553,7 +553,7 @@ describe('Phase 09 - Order Management', () => {
       expect(successes.length).toBe(5);
       expect(failures.length).toBe(5);
       for (const f of failures) {
-        expect(f.status).toBe(400);
+        expect(f.status).toBe(409);
         expect(f.body.error.code).toBe('INSUFFICIENT_STOCK');
       }
       const invAfter = await prisma.inventory.findFirst({ where: { tenantId: tenantAId, productVariantId: vid, warehouseId: warehouseAId } });

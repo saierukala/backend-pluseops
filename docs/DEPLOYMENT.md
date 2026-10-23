@@ -58,6 +58,7 @@ This document is the Phase 23 production reference. It covers environment variab
 | `TRUST_PROXY` | No | `false` | Set `true` behind reverse proxy (production). |
 | `FAIL_ON_DEPENDENCY_ERROR` | No | `true` in prod, `false` otherwise | When `true`, missing Postgres/Redis stops startup (correct for prod). |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | **Yes** (prod) | — | Min 32 chars. Generate: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Optional in `test`. |
+| `STORAGE_SIGNING_SECRET` | **Yes** (prod) | derived from `JWT_ACCESS_SECRET` outside production | Min 32 chars, must differ from `JWT_ACCESS_SECRET`. Signs storage download URLs (Phase 34). Both the API and the worker need it. |
 | `JWT_ACCESS_EXPIRY` / `JWT_REFRESH_EXPIRY` | No | `15m` / `7d` | |
 | `PASSWORD_RESET_EXPIRY` / `EMAIL_VERIFICATION_EXPIRY` | No | `1h` / `24h` | |
 | `PAYMENT_WEBHOOK_SECRET` | No | `test-webhook-secret-…` | HMAC for `x-webhook-signature`/`x-payment-signature`. Must be set in prod. |
@@ -86,6 +87,7 @@ REDIS_URL=rediss://default:${REDIS_PASSWORD}@<managed-redis-host>:6380
 CORS_ORIGINS=https://app.example.com,https://admin.example.com
 JWT_ACCESS_SECRET=<64-hex>
 JWT_REFRESH_SECRET=<64-hex>
+STORAGE_SIGNING_SECRET=<64-hex>
 PAYMENT_WEBHOOK_SECRET=<64-hex>
 STORAGE_PROVIDER=s3
 S3_BUCKET=pulseops-prod-assets
@@ -267,7 +269,7 @@ vars.DEPLOY_URL        # https://api.example.com (environment URL)
 secrets.DEPLOY_HOST    # <provider host / app name>
 secrets.DATABASE_URL   # production DATABASE_URL (with connection_limit & sslmode)
 secrets.REDIS_URL      # production REDIS_URL
-secrets.JWT_ACCESS_SECRET / JWT_REFRESH_SECRET / PAYMENT_WEBHOOK_SECRET
+secrets.JWT_ACCESS_SECRET / JWT_REFRESH_SECRET / STORAGE_SIGNING_SECRET / PAYMENT_WEBHOOK_SECRET
 secrets.S3_*           # when STORAGE_PROVIDER=s3
 ```
 

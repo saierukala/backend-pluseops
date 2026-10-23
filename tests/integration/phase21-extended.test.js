@@ -241,7 +241,7 @@ describe('Phase 21 – Transaction / Rollback', () => {
     const beforeMovs = await prisma.inventoryMovement.count({ where:{ tenantId: tid } });
     const invBefore = await prisma.inventory.findFirst({ where:{ tenantId: tid, productVariantId: variant, warehouseId: warehouse } });
     const r = await request(app).post('/api/v1/orders').set('Authorization', `Bearer ${token}`).send({ customerId: customer, items:[{ productVariantId: variant, warehouseId: warehouse, quantity: 999 }] });
-    expect(r.status).toBe(400);
+    expect(r.status).toBe(409);
     expect(await prisma.order.count({ where:{ tenantId: tid } })).toBe(beforeOrders);
     expect(await prisma.inventoryMovement.count({ where:{ tenantId: tid } })).toBe(beforeMovs);
     expect((await prisma.inventory.findFirst({ where:{ tenantId: tid, productVariantId: variant, warehouseId: warehouse } })).quantity).toBe(invBefore.quantity);
@@ -254,7 +254,7 @@ describe('Phase 21 – Transaction / Rollback', () => {
     const beforeRefunds = await prisma.refund.count({ where:{ paymentId: pay.body.data.id } });
     const beforeStatus = (await prisma.payment.findUnique({ where:{ id: pay.body.data.id } })).status;
     const r = await request(app).post(`/api/v1/payments/${pay.body.data.id}/refund`).set('Authorization', `Bearer ${token}`).send({ amount: '9999.00' });
-    expect(r.status).toBe(400);
+    expect(r.status).toBe(409);
     expect(await prisma.refund.count({ where:{ paymentId: pay.body.data.id } })).toBe(beforeRefunds);
     expect((await prisma.payment.findUnique({ where:{ id: pay.body.data.id } })).status).toBe(beforeStatus);
   });
@@ -266,7 +266,7 @@ describe('Phase 21 – Transaction / Rollback', () => {
     const srcBefore = (await prisma.inventory.findFirst({ where:{ tenantId: tid, productVariantId: variant, warehouseId: warehouse } })).quantity;
     const dstBefore = (await prisma.inventory.findFirst({ where:{ tenantId: tid, productVariantId: variant, warehouseId: wh2Id } })).quantity;
     const r = await request(app).post('/api/v1/inventory/transfer').set('Authorization', `Bearer ${token}`).send({ variantId: variant, sourceWarehouseId: warehouse, destinationWarehouseId: wh2Id, quantity: 999 });
-    expect(r.status).toBe(400);
+    expect(r.status).toBe(409);
     expect((await prisma.inventory.findFirst({ where:{ tenantId: tid, productVariantId: variant, warehouseId: warehouse } })).quantity).toBe(srcBefore);
     expect((await prisma.inventory.findFirst({ where:{ tenantId: tid, productVariantId: variant, warehouseId: wh2Id } })).quantity).toBe(dstBefore);
   });

@@ -90,7 +90,7 @@ export class CategoryService {
     const hasChildren = await this.repository.hasChildren(id, tenantId);
     if (hasChildren) {
       throw new AppError('Cannot delete category with children. Reassign or delete children first.', {
-        statusCode: 400,
+        statusCode: 409,
         code: 'CATEGORY_HAS_CHILDREN',
       });
     }
@@ -98,7 +98,7 @@ export class CategoryService {
     const hasProducts = await this.repository.hasProducts(id, tenantId);
     if (hasProducts) {
       throw new AppError('Cannot delete category with associated products. Remove products first.', {
-        statusCode: 400,
+        statusCode: 409,
         code: 'CATEGORY_HAS_PRODUCTS',
       });
     }

@@ -135,7 +135,7 @@ export const storefrontPaths = {
     get: { tags: accountTags, summary: 'Track an order', operationId: 'getStorefrontOrder', security: shopper, description: 'Own orders only. `timeline` lists each status with its time; `payments` the payment attempts.', parameters: [store, uuidParam('orderId')], responses: { 200: ok('Order', ref('StorefrontOrder')), 400: e400, 401: e401, 403: e403, 404: e404, 500: e500 } },
   },
   '/api/v1/storefront/{store}/account/orders/{orderId}/pay': {
-    post: { tags: accountTags, summary: 'Start a payment for my order', operationId: 'payStorefrontOrder', security: shopper, description: 'For when checkout could not start the payment. 400 `PAYMENT_ALREADY_PENDING` if one is pending.', parameters: [store, uuidParam('orderId')], responses: { 201: ok('Payment', ref('StorefrontPayment')), 400: e400, 401: e401, 403: e403, 404: e404, 500: e500 } },
+    post: { tags: accountTags, summary: 'Start a payment for my order', operationId: 'payStorefrontOrder', security: shopper, description: 'For when checkout could not start the payment. 409 `PAYMENT_ALREADY_PENDING` if one is pending.', parameters: [store, uuidParam('orderId')], responses: { 201: ok('Payment', ref('StorefrontPayment')), 409: e409('A payment is already pending'), 400: e400, 401: e401, 403: e403, 404: e404, 500: e500 } },
   },
   '/api/v1/storefront/{store}/cart': {
     get: { tags: accountTags, summary: 'My cart (server-priced)', operationId: 'getStorefrontCart', security: shopper, description: 'Current prices; each line says whether it can be bought (`issue`: UNAVAILABLE | INSUFFICIENT_STOCK). `subtotal` counts only buyable lines.', parameters: [store], responses: { 200: ok('Cart', ref('StorefrontCart')), 401: e401, 403: e403, 404: e404, 500: e500 } },
@@ -152,7 +152,7 @@ export const storefrontPaths = {
   '/api/v1/storefront/{store}/checkout': {
     post: {
       tags: accountTags, summary: 'Place the order from my cart', operationId: 'storefrontCheckout', security: shopper,
-      description: 'Server-priced; stock is reserved atomically; each line ships from one warehouse (default first). Addresses default to the shopper\'s defaults. Empties the cart and starts a payment (`payment` is null if that failed — retry with `/account/orders/{id}/pay`). 400 `CART_EMPTY`, 409 `CART_NOT_READY`.',
+      description: 'Server-priced; stock is reserved atomically; each line ships from one warehouse (default first). Addresses default to the shopper\'s defaults. Empties the cart and starts a payment (`payment` is null if that failed — retry with `/account/orders/{id}/pay`). 409 `CART_EMPTY` / `CART_NOT_READY`.',
       parameters: [store], requestBody: { content: { 'application/json': { schema: { type: 'object', properties: { shippingAddressId: { type: 'string', format: 'uuid' }, billingAddressId: { type: 'string', format: 'uuid' } } } } } },
       responses: { 201: ok('Order placed', { type: 'object', properties: { order: ref('StorefrontOrder'), payment: { ...ref('StorefrontPayment'), nullable: true } } }), 400: e400, 401: e401, 403: e403, 404: e404, 409: e409('Cart not ready'), 500: e500 },
     },

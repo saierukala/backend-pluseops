@@ -27,9 +27,9 @@ export class CustomerRepository {
     });
   }
 
-  // Includes soft-deleted customers: their email still holds the (tenantId, email) unique key.
+  // Active customers only: since Phase 34 a soft-deleted customer's email is free to reuse.
   async findByEmail(email, tenantId) {
-    return this.prisma.customer.findFirst({ where: { email, tenantId } });
+    return this.prisma.customer.findFirst({ where: { email, tenantId, deletedAt: null } });
   }
 
   async list(tenantId, options = {}) {

@@ -66,7 +66,7 @@ export class InventoryService {
       }
       const after = before + quantityChanged;
       if (after < 0) {
-        throw new AppError(`Insufficient stock: current ${before}, change ${quantityChanged}`, { statusCode: 400, code: 'INSUFFICIENT_STOCK' });
+        throw new AppError(`Insufficient stock: current ${before}, change ${quantityChanged}`, { statusCode: 409, code: 'INSUFFICIENT_STOCK' });
       }
 
       if (exists) {
@@ -180,7 +180,7 @@ export class InventoryService {
       const destExists = destRows.length > 0;
 
       if (sourceBefore < quantity) {
-        throw new AppError(`Insufficient stock in source warehouse: current ${sourceBefore}, required ${quantity}`, { statusCode: 400, code: 'INSUFFICIENT_STOCK' });
+        throw new AppError(`Insufficient stock in source warehouse: current ${sourceBefore}, required ${quantity}`, { statusCode: 409, code: 'INSUFFICIENT_STOCK' });
       }
 
       const sourceAfter = sourceBefore - quantity;

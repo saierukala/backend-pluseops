@@ -311,7 +311,7 @@ describe('Phase 32 — cart, checkout and order tracking', () => {
     expect(stock.quantity).toBe(4);
     const staffView = await api.get(`/orders/${placed.id}`, A);
     expect(staffView.body.data.metadata).toMatchObject({ source: 'storefront' });
-    expect((await api.post(sf('/checkout'), shopper.accessToken, {})).status).toBe(400);
+    expect((await api.post(sf('/checkout'), shopper.accessToken, {})).status).toBe(409);
   });
 
   it('tracks the order: list, detail with timeline and payments, owner only', async () => {
@@ -329,7 +329,7 @@ describe('Phase 32 — cart, checkout and order tracking', () => {
 
   it('does not start a second payment while one is pending', async () => {
     const res = await api.post(sf(`/account/orders/${placed.id}/pay`), shopper.accessToken, {});
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('PAYMENT_ALREADY_PENDING');
   });
 });

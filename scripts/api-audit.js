@@ -354,6 +354,7 @@ async function main() {
   const gone = await check('create throwaway customer', 'POST', '/customers', 201, { token: A, body: { email: `gone-${RUN}@audit.test`, firstName: 'Gone', lastName: 'Soon' } });
   await check('delete customer', 'DELETE', `/customers/${data(gone).id}`, 200, { token: A });
   await check('deleted customer 404', 'GET', `/customers/${data(gone).id}`, 404, { token: A });
+  await check('deleted customer email reusable (Phase 34)', 'POST', '/customers', 201, { token: A, body: { email: `gone-${RUN}@audit.test`, firstName: 'Back', lastName: 'Again' } });
 
   // ── Orders ───────────────────────────────────────────────────────────
   group = 'orders';
@@ -530,7 +531,7 @@ async function main() {
   await check('over-stock cart rejected', 'PUT', `${SF}/cart/items/${variantId}`, 409, { token: C, body: { quantity: 100 } });
   const placedOrder = await check('checkout', 'POST', `${SF}/checkout`, 201, { token: C, body: { shippingAddressId: data(shipAddr)?.id }, assert: (r) => data(r)?.order?.total === '24.50' && data(r)?.payment?.status === 'PENDING' });
   const shopOrderId = data(placedOrder)?.order?.id;
-  await check('empty cart checkout 400', 'POST', `${SF}/checkout`, 400, { token: C, body: {} });
+  await check('empty cart checkout 409', 'POST', `${SF}/checkout`, 409, { token: C, body: {} });
   await check('track own order', 'GET', `${SF}/account/orders/${shopOrderId}`, 200, { token: C, assert: (r) => data(r)?.timeline?.[0]?.status === 'PENDING' });
   await check('staff sees storefront order', 'GET', `/orders/${shopOrderId}`, 200, { token: A, assert: (r) => data(r)?.metadata?.source === 'storefront' });
   await check('shopper logout', 'POST', `${SF}/auth/logout`, 200, { body: { refreshToken: data(setPw)?.refreshToken } });

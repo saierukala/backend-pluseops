@@ -50,7 +50,7 @@ export class AttributeService {
       const current = await this.getById(id, tenantId);
       if (current.dataType !== data.dataType && current._count.variantAttributes > 0) {
         throw new AppError('Cannot change data type of attribute that is in use by variants', {
-          statusCode: 400,
+          statusCode: 409,
           code: 'ATTRIBUTE_IN_USE',
         });
       }
@@ -64,7 +64,7 @@ export class AttributeService {
 
     if (attr._count.variantAttributes > 0) {
       throw new AppError('Cannot delete attribute that is in use by variants', {
-        statusCode: 400,
+        statusCode: 409,
         code: 'ATTRIBUTE_IN_USE',
       });
     }

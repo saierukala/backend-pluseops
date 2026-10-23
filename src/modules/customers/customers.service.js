@@ -85,8 +85,7 @@ export class CustomerService {
     return this.getById(id, tenantId);
   }
 
-  // Soft delete: orders keep referencing the customer. The email stays reserved until Phase 34
-  // (partial unique indexes).
+  // Soft delete: orders keep referencing the customer; the email becomes available again.
   async delete(id, tenantId, auditContext = {}) {
     const existing = await this.getById(id, tenantId);
     await this.prisma.$transaction(async (tx) => {

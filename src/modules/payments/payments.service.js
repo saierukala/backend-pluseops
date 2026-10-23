@@ -49,13 +49,13 @@ export class PaymentService {
     const order = await this.prisma.order.findFirst({ where: { id: orderId, tenantId } });
     if (!order) throw new AppError('Order not found', { statusCode: 404, code: 'ORDER_NOT_FOUND' });
     if (!ORDER_ELIGIBLE_STATUSES.includes(order.status)) {
-      throw new AppError(`Order not eligible for payment (status ${order.status})`, { statusCode: 400, code: 'ORDER_NOT_ELIGIBLE' });
+      throw new AppError(`Order not eligible for payment (status ${order.status})`, { statusCode: 409, code: 'ORDER_NOT_ELIGIBLE' });
     }
 
     // Prevent duplicate active payment for same order
     const existing = await this.repository.findActiveForOrder(orderId, tenantId);
     if (existing) {
-      throw new AppError('Order already has a pending payment', { statusCode: 400, code: 'PAYMENT_ALREADY_PENDING' });
+      throw new AppError('Order already has a pending payment', { statusCode: 409, code: 'PAYMENT_ALREADY_PENDING' });
     }
 
     const amountStr = order.total.toString();
@@ -135,12 +135,12 @@ export class PaymentService {
     if (!payment) throw new AppError('Payment not found', { statusCode: 404, code: 'PAYMENT_NOT_FOUND' });
 
     if (payment.status !== 'PENDING' && payment.status !== 'PROCESSING') {
-      throw new AppError(`Invalid payment state for confirmation: ${payment.status}`, { statusCode: 400, code: 'INVALID_STATE_TRANSITION' });
+      throw new AppError(`Invalid payment state for confirmation: ${payment.status}`, { statusCode: 409, code: 'INVALID_STATE_TRANSITION' });
     }
 
     const targetStatus = simulateFailure ? 'FAILED' : 'COMPLETED';
     if (!isValidTransition(payment.status, targetStatus)) {
-      throw new AppError(`Invalid state transition from ${payment.status} to ${targetStatus}`, { statusCode: 400, code: 'INVALID_STATE_TRANSITION' });
+      throw new AppError(`Invalid state transition from ${payment.status} to ${targetStatus}`, { statusCode: 409, code: 'INVALID_STATE_TRANSITION' });
     }
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -148,7 +148,7 @@ export class PaymentService {
       await tx.$queryRaw`SELECT "id" FROM "payments" WHERE "id" = ${payment.id} AND "tenant_id" = ${tenantId} FOR UPDATE`;
       const fresh = await tx.payment.findFirst({ where: { id: payment.id, tenantId } });
       if (!fresh || (fresh.status !== 'PENDING' && fresh.status !== 'PROCESSING')) {
-        throw new AppError(`Invalid payment state for confirmation: ${fresh?.status}`, { statusCode: 400, code: 'INVALID_STATE_TRANSITION' });
+        throw new AppError(`Invalid payment state for confirmation: ${fresh?.status}`, { statusCode: 409, code: 'INVALID_STATE_TRANSITION' });
       }
 
       await tx.payment.update({
@@ -205,7 +205,7 @@ export class PaymentService {
     if (!payment) throw new AppError('Payment not found', { statusCode: 404, code: 'PAYMENT_NOT_FOUND' });
 
     if (payment.status !== 'COMPLETED' && payment.status !== 'PARTIALLY_REFUNDED') {
-      throw new AppError(`Refund not allowed in payment status ${payment.status}`, { statusCode: 400, code: 'INVALID_REFUND_STATE' });
+      throw new AppError(`Refund not allowed in payment status ${payment.status}`, { statusCode: 409, code: 'INVALID_REFUND_STATE' });
     }
 
     const requestedCents = toCents(amountStr);
@@ -218,7 +218,7 @@ export class PaymentService {
     const paymentCents = toCents(payment.amount.toString());
     const refundableCents = paymentCents - refundedCents;
     if (requestedCents > refundableCents) {
-      throw new AppError(`Refund amount exceeds refundable amount: requested ${fromCents(requestedCents)}, refundable ${fromCents(refundableCents)}`, { statusCode: 400, code: 'EXCESSIVE_REFUND' });
+      throw new AppError(`Refund amount exceeds refundable amount: requested ${fromCents(requestedCents)}, refundable ${fromCents(refundableCents)}`, { statusCode: 409, code: 'EXCESSIVE_REFUND' });
     }
 
     // Prevent duplicate refund with same amount and reason within short window? Enforce idempotency via transaction uniqueness? For now check exact duplicate pending?
@@ -233,10 +233,10 @@ export class PaymentService {
       for (const r of freshRefunds) freshRefunded += toCents(r.amount.toString());
       const freshRefundable = toCents(freshPayment.amount.toString()) - freshRefunded;
       if (requestedCents > freshRefundable) {
-        throw new AppError(`Refund amount exceeds refundable amount`, { statusCode: 400, code: 'EXCESSIVE_REFUND' });
+        throw new AppError(`Refund amount exceeds refundable amount`, { statusCode: 409, code: 'EXCESSIVE_REFUND' });
       }
       if (freshPayment.status !== 'COMPLETED' && freshPayment.status !== 'PARTIALLY_REFUNDED') {
-        throw new AppError(`Refund not allowed in payment status ${freshPayment.status}`, { statusCode: 400, code: 'INVALID_REFUND_STATE' });
+        throw new AppError(`Refund not allowed in payment status ${freshPayment.status}`, { statusCode: 409, code: 'INVALID_REFUND_STATE' });
       }
 
       const providerRefundId = `ref_${crypto.randomUUID().replace(/-/g, '').slice(0, 16)}`;
@@ -272,7 +272,7 @@ export class PaymentService {
       if (!isValidTransition(freshPayment.status, newStatus) && freshPayment.status !== newStatus) {
         // Allow COMPLETED -> PARTIALLY_REFUNDED and PARTIALLY_REFUNDED -> REFUNDED/PARTIALLY_REFUNDED
         // If invalid, still enforce
-        throw new AppError(`Invalid refund state transition from ${freshPayment.status} to ${newStatus}`, { statusCode: 400, code: 'INVALID_STATE_TRANSITION' });
+        throw new AppError(`Invalid refund state transition from ${freshPayment.status} to ${newStatus}`, { statusCode: 409, code: 'INVALID_STATE_TRANSITION' });
       }
 
       await tx.payment.update({ where: { id: paymentId }, data: { status: newStatus } });
