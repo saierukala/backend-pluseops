@@ -84,6 +84,14 @@ const readinessLiveOperation = {
 
 export const healthPaths = {
   '/health': { get: liveHealthOperation },
+  // Phase 36
+  '/.well-known/jwks.json': {
+    get: {
+      tags: ['Auth'], summary: 'Public keys for access tokens (JWKS)', operationId: 'getJwks', security: [],
+      description: 'With `JWT_ALGORITHM=RS256`: the current signing key and any `JWT_PREVIOUS_PUBLIC_KEYS`, with `kid` = RFC 7638 thumbprint, so other services can verify access tokens without a secret. Empty (`keys: []`) with HS256. Cached 5 minutes.',
+      responses: { 200: { description: 'JWK set', content: { 'application/json': { schema: { type: 'object', properties: { keys: { type: 'array', items: { type: 'object', properties: { kty: { type: 'string', example: 'RSA' }, kid: { type: 'string' }, use: { type: 'string', example: 'sig' }, alg: { type: 'string', example: 'RS256' }, n: { type: 'string' }, e: { type: 'string', example: 'AQAB' } } } } } } } } } },
+    },
+  },
   '/health/db': { get: dbHealthOperation },
   '/health/redis': { get: redisHealthOperation },
   '/health/bullmq': { get: bullmqHealthOperation },

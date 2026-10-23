@@ -4,6 +4,9 @@ const error403 = { description: 'Forbidden - tenant inactive', content: { 'appli
 const error429 = { description: 'Too many requests - rate limited', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } };
 const error500 = { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } };
 
+// Phase 36: opt-in httpOnly cookie for the refresh token
+const transportHeader = { name: 'X-Refresh-Token-Transport', in: 'header', required: false, schema: { type: 'string', enum: ['cookie'] }, description: 'Phase 36 cookie mode: the refresh token is set as an httpOnly cookie `pulseops_refresh` (Path `/api/v1/auth`, SameSite per `REFRESH_COOKIE_SAMESITE`, default Strict) and left out of the body (`refreshTokenTransport: "cookie"` instead). On refresh/logout, the cookie is read only when this header is sent (CSRF guard). Send requests with credentials.' };
+
 export const authPaths = {
   '/api/v1/auth/register': {
     post: {
@@ -45,6 +48,7 @@ export const authPaths = {
       summary: 'Login',
       description: 'Public. Rate-limited. Supports dual-scope authentication. Use scope=platform for Platform Admin (requires platform role). Use scope=tenant (default) for tenant users. Tenant login no longer requires manual tenantId; when omitted the server auto-resolves tenant via email (requires globally unique email). Legacy tenantId still accepted for backward compatibility. tenantSlug optional resolves tenant by slug without exposing UUID.',
       operationId: 'login',
+      parameters: [transportHeader],
       security: [],
       requestBody: {
         required: true,
@@ -78,8 +82,9 @@ export const authPaths = {
     post: {
       tags: ['Auth'],
       summary: 'Refresh access token',
-      description: 'Public. Rate-limited. Requires valid refreshToken.',
+      description: 'Public. Rate-limited. Requires a valid refreshToken — in the body, or (Phase 36 cookie mode) from the `pulseops_refresh` cookie when `X-Refresh-Token-Transport: cookie` is sent. Rotates it; replaying a rotated token ends the session.',
       operationId: 'refresh',
+      parameters: [transportHeader],
       security: [],
       requestBody: {
         required: true,
@@ -106,8 +111,9 @@ export const authPaths = {
     post: {
       tags: ['Auth'],
       summary: 'Logout',
-      description: 'Public. Optionally revokes refresh token if provided.',
+      description: 'Public. Optionally revokes refresh token if provided (body, or the cookie in Phase 36 cookie mode, which is then cleared).',
       operationId: 'logout',
+      parameters: [transportHeader],
       security: [],
       requestBody: {
         required: false,

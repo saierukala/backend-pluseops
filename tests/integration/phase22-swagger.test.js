@@ -7,6 +7,7 @@ const app = createApp();
 describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
   const expectedPublic = new Set([
     'GET /health',
+    'GET /.well-known/jwks.json',
     'GET /health/db',
     'GET /health/redis',
     'GET /health/bullmq',
@@ -49,6 +50,7 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
   const allExpected = [
     // Health (dual)
     'GET /health',
+    'GET /.well-known/jwks.json',
     'GET /health/db',
     'GET /health/redis',
     'GET /health/bullmq',

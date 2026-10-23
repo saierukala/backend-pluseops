@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { refreshCookie, STAFF_COOKIE } from '../../common/http/refresh-cookie.js';
 import { z } from 'zod';
 import {
   register,
@@ -55,9 +56,10 @@ export const authRouter = Router();
 
 // Public endpoints — authLimiter protects against brute force / credential stuffing
 authRouter.post('/register', authLimiter, validate(registerSchema), register);
-authRouter.post('/login', authLimiter, validate(loginSchema), login);
-authRouter.post('/refresh', authLimiter, validate(refreshSchema), refresh);
-authRouter.post('/logout', validate(logoutSchema), logout);
+// Phase 36: `X-Refresh-Token-Transport: cookie` keeps the refresh token in an httpOnly cookie instead of the body
+authRouter.post('/login', authLimiter, refreshCookie(STAFF_COOKIE), validate(loginSchema), login);
+authRouter.post('/refresh', authLimiter, refreshCookie(STAFF_COOKIE), validate(refreshSchema), refresh);
+authRouter.post('/logout', refreshCookie(STAFF_COOKIE, { clear: true }), validate(logoutSchema), logout);
 authRouter.post('/forgot-password', authLimiter, validate(forgotPasswordSchema), forgotPassword);
 authRouter.post('/reset-password', authLimiter, validate(resetPasswordSchema), resetPassword);
 authRouter.post('/verify-email', authLimiter, validate(verifyEmailSchema), verifyEmail);
