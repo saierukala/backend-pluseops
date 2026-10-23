@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { getPrismaClient } from '../../config/database.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { StorageService } from '../../common/storage/storage.service.js';
@@ -31,55 +32,81 @@ export async function listCategories(tenantId) {
   });
 }
 
-const SORTS = {
-  newest: (a, b) => b.createdAt - a.createdAt,
-  price_asc: (a, b) => a.min - b.min,
-  price_desc: (a, b) => b.max - a.max,
-  name: (a, b) => a.name.localeCompare(b.name),
+// Fixed ORDER BY fragments (never built from input); ties broken by id so pages are stable
+const ORDER_BY = {
+  newest: Prisma.sql`created_at DESC, id ASC`,
+  price_asc: Prisma.sql`min_price ASC, id ASC`,
+  price_desc: Prisma.sql`max_price DESC, id ASC`,
+  name: Prisma.sql`name ASC, id ASC`,
 };
 
+// ILIKE treats % _ \ as wildcards/escape; a shopper's search is literal text
+const likePattern = (text) => `%${text.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+
 /**
- * Product cards. Filtering by search/category/price runs in the database; sorting by price and the
- * in-stock filter need per-product aggregates, so the matching set is ranked in memory and then paged.
+ * Product cards. Phase 36: filtering, per-product aggregates (price range, in stock), sorting and paging all run in
+ * one SQL query, so a request reads one page of products instead of the whole catalog.
  */
 export async function listProducts(store, { search, category, minPrice, maxPrice, inStock, sort = 'newest', page = 1, limit = 24 }) {
   const tenantId = store.id;
-  const variantWhere = sellableVariant(tenantId);
-  const where = sellableProduct(tenantId);
-  if (minPrice !== undefined || maxPrice !== undefined) {
-    where.variants = { some: { ...variantWhere, price: { ...(minPrice !== undefined ? { gte: minPrice } : {}), ...(maxPrice !== undefined ? { lte: maxPrice } : {}) } } };
-  }
+  const prisma = getPrismaClient();
+  const productFilters = [Prisma.sql`p.tenant_id = ${tenantId}`, Prisma.sql`p.status = 'ACTIVE'`, Prisma.sql`p.deleted_at IS NULL`];
   if (search) {
-    where.OR = ['name', 'brand', 'description'].map((field) => ({ [field]: { contains: search, mode: 'insensitive' } }));
+    const pattern = likePattern(search);
+    productFilters.push(Prisma.sql`(p.name ILIKE ${pattern} OR p.brand ILIKE ${pattern} OR p.description ILIKE ${pattern})`);
   }
-  if (category) where.categories = { some: { category: { slug: category, isActive: true, deletedAt: null } } };
+  if (category) {
+    productFilters.push(Prisma.sql`EXISTS (SELECT 1 FROM product_categories pc JOIN categories c ON c.id = pc.category_id
+      WHERE pc.product_id = p.id AND pc.tenant_id = ${tenantId} AND c.slug = ${category} AND c.is_active AND c.deleted_at IS NULL)`);
+  }
+  // Same rules as before: a product matches a price range when one of its sellable variants is in it
+  const having = [];
+  if (minPrice !== undefined || maxPrice !== undefined) {
+    const lower = minPrice !== undefined ? Prisma.sql`v.price >= ${minPrice}::numeric` : Prisma.sql`TRUE`;
+    const upper = maxPrice !== undefined ? Prisma.sql`v.price <= ${maxPrice}::numeric` : Prisma.sql`TRUE`;
+    having.push(Prisma.sql`BOOL_OR(${lower} AND ${upper})`);
+  }
+  if (inStock) having.push(Prisma.sql`BOOL_OR(v.stock > 0)`);
 
-  const products = await getPrismaClient().product.findMany({
-    where,
-    select: {
-      id: true, name: true, brand: true, createdAt: true,
-      variants: { where: variantWhere, select: { price: true, inventory: { select: { quantity: true } } } },
-      images: { orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }], take: 1, select: { id: true, storageKey: true, altText: true } },
-    },
-  });
-  let ranked = products.map((p) => {
-    const prices = p.variants.map((v) => Number(v.price));
-    return { ...p, min: Math.min(...prices), max: Math.max(...prices), inStock: p.variants.some((v) => stockOf(v) > 0) };
-  });
-  if (inStock) ranked = ranked.filter((p) => p.inStock);
-  ranked.sort((a, b) => SORTS[sort](a, b) || a.id.localeCompare(b.id));
+  const rows = await prisma.$queryRaw`
+    WITH v AS (
+      SELECT pv.product_id, pv.price,
+        COALESCE((SELECT SUM(i.quantity) FROM inventory i WHERE i.tenant_id = pv.tenant_id AND i.product_variant_id = pv.id), 0) AS stock
+      FROM product_variants pv
+      WHERE pv.tenant_id = ${tenantId} AND pv.status = 'ACTIVE' AND pv.deleted_at IS NULL
+    ), ranked AS (
+      SELECT p.id, p.name, p.brand, p.created_at, MIN(v.price) AS min_price, MAX(v.price) AS max_price, BOOL_OR(v.stock > 0) AS in_stock
+      FROM products p JOIN v ON v.product_id = p.id
+      WHERE ${Prisma.join(productFilters, ' AND ')}
+      GROUP BY p.id
+      ${having.length ? Prisma.sql`HAVING ${Prisma.join(having, ' AND ')}` : Prisma.empty}
+    )
+    SELECT id, name, brand, min_price, max_price, in_stock, COUNT(*) OVER () AS total
+    FROM ranked ORDER BY ${ORDER_BY[sort]} LIMIT ${limit} OFFSET ${(page - 1) * limit}`;
 
-  const total = ranked.length;
-  const pageItems = ranked.slice((page - 1) * limit, page * limit);
-  const data = await Promise.all(pageItems.map(async (p) => ({
+  let total = rows.length ? Number(rows[0].total) : 0;
+  if (!rows.length && page > 1) {
+    // Past the last page: the window count isn't there, so count the matches on their own
+    const counted = await listProducts(store, { search, category, minPrice, maxPrice, inStock, sort, page: 1, limit: 1 });
+    total = counted.meta.total;
+  }
+
+  const ids = rows.map((r) => r.id);
+  const images = ids.length
+    ? await prisma.productImage.findMany({ where: { tenantId, productId: { in: ids } }, orderBy: [{ isPrimary: 'desc' }, { sortOrder: 'asc' }], select: { id: true, productId: true, storageKey: true, altText: true } })
+    : [];
+  const firstImage = new Map();
+  for (const img of images) if (!firstImage.has(img.productId)) firstImage.set(img.productId, img);
+
+  const data = await Promise.all(rows.map(async (p) => ({
     id: p.id,
     name: p.name,
     brand: p.brand,
-    priceFrom: money(p.min),
-    priceTo: money(p.max),
+    priceFrom: money(Number(p.min_price)),
+    priceTo: money(Number(p.max_price)),
     currency: store.currency,
-    inStock: p.inStock,
-    image: await imageUrl(p.images[0]),
+    inStock: p.in_stock,
+    image: await imageUrl(firstImage.get(p.id)),
   })));
   return { data, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
 }

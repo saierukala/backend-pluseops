@@ -56,6 +56,10 @@ const envSchema = z.object({
   // Phase 35: Razorpay API base (overridable for tests/sandboxes); keys are per shop, not here
   RAZORPAY_API_URL: z.string().url().default('https://api.razorpay.com/v1'),
   RAZORPAY_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
+  // Phase 36: finished/failed reports and their files are deleted after this many days (0 = keep forever)
+  REPORT_RETENTION_DAYS: z.coerce.number().int().min(0).default(30),
+  // Phase 36: register the recurring jobs (nightly cleanup, scheduled reports). Off in tests unless set.
+  JOB_SCHEDULERS_ENABLED: booleanFromString.optional(),
   // Phase 32: optional; <slug>.<STOREFRONT_BASE_DOMAIN> resolves to that tenant's store
   STOREFRONT_BASE_DOMAIN: z.string().optional(),
   STORAGE_PROVIDER: z.enum(['local', 's3']).default('local'),
@@ -123,6 +127,7 @@ if (parsed.data.NODE_ENV === 'production') {
 export const env = {
   ...parsed.data,
   EMAIL_PROVIDER: parsed.data.EMAIL_PROVIDER || (parsed.data.SMTP_URL ? 'smtp' : 'mock'),
+  JOB_SCHEDULERS_ENABLED: parsed.data.JOB_SCHEDULERS_ENABLED ?? parsed.data.NODE_ENV !== 'test',
   APP_URL: (parsed.data.APP_URL || corsOrigins[0] || 'http://localhost:5173').replace(/\/$/, ''),
   corsOrigins,
   failOnDependencyError: parsed.data.FAIL_ON_DEPENDENCY_ERROR ?? parsed.data.NODE_ENV === 'production'

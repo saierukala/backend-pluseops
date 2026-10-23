@@ -355,6 +355,8 @@ Never commit `.env`. The repository `.gitignore` excludes `.env` and `.dockerign
 | GET | `/api/v1/reports` | List reports (type, status filters) |
 | GET | `/api/v1/reports/:id` | Report status |
 | GET | `/api/v1/reports/:id/download` | 5-minute signed download URL (409 until COMPLETED) |
+| GET/POST | `/api/v1/report-schedules` | Daily/weekly/monthly report schedules (Phase 36; recipients get a link by email) |
+| GET/PATCH/DELETE | `/api/v1/report-schedules/:id` | Read, change, pause (`enabled: false`) or delete a schedule |
 | GET | `/api/v1/storefront/resolve?host=` | Public: verified domain (or `<slug>.<STOREFRONT_BASE_DOMAIN>`) → store |
 | GET | `/api/v1/storefront/:store` | Public store info (`:store` = tenant slug) |
 | GET | `/api/v1/storefront/:store/categories` | Public active categories |

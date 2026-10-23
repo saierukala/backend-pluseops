@@ -69,6 +69,8 @@ This document is the Phase 23 production reference. It covers environment variab
 | `S3_BUCKET` / `S3_REGION` / `S3_ENDPOINT` / `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` / `S3_PUBLIC_BASE_URL` / `S3_FORCE_PATH_STYLE` / `STORAGE_TIMEOUT_MS` | When `s3` | — | See § 5. |
 | `SMTP_URL` / `EMAIL_FROM` | **Yes** for real email | unset → mock (logs only) | Phase 35. `smtp(s)://user:pass@host:port` (URL-encode `@` in the user as `%40`), e.g. Brevo `smtp://login%40smtp-brevo.com:KEY@smtp-relay.brevo.com:587`. Needed by the **worker** (it sends) and the API (inline send when Redis is down). |
 | `APP_URL` | Yes (prod) | first `CORS_ORIGINS` entry | Staff web app origin; verification links go to `/verify-email?token=`, reset links to `/reset-password?token=`. Needed by the API. |
+| `REPORT_RETENTION_DAYS` | No | `30` | Phase 36. Reports and their files older than this are deleted nightly (03:27 UTC); `0` keeps them. |
+| `JOB_SCHEDULERS_ENABLED` | No | `true` (`false` when `NODE_ENV=test`) | Phase 36. Registers the recurring BullMQ jobs: token cleanup 03:17 UTC, report retention 03:27 UTC, scheduled reports hourly. Safe on several processes (one schedule per id in Redis). |
 | `RAZORPAY_API_URL` / `RAZORPAY_TIMEOUT_MS` | No | `https://api.razorpay.com/v1` / `10000` | Phase 35. Keys are per shop (workspace settings), not env vars. Each shop sets the webhook URL `https://<api>/api/v1/payments/webhook/razorpay/<tenantId>` (events `payment.captured`, `order.paid`) in its Razorpay dashboard. |
 | `EMAIL_PROVIDER` / `SMS_PROVIDER` / `SHIPPING_PROVIDER` / `MAPS_PROVIDER` + `*_URL`/`*_API_KEY`/`*_TIMEOUT_MS` | No | `mock` (`smtp` for email when `SMTP_URL` is set) | Provider adapters (Phase 16). |
 

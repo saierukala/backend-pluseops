@@ -2947,3 +2947,28 @@ Still open in Phase 35 (waiting on the hosting choice): deploy target, managed P
 monitoring; browser → S3 presigned uploads; RS256/cookie mode. **Before going live with Razorpay:** run one real
 test-mode payment with a shop's `rzp_test_` keys (this environment cannot reach api.razorpay.com), set
 `CREDENTIALS_ENCRYPTION_KEY`, and register the webhook URL in each shop's Razorpay dashboard.
+
+## PHASE 36 — OPEN GAPS & AUTH HARDENING
+
+Chosen by the owner after Phase 35 part 1 (deployment still waits on the hosting choice):
+- Report-file retention and scheduled reports; analytics counting soft-deleted customers; storefront search that
+  scales past in-memory ranking.
+- RS256 with key rotation; httpOnly refresh-token cookie mode for the web apps.
+
+Delivered, 36a (2026-10-23, migration `20261026_phase36_reports_and_search`):
+- **Recurring jobs:** BullMQ job schedulers registered by every API/worker process (idempotent; `JOB_SCHEDULERS_ENABLED`,
+  off in tests by default): expired-token cleanup 03:17 UTC and report retention 03:27 UTC nightly (the token cleanup
+  previously only ran when someone called `POST /jobs/cleanup`), scheduled reports at minute 7 of every hour.
+- **Retention:** reports of any status older than `REPORT_RETENTION_DAYS` (default 30, `0` keeps them) are deleted with
+  their files; a file that can't be deleted keeps its row for the next run. Reports show `expiresAt`.
+- **Scheduled reports:** `/report-schedules` (manage with `report:create`, read with `report:read`). DAILY / WEEKLY /
+  MONTHLY for the period just ended, in UTC like the report filters (ORDERS/CUSTOMERS get `from`/`to`; INVENTORY is a
+  snapshot). The first report covers the next period to end; re-enabling or changing frequency doesn't catch up.
+  Runs as the creator with their permissions: an inactive creator or lost permission pauses the schedule with
+  `lastError`. A conditional update claims each period, so two workers can't run it twice. Recipients must be active
+  users of the tenant and get a link (`APP_URL/reports/{id}`, template `report.scheduled_ready`), never the data.
+- **Analytics:** overview and customer analytics (summary and new-customer buckets) skip soft-deleted customers; their
+  orders and revenue still count. Customers are the only soft-deleted table, so products and variants were already right.
+- **Storefront listing:** filtering, price range, in-stock, sorting and paging in one SQL query (window count for the
+  total) instead of loading every product; `%` and `_` in a search are literal now (they matched everything before).
+

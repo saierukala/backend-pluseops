@@ -15,6 +15,7 @@ const pageParams = [
   { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
 ];
 const report = { $ref: '#/components/schemas/Report' };
+const schedule = { $ref: '#/components/schemas/ReportSchedule' };
 const template = { $ref: '#/components/schemas/NotificationTemplate' };
 const meta = { meta: { $ref: '#/components/schemas/PaginationMeta' } };
 
@@ -28,6 +29,49 @@ const templateProperties = {
 };
 
 export const reportsTemplatesPaths = {
+  // Phase 36
+  '/api/v1/report-schedules': {
+    post: {
+      tags: ['Reports'],
+      summary: 'Schedule a recurring report',
+      description: 'Requires `report:create` and read access to the data (as for `POST /reports`). Each hour the worker requests a report for every schedule whose period has just ended (UTC): DAILY = yesterday, WEEKLY = last Monday–Sunday, MONTHLY = last calendar month — as `from`/`to` for ORDERS and CUSTOMERS; INVENTORY is a snapshot. The first report covers the next period to end. Runs as the creator: if they stop being active or lose the read permission, the schedule pauses itself (`enabled: false`, `lastError`). Recipients (default: the creator) must be active users of this workspace; they get an email with a link to the report in the staff app (`APP_URL/reports/{id}`), never the data. 400 `INVALID_RECIPIENTS`.',
+      operationId: 'createReportSchedule',
+      security,
+      requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', required: ['name', 'type', 'frequency'], properties: {
+        name: { type: 'string', maxLength: 120, example: 'Daily orders' },
+        type: { type: 'string', enum: ['ORDERS', 'INVENTORY', 'CUSTOMERS'] },
+        frequency: { type: 'string', enum: ['DAILY', 'WEEKLY', 'MONTHLY'] },
+        filters: { type: 'object', properties: { status: { type: 'string' }, warehouseId: { type: 'string', format: 'uuid' } }, additionalProperties: false },
+        recipientUserIds: { type: 'array', items: { type: 'string', format: 'uuid' }, minItems: 1, maxItems: 20 },
+        enabled: { type: 'boolean', default: true },
+      } } } } },
+      responses: { 201: ok('Schedule created', schedule), 400: error400, 401: error401, 403: error403, 500: error500 },
+    },
+    get: {
+      tags: ['Reports'], summary: 'List report schedules', description: 'Requires `report:read`. Newest first.', operationId: 'listReportSchedules', security,
+      parameters: pageParams, responses: { 200: ok('Schedules', { type: 'array', items: schedule }, meta), 400: error400, 401: error401, 403: error403, 500: error500 },
+    },
+  },
+  '/api/v1/report-schedules/{id}': {
+    get: {
+      tags: ['Reports'], summary: 'Get a report schedule', description: 'Requires `report:read`.', operationId: 'getReportSchedule', security,
+      parameters: [idParam], responses: { 200: ok('Schedule', schedule), 400: error400, 401: error401, 403: error403, 404: error404, 500: error500 },
+    },
+    patch: {
+      tags: ['Reports'], summary: 'Change a report schedule',
+      description: 'Requires `report:create` and read access to its data. `type` can\'t change. Changing `frequency`, or re-enabling, restarts from the next period to end (no catch-up for missed periods); re-enabling clears `lastError`.',
+      operationId: 'updateReportSchedule', security, parameters: [idParam],
+      requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', minProperties: 1, properties: {
+        name: { type: 'string', maxLength: 120 }, frequency: { type: 'string', enum: ['DAILY', 'WEEKLY', 'MONTHLY'] }, filters: { type: 'object' },
+        recipientUserIds: { type: 'array', items: { type: 'string', format: 'uuid' } }, enabled: { type: 'boolean' },
+      } } } } },
+      responses: { 200: ok('Schedule updated', schedule), 400: error400, 401: error401, 403: error403, 404: error404, 500: error500 },
+    },
+    delete: {
+      tags: ['Reports'], summary: 'Delete a report schedule', description: 'Requires `report:create`. Reports it already made stay (until retention).', operationId: 'deleteReportSchedule', security,
+      parameters: [idParam], responses: { 204: { description: 'Deleted' }, 400: error400, 401: error401, 403: error403, 404: error404, 500: error500 },
+    },
+  },
   '/api/v1/reports': {
     post: {
       tags: ['Reports'],

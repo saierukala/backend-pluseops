@@ -494,6 +494,16 @@ async function main() {
   await check('staff cannot request reports', 'POST', '/reports', 403, { token: S, body: { type: 'ORDERS' } });
   await check('B cannot read A report', 'GET', `/reports/${reportId}`, 404, { token: B });
   await check('B cannot download A report', 'GET', `/reports/${reportId}/download`, 404, { token: B });
+  record('report has a retention date (Phase 36)', Boolean(report?.expiresAt), 'expiresAt missing');
+  const sched = await check('create report schedule', 'POST', '/report-schedules', 201, { token: A, body: { name: 'Audit daily', type: 'ORDERS', frequency: 'DAILY' }, assert: (r) => data(r)?.lastPeriod && data(r)?.recipientUserIds?.length === 1 });
+  const schedId = data(sched)?.id;
+  await check('schedule: bad frequency 400', 'POST', '/report-schedules', 400, { token: A, body: { name: 'x', type: 'ORDERS', frequency: 'HOURLY' } });
+  await check('schedule: date filters not allowed 400', 'POST', '/report-schedules', 400, { token: A, body: { name: 'x', type: 'ORDERS', frequency: 'DAILY', filters: { from: '2026-01-01' } } });
+  await check('staff cannot create schedule', 'POST', '/report-schedules', 403, { token: S, body: { name: 'x', type: 'ORDERS', frequency: 'DAILY' } });
+  await check('list schedules', 'GET', '/report-schedules', 200, { token: A, assert: (r) => data(r).some((x) => x.id === schedId) });
+  await check('B cannot read A schedule', 'GET', `/report-schedules/${schedId}`, 404, { token: B });
+  await check('pause schedule', 'PATCH', `/report-schedules/${schedId}`, 200, { token: A, body: { enabled: false }, assert: (r) => data(r)?.enabled === false });
+  await check('delete schedule', 'DELETE', `/report-schedules/${schedId}`, 204, { token: A });
 
   // ── Notification templates (Phase 31) ────────────────────────────────
   group = 'templates';
@@ -517,6 +527,8 @@ async function main() {
   record('no cost price or stock levels in catalog', !/costPrice|quantity|warehouse/i.test(JSON.stringify(cards?.json ?? {})), 'internal fields leaked');
   await check('public product detail', 'GET', `${SF}/products/${productId}`, 200, { assert: (r) => data(r)?.variants?.some((v) => v.id === variantId && v.inStock) });
   await check('public categories', 'GET', `${SF}/categories`, 200);
+  await check('catalog search is literal (Phase 36)', 'GET', `${SF}/products?search=%25`, 200, { assert: (r) => Array.isArray(data(r)) && !data(r).some((p) => p.id === productId) });
+  await check('catalog page past the end keeps total', 'GET', `${SF}/products?page=50`, 200, { assert: (r) => data(r).length === 0 && r.json?.meta?.total >= 1 });
   const shopEmail = `shopper-${RUN}@audit.test`;
   const shopReg = await check('shopper register (202)', 'POST', `${SF}/auth/register`, 202, { body: { email: shopEmail, firstName: 'Sia', lastName: 'Shop' } });
   await check('login before password set 401', 'POST', `${SF}/auth/login`, 401, { body: { email: shopEmail, password: PASSWORD } });
