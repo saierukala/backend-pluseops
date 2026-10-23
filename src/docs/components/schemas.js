@@ -245,6 +245,51 @@ export const schemas = {
       createdAt: { type: 'string', format: 'date-time' },
     },
   },
+  WorkspaceSettings: {
+    type: 'object',
+    properties: {
+      currency: { type: 'string', nullable: true, example: 'INR' },
+      timezone: { type: 'string', nullable: true, example: 'Asia/Kolkata' },
+      locale: { type: 'string', nullable: true, example: 'en-IN' },
+      contactEmail: { type: 'string', nullable: true },
+      contactPhone: { type: 'string', nullable: true },
+    },
+  },
+  TenantDomain: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      domain: { type: 'string', example: 'shop.example.com' },
+      primary: { type: 'boolean' },
+      verified: { type: 'boolean', description: 'Always false until domain verification ships (Phase 32)' },
+      createdAt: { type: 'string', format: 'date-time' },
+      updatedAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  Workspace: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      name: { type: 'string' },
+      slug: { type: 'string' },
+      status: { type: 'string', enum: ['ACTIVE', 'TRIAL', 'SUSPENDED', 'CANCELLED'] },
+      plan: { type: 'string' },
+      settings: { $ref: '#/components/schemas/WorkspaceSettings' },
+      domains: { type: 'array', items: { $ref: '#/components/schemas/TenantDomain' } },
+      createdAt: { type: 'string', format: 'date-time' },
+      updatedAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  SupportSession: {
+    type: 'object',
+    properties: {
+      sessionId: { type: 'string', format: 'uuid' },
+      accessToken: { type: 'string', description: 'scope "support", 30 minutes, read-only; no refresh token' },
+      expiresAt: { type: 'string', format: 'date-time' },
+      readOnly: { type: 'boolean', example: true },
+      tenant: { type: 'object', properties: { id: { type: 'string', format: 'uuid' }, name: { type: 'string' }, slug: { type: 'string' } } },
+    },
+  },
   AddressSnapshot: {
     type: 'object',
     nullable: true,

@@ -2,9 +2,11 @@ import { verifyAccessToken } from './jwt.util.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { AuthRepository } from './auth.repository.js';
 import { getPrismaClient } from '../../config/database.js';
+import { supportService } from '../support/support.service.js';
 
 const PLATFORM_TENANT_SLUG = '__platform';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const READ_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 /**
  * Phase 28: an access token is only valid while its login session still holds a live refresh token,
@@ -19,7 +21,32 @@ async function assertSessionActive(repo, decoded) {
   }
 }
 
-export function authenticate() {
+/**
+ * Phase 30: a platform admin's read-only support token for one tenant (see support.service.js).
+ * Writes are refused outright; every request is recorded in the tenant's activity log.
+ */
+async function authenticateSupport(req, res, decoded) {
+  if (!UUID_RE.test(decoded.sessionId) || !decoded.tenantId) {
+    throw new AppError('Invalid token claims', { statusCode: 401, code: 'INVALID_TOKEN_CLAIMS' });
+  }
+  const session = await supportService.findActive(decoded);
+  if (!session) throw new AppError('Support session has ended', { statusCode: 401, code: 'SESSION_REVOKED' });
+  req.context = req.context || {};
+  req.context.userId = decoded.sub;
+  req.context.tenantId = decoded.tenantId;
+  req.context.sessionId = decoded.sessionId;
+  req.context.email = decoded.email;
+  req.context.scope = 'support';
+  req.context.support = { sessionId: session.id, readOnly: true };
+  // Logged before the read-only check so refused write attempts are recorded too
+  res.on('finish', () => supportService.logRequest(req, res.statusCode));
+  if (!READ_METHODS.has(req.method)) {
+    throw new AppError('Support sessions are read-only', { statusCode: 403, code: 'SUPPORT_READ_ONLY' });
+  }
+}
+
+/** `allowSupport: false` keeps support tokens out of endpoints about a user's own account. */
+export function authenticate({ allowSupport = true } = {}) {
   return async (req, res, next) => {
     try {
       const authHeader = req.headers.authorization;
@@ -42,6 +69,11 @@ export function authenticate() {
         });
       }
       const scope = decoded.scope || 'tenant';
+      if (scope === 'support') {
+        if (!allowSupport) throw new AppError('Support sessions cannot use this endpoint', { statusCode: 403, code: 'SUPPORT_TOKEN_FORBIDDEN' });
+        await authenticateSupport(req, res, decoded);
+        return next();
+      }
       if (scope === 'platform') {
         throw new AppError('Platform token cannot access tenant resources', {
           statusCode: 403,
@@ -190,7 +222,7 @@ export function authenticatePlatform() {
 // Optional authentication - doesn't throw if no token
 /** Accepts tenant or platform tokens — for endpoints about the caller's own account. */
 export function authenticateAnyScope() {
-  const tenant = authenticate();
+  const tenant = authenticate({ allowSupport: false });
   const platform = authenticatePlatform();
   return (req, res, next) => {
     let scope = 'tenant';

@@ -17,12 +17,12 @@ function validate(schema) {
 }
 
 export const notificationsRouter = Router();
-notificationsRouter.use(authenticate());
+notificationsRouter.use(authenticate({ allowSupport: false })); // a personal inbox; GET preferences also creates default rows
 notificationsRouter.get('/', validate(listNotificationsQuerySchema), authorize('notification:read'), listNotifications);
 notificationsRouter.post('/read-all', authorize('notification:update'), markAllAsRead);
 notificationsRouter.patch('/:id/read', validate(markReadParamsSchema), authorize('notification:update'), markOneAsRead);
 
 export const notificationPreferencesRouter = Router();
-notificationPreferencesRouter.use(authenticate());
+notificationPreferencesRouter.use(authenticate({ allowSupport: false })); // a personal inbox; GET preferences also creates default rows
 notificationPreferencesRouter.get('/', authorize('notification:read'), getPreferences);
 notificationPreferencesRouter.patch('/', validate(patchPreferencesSchema), authorize('notification:update'), updatePreferences);

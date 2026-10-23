@@ -7,6 +7,7 @@ import { platformPaths } from './paths/platform.js';
 import { rbacPaths } from './paths/rbac.js';
 import { catalogPaths } from './paths/catalog.js';
 import { inventoryWarehousesPaths } from './paths/inventory-warehouses.js';
+import { workspacePaths } from './paths/workspace.js';
 import { customersPaths } from './paths/customers.js';
 import { ordersPaymentsPaths } from './paths/orders-payments.js';
 import { auditNotificationsPaths } from './paths/audit-notifications.js';
@@ -32,6 +33,7 @@ export const openApiSpec = {
     { name: 'Tenants', description: 'Tenant provisioning (public - legacy; platform preferred)' },
     { name: 'Platform', description: 'Platform administration - tenant lifecycle, requires scope=platform and platform:tenant:* permissions' },
     { name: 'Auth', description: 'Authentication, registration, tokens, password flows. Dual-scope login: platform vs tenant.' },
+    { name: 'Workspace', description: "The caller's own tenant: profile, settings, domains" },
     { name: 'Roles', description: 'Tenant role management' },
     { name: 'Permissions', description: 'Tenant permissions' },
     { name: 'Users', description: 'Tenant user management' },
@@ -104,6 +106,7 @@ export const openApiSpec = {
     ...rbacPaths,
     ...catalogPaths,
     ...inventoryWarehousesPaths,
+    ...workspacePaths,
     ...customersPaths,
     ...ordersPaymentsPaths,
     ...auditNotificationsPaths,

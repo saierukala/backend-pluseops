@@ -656,8 +656,11 @@ export class AuthService {
       });
     }
     const tenantRoles = await this.repository.findTenantRolesWithPermissions(userId, tenantId);
+    const tenant = user.memberships.find((m) => m.tenantId === tenantId).tenant;
     return {
       ...this.toSafeUser(user, tenantId, 'tenant'),
+      // Phase 30 (frontend F08): the business this login belongs to
+      tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug, status: tenant.status, plan: tenant.plan },
       ...this.toAuthorizationSummary(tenantRoles.map((ur) => ({
         role: ur.role,
         permissions: ur.role.rolePermissions.map((rp) => rp.permission),

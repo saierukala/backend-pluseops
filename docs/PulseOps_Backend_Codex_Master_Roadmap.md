@@ -438,7 +438,7 @@ PHASE 26 → Security Corrections                  (done — storage secret move
 PHASE 27 → RBAC Completion                       (done)
 PHASE 28 → Account Self-Service                  (done)
 PHASE 29 → Customers & Addresses                (done)
-PHASE 30 → Tenant Workspace (settings, domains, memberships)
+PHASE 30 → Tenant Workspace (settings, domains, support access)  (done)
 PHASE 31 → Reports, Exports & Notification Templates
 PHASE 32 → Storefront / Public Commerce API
 PHASE 33 → Platform Operations
@@ -2772,12 +2772,31 @@ default promotes the oldest remaining. `POST /orders` takes optional `shippingAd
 writes use `customer:update`; order history needs `customer:read` + `order:read`. Every write is audit-logged.
 Not done: analytics/dashboard customer totals still count soft-deleted customers (same as products today).
 
-## PHASE 30 — TENANT WORKSPACE
+## PHASE 30 — TENANT WORKSPACE (DONE 2026-10-24)
 
 - Tenant admin endpoints for `TenantSettings` and `TenantDomain` (`tenant:read` / `tenant:update`).
-- `GET /auth/memberships` + `POST /auth/switch-tenant` for multi-tenant users.
+- ~~`GET /auth/memberships` + `POST /auth/switch-tenant` for multi-tenant users~~ — dropped, see decision below.
 - Decide email uniqueness: the schema has both `@@unique([email])` and `@@unique([tenantId, email])`;
   the global one blocks one person working in two tenants. Pick one model and document it.
+
+**Decision (owner, 2026-10-24): one person = one account = one business.** Staff email is unique platform-wide;
+the redundant `(tenant_id, email)` unique was dropped. Someone in two businesses uses two emails. No memberships
+or switch-tenant API. (Storefront customers stay per tenant — `Customer` is `@@unique([tenantId, email])`.)
+
+Delivered (migration `20261024_phase30_tenant_workspace`):
+- `/api/v1/workspace` — the caller's own tenant, no tenant id in URLs: `GET`/`PATCH` (rename),
+  `GET`/`PATCH /settings` (currency, timezone, locale, contactEmail, contactPhone; partial, `null` clears, validated),
+  `GET`/`POST /domains`, `PATCH /domains/:id` (`primary: true`), `DELETE /domains/:id`. A domain belongs to one
+  tenant platform-wide (409 `DOMAIN_TAKEN`, same response whoever owns it); one primary per tenant (partial unique
+  index); domains start unverified — verification ships with the storefront (32). All writes audit-logged.
+- `GET /auth/me` returns `tenant { id, name, slug, status, plan }` (frontend F08).
+- Read-only platform support access (frontend F33; owner chose read-only): `POST /platform/tenants/:id/support-sessions`
+  (`platform:tenant:access`, `reason` required) → 30-minute `scope: "support"` token, no refresh token;
+  `DELETE /platform/support-sessions/:id` (owner only). Support tokens: GET only (403 `SUPPORT_READ_ONLY`), `*:read`
+  permissions only, refused on own-account and notification endpoints (403 `SUPPORT_TOKEN_FORBIDDEN`), rejected by the
+  socket handshake. Start/end go to the tenant's audit log and every request (refused ones too) to its activity log
+  under the platform admin. Ending, expiry, tenant suspension or losing the permission cut access immediately.
+  Existing databases: run `npm run db:seed` so the platform admin role gets `platform:tenant:access`.
 
 ## PHASE 31 — REPORTS, EXPORTS & NOTIFICATION TEMPLATES
 

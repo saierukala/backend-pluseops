@@ -439,6 +439,37 @@ async function main() {
   await check('analytics bad date range', 'GET', '/analytics/sales?from=2026-12-01&to=2026-01-01', 400, { token: A });
   await check('staff cannot read analytics', 'GET', '/analytics/overview', 403, { token: S });
 
+  // ── Tenant workspace (Phase 30) ──────────────────────────────────────
+  group = 'workspace';
+  await check('get workspace', 'GET', '/workspace', 200, { token: A, assert: (r) => data(r)?.id === tenantA.id });
+  await check('auth/me has tenant', 'GET', '/auth/me', 200, { token: A, assert: (r) => data(r)?.tenant?.id === tenantA.id });
+  await check('rename workspace', 'PATCH', '/workspace', 200, { token: A, body: { name: `Audit A ${RUN} renamed` } });
+  await check('update settings', 'PATCH', '/workspace/settings', 200, { token: A, body: { currency: 'inr', timezone: 'Asia/Kolkata' }, assert: (r) => data(r)?.currency === 'INR' });
+  await check('invalid timezone 400', 'PATCH', '/workspace/settings', 400, { token: A, body: { timezone: 'Mars/Olympus' } });
+  const dom = await check('add domain', 'POST', '/workspace/domains', 201, { token: A, body: { domain: `shop-${RUN}.audit.test` }, assert: (r) => data(r)?.primary === true });
+  await check('domain taken by B 409', 'POST', '/workspace/domains', 409, { token: B, body: { domain: `shop-${RUN}.audit.test` } });
+  await check('malformed domain 400', 'POST', '/workspace/domains', 400, { token: A, body: { domain: 'https://x.audit.test/a' } });
+  await check('list domains', 'GET', '/workspace/domains', 200, { token: A, assert: (r) => data(r).length === 1 });
+  await check('B cannot touch A domain', 'DELETE', `/workspace/domains/${data(dom)?.id}`, 404, { token: B });
+  await check('staff cannot update workspace', 'PATCH', '/workspace', 403, { token: S, body: { name: 'Pwned' } });
+  await check('platform token refused on workspace', 'GET', '/workspace', 403, { token: P });
+
+  // ── Read-only support sessions (Phase 30, F33) ───────────────────────
+  group = 'support';
+  await check('support needs a reason', 'POST', `/platform/tenants/${tenantA.id}/support-sessions`, 400, { token: P, body: {} });
+  await check('tenant token cannot start support', 'POST', `/platform/tenants/${tenantA.id}/support-sessions`, 403, { token: A, body: { reason: 'audit check' } });
+  const sup = await check('start support session', 'POST', `/platform/tenants/${tenantA.id}/support-sessions`, 201, { token: P, body: { reason: `audit run ${RUN}` }, assert: (r) => data(r)?.readOnly === true });
+  const SUP = data(sup)?.accessToken;
+  await check('support reads workspace', 'GET', '/workspace', 200, { token: SUP, assert: (r) => data(r)?.id === tenantA.id });
+  await check('support reads customers', 'GET', '/customers', 200, { token: SUP });
+  await check('support /auth/me', 'GET', '/auth/me', 200, { token: SUP, assert: (r) => data(r)?.scope === 'support' && data(r)?.support?.readOnly === true });
+  await check('support write refused', 'POST', '/customers', 403, { token: SUP, body: { email: `sup-${RUN}@audit.test`, firstName: 'S', lastName: 'U' } });
+  await check('support settings write refused', 'PATCH', '/workspace/settings', 403, { token: SUP, body: { currency: 'USD' } });
+  await check('support kept out of own-account endpoints', 'GET', '/auth/sessions', 403, { token: SUP });
+  await check('support cannot read B customer', 'GET', `/customers/${data(await call('POST', '/customers', { token: B, body: { email: `bsup-${RUN}@audit.test`, firstName: 'B', lastName: 'Sup' } }))?.id}`, 404, { token: SUP });
+  await check('end support session', 'DELETE', `/platform/support-sessions/${data(sup)?.sessionId}`, 200, { token: P });
+  await check('ended support token rejected', 'GET', '/workspace', 401, { token: SUP });
+
   // ── Tenant isolation ─────────────────────────────────────────────────
   group = 'isolation';
   await check('B cannot read A product', 'GET', `/products/${productId}`, 404, { token: B });
