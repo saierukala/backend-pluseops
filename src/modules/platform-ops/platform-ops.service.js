@@ -37,13 +37,13 @@ export class PlatformOpsService {
 
   /** Creates a platform admin with an initial password the inviter shares out of band (change it on first login). */
   async addAdmin({ email, password, firstName, lastName, roleId }) {
+    if (await this.prisma.user.findUnique({ where: { email } })) {
+      throw new AppError('This email already has an account', { statusCode: 409, code: 'USER_ALREADY_EXISTS' });
+    }
     const role = roleId
       ? await this.prisma.platformRole.findUnique({ where: { id: roleId } })
       : await this.prisma.platformRole.findUnique({ where: { name: DEFAULT_PLATFORM_ROLE } });
     if (!role) throw new AppError(roleId ? 'Platform role not found' : 'No default platform role; pass roleId', { statusCode: 400, code: 'PLATFORM_ROLE_NOT_FOUND' });
-    if (await this.prisma.user.findUnique({ where: { email } })) {
-      throw new AppError('This email already has an account', { statusCode: 409, code: 'USER_ALREADY_EXISTS' });
-    }
     const platformTenant = await this.prisma.tenant.upsert({
       where: { slug: PLATFORM_TENANT_SLUG }, update: {}, create: { name: 'Platform', slug: PLATFORM_TENANT_SLUG, status: 'ACTIVE', plan: 'platform' },
     });
