@@ -24,7 +24,7 @@ function getQueue() {
   return analyticsQueue;
 }
 
-export async function enqueueAnalytics({ tenantId, metric = 'generic', period = null, filters = {}, idempotencyKey = null }) {
+export async function enqueueAnalytics({ tenantId, metric = 'overview', period = null, filters = {}, idempotencyKey = null }) {
   if (!tenantId) throw new Error('tenantId is required');
   const queue = getQueue();
   const payload = { tenantId, metric, period, filters, enqueuedAt: new Date().toISOString() };
@@ -32,8 +32,10 @@ export async function enqueueAnalytics({ tenantId, metric = 'generic', period = 
   const rawJobId = idempotencyKey ? `analytics-${tenantId}-${idempotencyKey}` : undefined;
   const jobId = rawJobId ? rawJobId.replace(/:/g, '-') : undefined;
   if (!queue) {
-    logger.warn({ queue: QUEUE_NAMES.ANALYTICS }, 'Redis unavailable; analytics job deferred');
-    return { id: `deferred-${Date.now()}`, fallback: true, deferred: true };
+    logger.warn({ queue: QUEUE_NAMES.ANALYTICS }, 'Redis unavailable; computing analytics synchronously');
+    const { processCalculateAnalytics } = await import('../processors/analytics.processor.js');
+    const result = await processCalculateAnalytics(payload).catch((err) => ({ failed: true, error: err.message }));
+    return { id: `sync-${Date.now()}`, fallback: true, result };
   }
   try {
     const job = await queue.add(JOB_NAMES.CALCULATE_ANALYTICS, payload, {

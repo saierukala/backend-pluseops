@@ -4,6 +4,15 @@ import { AppError } from '../../common/errors/app-error.js';
 
 const storageService = new StorageService();
 
+const CONTENT_TYPES = { '.csv': 'text/csv; charset=utf-8', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp' };
+
+function setFileHeaders(res, storageKey) {
+  const ext = storageKey.slice(storageKey.lastIndexOf('.')).toLowerCase();
+  res.setHeader('Content-Type', CONTENT_TYPES[ext] ?? 'application/octet-stream');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  if (ext === '.csv') res.setHeader('Content-Disposition', `attachment; filename="${storageKey.split('/').pop()}"`);
+}
+
 export async function getSignedFile(req, res, next) {
   try {
     const storageKey = req.query.key;
@@ -23,8 +32,7 @@ export async function getSignedFile(req, res, next) {
     if (!stream) {
       throw new AppError('File not found', { statusCode: 404, code: 'FILE_NOT_FOUND' });
     }
-    // Determine mime via extension or stored? For local, we can infer
-    res.setHeader('Content-Type', 'application/octet-stream');
+    setFileHeaders(res, storageKey);
     res.setHeader('Cache-Control', 'private, max-age=60');
     stream.pipe(res);
   } catch (error) { next(error); }
@@ -43,7 +51,7 @@ export async function getAuthenticatedFile(req, res, next) {
     }
     const stream = await storageService.getFileStream(storageKey);
     if (!stream) throw new AppError('File not found', { statusCode: 404, code: 'FILE_NOT_FOUND' });
-    res.setHeader('Content-Type', 'application/octet-stream');
+    setFileHeaders(res, storageKey);
     stream.pipe(res);
   } catch (error) { next(error); }
 }

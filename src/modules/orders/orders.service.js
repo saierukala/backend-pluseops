@@ -309,6 +309,8 @@ export class OrderService {
         referenceId: result.id,
         metadata: { orderId: result.id, total: result.total?.toString?.() ?? String(result.total) },
         idempotencyKey: `order:${result.id}`,
+        template: 'order.created',
+        variables: { orderId: result.id, total: result.total?.toString?.() ?? String(result.total), currency: result.currency },
       }).catch(() => {});
     } catch (_e) { void _e; }
     return result;

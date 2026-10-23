@@ -21,8 +21,9 @@ Focus area from the user (may be empty): $ARGUMENTS
 3. **Seed.** `npm run db:seed` (idempotent; backfills catalog permissions into existing tenants).
 4. **Live audit.** Start the API on port 3100 with raised limits
    (`PORT=3100 RATE_LIMIT_MAX=100000 AUTH_RATE_LIMIT_MAX=100000 LOG_LEVEL=warn node src/app/server.js`),
+   and the worker (`LOG_LEVEL=warn node src/worker.js` — the `reports` group fails without it),
    then `AUDIT_BASE_URL=http://localhost:3100 node scripts/api-audit.js --out <scratchpad>/audit.json`.
-   Stop the server afterwards.
+   Stop the server and worker afterwards.
 5. **New routes.** If a route exists that `scripts/api-audit.js` doesn't exercise, add checks for it (happy path,
    no-token 401, no-permission 403, other-tenant 404) before trusting the result.
 6. **Triage every failure.** Read the route → service → repository code. Classify each as

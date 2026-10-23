@@ -24,16 +24,21 @@ function getQueue() {
   return reportQueue;
 }
 
-export async function enqueueReport({ tenantId, userId = null, reportType = 'generic', filters = {}, idempotencyKey = null }) {
+/**
+ * Enqueue generation of a stored Report row (Phase 31). The payload carries ids only; the worker reads the
+ * report's type and filters from the database. One job per report (jobId = report id).
+ */
+export async function enqueueReport({ tenantId, userId = null, reportId, reportType = null }) {
   if (!tenantId) throw new Error('tenantId is required');
+  if (!reportId) throw new Error('reportId is required');
   const queue = getQueue();
-  const payload = { tenantId, userId, reportType, filters, enqueuedAt: new Date().toISOString() };
-  // BullMQ Custom Id cannot contain `:` — use `-`
-  const rawJobId = idempotencyKey ? `report-${tenantId}-${idempotencyKey}` : undefined;
-  const jobId = rawJobId ? rawJobId.replace(/:/g, '-') : undefined;
+  const payload = { tenantId, userId, reportId, reportType, enqueuedAt: new Date().toISOString() };
+  const jobId = `report-${reportId}`;
   if (!queue) {
-    logger.warn({ queue: QUEUE_NAMES.REPORT }, 'Redis unavailable; report job deferred');
-    return { id: `deferred-${Date.now()}`, fallback: true, deferred: true };
+    logger.warn({ queue: QUEUE_NAMES.REPORT, reportId }, 'Redis unavailable; generating report synchronously');
+    const { processGenerateReport } = await import('../processors/report.processor.js');
+    const result = await processGenerateReport(payload, { jobId }).catch((err) => ({ failed: true, error: err.message }));
+    return { id: `sync-${reportId}`, fallback: true, result };
   }
   try {
     const job = await queue.add(JOB_NAMES.GENERATE_REPORT, payload, {
@@ -45,7 +50,7 @@ export async function enqueueReport({ tenantId, userId = null, reportType = 'gen
       timeout: jobTimeoutMs(QUEUE_NAMES.REPORT),
     });
     recordQueueMetric(QUEUE_NAMES.REPORT, 'enqueue', true, 0);
-    logger.info({ queue: QUEUE_NAMES.REPORT, jobId: job.id, tenantId, reportType }, 'Report job enqueued (generation deferred)');
+    logger.info({ queue: QUEUE_NAMES.REPORT, jobId: job.id, tenantId, reportId, reportType }, 'Report job enqueued');
     return job;
   } catch (err) {
     recordQueueMetric(QUEUE_NAMES.REPORT, 'enqueue', false, 0, err?.code || 'error');

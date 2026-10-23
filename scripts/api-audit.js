@@ -423,7 +423,7 @@ async function main() {
   group = 'jobs';
   await check('jobs status', 'GET', '/jobs/status', 200, { token: A });
   await check('enqueue cleanup', 'POST', '/jobs/cleanup', [200, 202], { token: A });
-  await check('enqueue report', 'POST', '/jobs/reports', [200, 202], { token: A, body: { reportType: 'sales' } });
+  await check('enqueue report', 'POST', '/jobs/reports', 202, { token: A, body: { reportType: 'orders' } });
   await check('enqueue analytics', 'POST', '/jobs/analytics', [200, 202], { token: A, body: { metric: 'revenue' } });
   await check('staff (no perms) cannot trigger cleanup', 'POST', '/jobs/cleanup', 403, { token: S, note: 'jobs routes only check authentication, not permissions' });
   await check('staff (no perms) cannot read job status', 'GET', '/jobs/status', 403, { token: S, note: 'jobs routes only check authentication, not permissions' });
@@ -469,6 +469,42 @@ async function main() {
   await check('support cannot read B customer', 'GET', `/customers/${data(await call('POST', '/customers', { token: B, body: { email: `bsup-${RUN}@audit.test`, firstName: 'B', lastName: 'Sup' } }))?.id}`, 404, { token: SUP });
   await check('end support session', 'DELETE', `/platform/support-sessions/${data(sup)?.sessionId}`, 200, { token: P });
   await check('ended support token rejected', 'GET', '/workspace', 401, { token: SUP });
+
+  // ── Reports (Phase 31) — needs the worker (node src/worker.js) running ──
+  group = 'reports';
+  const rep = await check('request orders report', 'POST', '/reports', 202, { token: A, body: { type: 'ORDERS' } });
+  const reportId = data(rep)?.id;
+  let report = data(rep);
+  for (let i = 0; i < 30 && !['COMPLETED', 'FAILED'].includes(report?.status); i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    report = data(await call('GET', `/reports/${reportId}`, { token: A }));
+  }
+  record('worker completes report', report?.status === 'COMPLETED' && report?.rowCount >= 1, `status=${report?.status} rows=${report?.rowCount} (is the worker running?)`);
+  const link = await check('report download link', 'GET', `/reports/${reportId}/download`, 200, { token: A });
+  const csvUrl = data(link)?.url;
+  if (csvUrl) {
+    const csv = await fetch(`${BASE}${csvUrl}`);
+    const text = await csv.text();
+    record('signed CSV download', csv.status === 200 && csv.headers.get('content-type')?.startsWith('text/csv') && text.includes('orderId,createdAt,status'), `status=${csv.status} type=${csv.headers.get('content-type')}`);
+  } else record('signed CSV download', false, 'no url');
+  await check('invalid report type 400', 'POST', '/reports', 400, { token: A, body: { type: 'SALES' } });
+  await check('list reports', 'GET', '/reports', 200, { token: A });
+  await check('staff cannot request reports', 'POST', '/reports', 403, { token: S, body: { type: 'ORDERS' } });
+  await check('B cannot read A report', 'GET', `/reports/${reportId}`, 404, { token: B });
+  await check('B cannot download A report', 'GET', `/reports/${reportId}/download`, 404, { token: B });
+
+  // ── Notification templates (Phase 31) ────────────────────────────────
+  group = 'templates';
+  const tpl = await check('create template', 'POST', '/notification-templates', 201, { token: A, body: { name: 'order.created', channel: 'IN_APP', subject: 'Order {{orderId}}', body: 'Total {{total}} {{currency}}', variables: ['orderId', 'total', 'currency'] } });
+  const tplId = data(tpl)?.id;
+  await check('undeclared placeholder 400', 'POST', '/notification-templates', 400, { token: A, body: { name: 'x.y', channel: 'SMS', body: 'Hi {{who}}' } });
+  await check('duplicate template 409', 'POST', '/notification-templates', 409, { token: A, body: { name: 'order.created', channel: 'IN_APP', subject: 'S', body: 'B' } });
+  await check('list templates', 'GET', '/notification-templates', 200, { token: A, assert: (r) => data(r).length === 1 });
+  await check('update template', 'PATCH', `/notification-templates/${tplId}`, 200, { token: A, body: { subject: 'New order {{orderId}}' } });
+  await check('preview template', 'POST', `/notification-templates/${tplId}/preview`, 200, { token: A, body: { variables: { orderId: 'X1', total: '9.99' } }, assert: (r) => data(r)?.subject === 'New order X1' && data(r)?.missingVariables?.includes('currency') });
+  await check('B cannot read A template', 'GET', `/notification-templates/${tplId}`, 404, { token: B });
+  await check('staff cannot create template', 'POST', '/notification-templates', 403, { token: S, body: { name: 's.t', channel: 'SMS', body: 'x' } });
+  await check('delete template', 'DELETE', `/notification-templates/${tplId}`, 200, { token: A });
 
   // ── Tenant isolation ─────────────────────────────────────────────────
   group = 'isolation';

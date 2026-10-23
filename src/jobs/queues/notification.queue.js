@@ -46,20 +46,22 @@ function sanitizeForLog(payload) {
  * Idempotency: if idempotencyKey provided, used as BullMQ jobId for deterministic de-duplication.
  * No secrets/tokens/passwords should be placed in payload; validated here.
  */
-export async function enqueueNotification({ tenantId, userId = null, type = 'INFO', title, message, channel = 'IN_APP', referenceType = null, referenceId = null, metadata = {}, idempotencyKey = null }) {
+// `template` + `variables` (Phase 31): if the tenant has an active template with that name for the channel, the
+// processor renders it; `title` / `message` remain required as the fallback.
+export async function enqueueNotification({ tenantId, userId = null, type = 'INFO', title, message, channel = 'IN_APP', referenceType = null, referenceId = null, metadata = {}, idempotencyKey = null, template = null, variables = {} }) {
   if (!tenantId) throw new Error('tenantId is required for notification job');
   if (!title || !message) throw new Error('title and message are required');
   if (metadata && containsSensitiveKey(metadata)) {
     logger.warn({ queue: QUEUE_NAMES.NOTIFICATION, tenantId }, 'Rejecting notification job with sensitive payload keys');
     throw new Error('Sensitive data must not be enqueued in job payload');
   }
-  if (containsSensitiveKey({ title, message })) {
+  if (containsSensitiveKey({ title, message }) || containsSensitiveKey(variables)) {
     throw new Error('Sensitive data must not be enqueued');
   }
 
   const queue = getQueue();
   const payload = {
-    tenantId, userId, type, title, message, channel, referenceType, referenceId, metadata,
+    tenantId, userId, type, title, message, channel, referenceType, referenceId, metadata, template, variables,
     enqueuedAt: new Date().toISOString(),
   };
 

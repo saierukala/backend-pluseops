@@ -37,7 +37,8 @@ function isRetryableError(err) {
 
 export async function processSendNotification(payload, opts = {}) {
   const start = Date.now();
-  const { tenantId, userId = null, type = 'INFO', title, message, channel = 'IN_APP', referenceType = null, referenceId = null, metadata = {} } = payload;
+  const { tenantId, userId = null, type = 'INFO', channel = 'IN_APP', referenceType = null, referenceId = null, metadata = {}, template = null, variables = {} } = payload;
+  let { title, message } = payload;
   const attemptNumber = opts.attempt ?? 1;
   const jobId = opts.jobId || 'unknown';
 
@@ -47,6 +48,14 @@ export async function processSendNotification(payload, opts = {}) {
   try {
     if (!tenantId) {
       throw new AppError('tenantId is required', { statusCode: 400, code: 'VALIDATION_ERROR' });
+    }
+    const { getPrismaClient } = await import('../../config/database.js');
+    const { findActiveTemplate, renderTemplate } = await import('../../modules/notification-templates/template.renderer.js');
+    const stored = await findActiveTemplate(getPrismaClient(), tenantId, template, channel);
+    if (stored) {
+      const rendered = renderTemplate(stored, variables);
+      title = rendered.subject || title;
+      message = rendered.body;
     }
     const { NotificationService } = await import('../../modules/notifications/notifications.service.js');
     const service = new NotificationService();

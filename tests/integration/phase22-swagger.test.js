@@ -222,6 +222,17 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'DELETE /api/v1/workspace/domains/{domainId}',
     'POST /api/v1/platform/tenants/{id}/support-sessions',
     'DELETE /api/v1/platform/support-sessions/{sessionId}',
+    // Reports + notification templates (Phase 31) 10
+    'POST /api/v1/reports',
+    'GET /api/v1/reports',
+    'GET /api/v1/reports/{id}',
+    'GET /api/v1/reports/{id}/download',
+    'GET /api/v1/notification-templates',
+    'POST /api/v1/notification-templates',
+    'GET /api/v1/notification-templates/{id}',
+    'PATCH /api/v1/notification-templates/{id}',
+    'DELETE /api/v1/notification-templates/{id}',
+    'POST /api/v1/notification-templates/{id}/preview',
   ];
 
   it('OpenAPI JSON endpoint responds successfully', async () => {

@@ -31,6 +31,8 @@ export const SYSTEM_PERMISSIONS = [
   ...perms('dashboard', ['read']),
   ...perms('analytics', ['read']),
   ...perms('jobs', ['read', 'manage']),
+  ...perms('report', ['create', 'read']),
+  ...perms('notification_template', CRUD),
 ];
 
 // Global platform permissions (no tenantId), granted to platform roles only.

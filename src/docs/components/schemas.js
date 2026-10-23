@@ -245,6 +245,38 @@ export const schemas = {
       createdAt: { type: 'string', format: 'date-time' },
     },
   },
+  Report: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      type: { type: 'string', enum: ['ORDERS', 'INVENTORY', 'CUSTOMERS'] },
+      format: { type: 'string', example: 'csv' },
+      status: { type: 'string', enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED'] },
+      filters: { type: 'object' },
+      rowCount: { type: 'integer', nullable: true },
+      sizeBytes: { type: 'integer', nullable: true },
+      error: { type: 'string', nullable: true, description: 'Generic message when FAILED (no internals)' },
+      requestedBy: { type: 'string', format: 'uuid', nullable: true },
+      startedAt: { type: 'string', format: 'date-time', nullable: true },
+      completedAt: { type: 'string', format: 'date-time', nullable: true },
+      createdAt: { type: 'string', format: 'date-time' },
+      updatedAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  NotificationTemplate: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' },
+      name: { type: 'string', example: 'order.created' },
+      channel: { type: 'string', enum: ['IN_APP', 'EMAIL', 'SMS', 'PUSH'] },
+      subject: { type: 'string', nullable: true },
+      body: { type: 'string' },
+      variables: { type: 'array', items: { type: 'string' } },
+      isActive: { type: 'boolean' },
+      createdAt: { type: 'string', format: 'date-time' },
+      updatedAt: { type: 'string', format: 'date-time' },
+    },
+  },
   WorkspaceSettings: {
     type: 'object',
     properties: {
