@@ -59,6 +59,13 @@ export async function updateDomain(req, res, next) {
   } catch (error) { next(error); }
 }
 
+export async function verifyDomain(req, res, next) {
+  try {
+    const domain = await workspaceService.verifyDomain(req.context.tenantId, req.params.domainId, auditContextFrom(req));
+    res.status(200).json({ success: true, data: domain, message: 'Domain verified' });
+  } catch (error) { next(error); }
+}
+
 export async function deleteDomain(req, res, next) {
   try {
     await workspaceService.removeDomain(req.context.tenantId, req.params.domainId, auditContextFrom(req));

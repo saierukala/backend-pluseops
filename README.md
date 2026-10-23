@@ -343,6 +343,20 @@ Never commit `.env`. The repository `.gitignore` excludes `.env` and `.dockerign
 | GET | `/api/v1/reports` | List reports (type, status filters) |
 | GET | `/api/v1/reports/:id` | Report status |
 | GET | `/api/v1/reports/:id/download` | 5-minute signed download URL (409 until COMPLETED) |
+| GET | `/api/v1/storefront/resolve?host=` | Public: verified domain (or `<slug>.<STOREFRONT_BASE_DOMAIN>`) → store |
+| GET | `/api/v1/storefront/:store` | Public store info (`:store` = tenant slug) |
+| GET | `/api/v1/storefront/:store/categories` | Public active categories |
+| GET | `/api/v1/storefront/:store/products` | Public product cards (search, category, minPrice/maxPrice, inStock, sort) |
+| GET | `/api/v1/storefront/:store/products/:productId` | Public product detail (variants, `inStock`, images) |
+| POST | `/api/v1/storefront/:store/auth/{register,set-password,login,forgot-password,refresh,logout}` | Shopper accounts (per store; password set via emailed code) |
+| GET/PATCH | `/api/v1/storefront/:store/account` | Shopper profile |
+| GET/POST/PATCH/DELETE | `/api/v1/storefront/:store/account/addresses[/:addressId]` | Shopper addresses |
+| GET | `/api/v1/storefront/:store/account/orders[/:orderId]` | Shopper orders with timeline and payments |
+| POST | `/api/v1/storefront/:store/account/orders/:orderId/pay` | Retry starting a payment |
+| GET/DELETE | `/api/v1/storefront/:store/cart` | Server-priced cart / empty it |
+| PUT/DELETE | `/api/v1/storefront/:store/cart/items/:variantId` | Set / remove a cart line |
+| POST | `/api/v1/storefront/:store/checkout` | Place the order from the cart and start the payment |
+| POST | `/api/v1/workspace/domains/:domainId/verify` | Verify a domain via its `_pulseops-verify` TXT record |
 | GET/POST | `/api/v1/notification-templates` | List / create `{{placeholder}}` templates (`notification_template:*`) |
 | GET/PATCH/DELETE | `/api/v1/notification-templates/:id` | Read / update / delete a template |
 | POST | `/api/v1/notification-templates/:id/preview` | Render a template with sample variables |

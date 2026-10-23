@@ -31,6 +31,18 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'POST /api/v1/auth/verify-email',
     'POST /api/v1/payments/webhook',
     'GET /api/v1/storage/signed',
+    // Phase 32 public storefront
+    'GET /api/v1/storefront/resolve',
+    'GET /api/v1/storefront/{store}',
+    'GET /api/v1/storefront/{store}/categories',
+    'GET /api/v1/storefront/{store}/products',
+    'GET /api/v1/storefront/{store}/products/{productId}',
+    'POST /api/v1/storefront/{store}/auth/register',
+    'POST /api/v1/storefront/{store}/auth/set-password',
+    'POST /api/v1/storefront/{store}/auth/login',
+    'POST /api/v1/storefront/{store}/auth/forgot-password',
+    'POST /api/v1/storefront/{store}/auth/refresh',
+    'POST /api/v1/storefront/{store}/auth/logout',
   ]);
 
   const allExpected = [
@@ -233,6 +245,33 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'PATCH /api/v1/notification-templates/{id}',
     'DELETE /api/v1/notification-templates/{id}',
     'POST /api/v1/notification-templates/{id}/preview',
+    // Storefront + domain verification (Phase 32) 26
+    'POST /api/v1/workspace/domains/{domainId}/verify',
+    'GET /api/v1/storefront/resolve',
+    'GET /api/v1/storefront/{store}',
+    'GET /api/v1/storefront/{store}/categories',
+    'GET /api/v1/storefront/{store}/products',
+    'GET /api/v1/storefront/{store}/products/{productId}',
+    'POST /api/v1/storefront/{store}/auth/register',
+    'POST /api/v1/storefront/{store}/auth/set-password',
+    'POST /api/v1/storefront/{store}/auth/login',
+    'POST /api/v1/storefront/{store}/auth/forgot-password',
+    'POST /api/v1/storefront/{store}/auth/refresh',
+    'POST /api/v1/storefront/{store}/auth/logout',
+    'GET /api/v1/storefront/{store}/account',
+    'PATCH /api/v1/storefront/{store}/account',
+    'GET /api/v1/storefront/{store}/account/addresses',
+    'POST /api/v1/storefront/{store}/account/addresses',
+    'PATCH /api/v1/storefront/{store}/account/addresses/{addressId}',
+    'DELETE /api/v1/storefront/{store}/account/addresses/{addressId}',
+    'GET /api/v1/storefront/{store}/account/orders',
+    'GET /api/v1/storefront/{store}/account/orders/{orderId}',
+    'POST /api/v1/storefront/{store}/account/orders/{orderId}/pay',
+    'GET /api/v1/storefront/{store}/cart',
+    'DELETE /api/v1/storefront/{store}/cart',
+    'PUT /api/v1/storefront/{store}/cart/items/{variantId}',
+    'DELETE /api/v1/storefront/{store}/cart/items/{variantId}',
+    'POST /api/v1/storefront/{store}/checkout',
   ];
 
   it('OpenAPI JSON endpoint responds successfully', async () => {
@@ -307,7 +346,9 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     expect(putPaths.sort()).toEqual([
       '/api/v1/products/{productId}/variants/{variantId}/attributes',
       '/api/v1/roles/{id}/permissions',
-    ]);
+      // Phase 32: sets a cart line's quantity (idempotent; 0 removes)
+      '/api/v1/storefront/{store}/cart/items/{variantId}',
+    ].sort());
   });
 
   it('Protected endpoints have bearerAuth security', async () => {

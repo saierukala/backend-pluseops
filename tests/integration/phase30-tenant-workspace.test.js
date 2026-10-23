@@ -143,13 +143,14 @@ describe('Phase 30 — domains', () => {
     }
   });
 
-  it('a domain belongs to one tenant platform-wide, with the same error either way', async () => {
+  it('a tenant cannot add the same domain twice; an unverified claim does not block other tenants (Phase 32)', async () => {
     const own = await api.post('/workspace/domains', A, { domain: shop });
+    expect(own.status).toBe(409);
+    expect(own.body.error).toMatchObject({ code: 'DOMAIN_TAKEN', message: 'This domain is already registered' });
+    // Verified domains are reserved platform-wide — see phase32-storefront.test.js
     const other = await api.post('/workspace/domains', B, { domain: shop.toUpperCase() });
-    for (const res of [own, other]) {
-      expect(res.status).toBe(409);
-      expect(res.body.error).toMatchObject({ code: 'DOMAIN_TAKEN', message: 'This domain is already registered' });
-    }
+    expect(other.status).toBe(201);
+    expect((await api.delete(`/workspace/domains/${other.body.data.id}`, B)).status).toBe(200);
   });
 
   it('moves the primary flag and promotes another domain when the primary is removed', async () => {

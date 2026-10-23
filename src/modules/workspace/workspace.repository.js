@@ -31,16 +31,27 @@ export class WorkspaceRepository {
     return this.prisma.tenantDomain.findMany({ where: { tenantId }, orderBy: DOMAIN_ORDER });
   }
 
-  async findDomainByName(domain) {
-    return this.prisma.tenantDomain.findUnique({ where: { domain } });
+  async findVerifiedDomain(domain, tx = this.prisma) {
+    return tx.tenantDomain.findFirst({ where: { domain, verified: true } });
   }
 
   async findDomain(domainId, tenantId, tx = this.prisma) {
     return tx.tenantDomain.findFirst({ where: { id: domainId, tenantId } });
   }
 
-  async createDomain(tenantId, domain, tx = this.prisma) {
-    return tx.tenantDomain.create({ data: { tenantId, domain } });
+  async createDomain(tenantId, domain, verificationToken, tx = this.prisma) {
+    return tx.tenantDomain.create({ data: { tenantId, domain, verificationToken } });
+  }
+
+  async markVerified(domainId, tx = this.prisma) {
+    return tx.tenantDomain.update({ where: { id: domainId }, data: { verified: true, verifiedAt: new Date() } });
+  }
+
+  // Other tenants' unverified claims on a domain that has just been verified elsewhere.
+  async deleteUnverifiedClaims(domain, exceptId, tx = this.prisma) {
+    const claims = await tx.tenantDomain.findMany({ where: { domain, verified: false, id: { not: exceptId } }, select: { id: true, tenantId: true } });
+    await tx.tenantDomain.deleteMany({ where: { id: { in: claims.map((c) => c.id) } } });
+    return claims;
   }
 
   async deleteDomain(domainId, tx = this.prisma) {

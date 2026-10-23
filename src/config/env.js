@@ -46,6 +46,8 @@ const envSchema = z.object({
   PAYMENT_PROVIDER_URL: z.string().url().optional(),
   PAYMENT_PROVIDER_API_KEY: z.string().optional(),
   PAYMENT_PROVIDER_TIMEOUT_MS: z.coerce.number().int().positive().default(5000),
+  // Phase 32: optional; <slug>.<STOREFRONT_BASE_DOMAIN> resolves to that tenant's store
+  STOREFRONT_BASE_DOMAIN: z.string().optional(),
   STORAGE_PROVIDER: z.enum(['local', 's3']).default('local'),
   LOCAL_STORAGE_PATH: z.string().default('./storage'),
   LOCAL_STORAGE_URL: z.string().default('/storage'),

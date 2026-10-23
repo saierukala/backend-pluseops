@@ -69,6 +69,9 @@ export function authenticate({ allowSupport = true } = {}) {
         });
       }
       const scope = decoded.scope || 'tenant';
+      if (scope === 'customer') {
+        throw new AppError('Shopper tokens only work on the storefront API', { statusCode: 403, code: 'CUSTOMER_TOKEN_FORBIDDEN' });
+      }
       if (scope === 'support') {
         if (!allowSupport) throw new AppError('Support sessions cannot use this endpoint', { statusCode: 403, code: 'SUPPORT_TOKEN_FORBIDDEN' });
         await authenticateSupport(req, res, decoded);

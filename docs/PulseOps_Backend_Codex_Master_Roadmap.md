@@ -440,7 +440,7 @@ PHASE 28 → Account Self-Service                  (done)
 PHASE 29 → Customers & Addresses                (done)
 PHASE 30 → Tenant Workspace (settings, domains, support access)  (done)
 PHASE 31 → Reports, Exports & Notification Templates  (done)
-PHASE 32 → Storefront / Public Commerce API
+PHASE 32 → Storefront / Public Commerce API  (done)
 PHASE 33 → Platform Operations
 PHASE 34 → Data Integrity & API Consistency
 PHASE 35 → Production Deployment
@@ -2828,6 +2828,30 @@ Unblocks frontend F26–F30.
 - Public, read-only catalog resolved by tenant slug or `TenantDomain` (no tenant UUID in URLs).
 - Customer accounts as a third auth scope (`scope: customer`), cart, checkout → order + payment.
 - Customer order tracking. Strict rate limits and response shaping (no cost price, no internal fields).
+
+Delivered (DONE 2026-10-24, migration `20261024_phase32_storefront`). Owner decisions: **shopper accounts are per tenant**
+(one tenant = one store); **custom domains need DNS verification**.
+- Public, under `/api/v1/storefront/{slug}`: store info, categories, products (search, category slug, price range,
+  in-stock, sort, paging; signed image URLs), product detail. Only ACTIVE products with ACTIVE variants; never cost
+  price, barcode or stock levels (just `inStock`). Unknown, suspended and `__platform` tenants → 404 `STORE_NOT_FOUND`.
+  `GET /storefront/resolve?host=` maps a **verified** domain (or `<slug>.<STOREFRONT_BASE_DOMAIN>`) to its store.
+- Shopper auth (`scope: "customer"`, store-bound): register → emailed 24 h code → `set-password` (verifies the email and
+  signs in), login, refresh (rotation, replay ends the session), logout, forgot-password. The password is only ever
+  chosen through the emailed code, so registering someone else's email (incl. a staff-created customer) gives no
+  access; registration/forgot answer identically whether or not an account exists. Rate-limited like staff auth.
+  Shopper tokens are refused by the staff API (403 `CUSTOMER_TOKEN_FORBIDDEN`) and by other stores (401 `WRONG_STORE`).
+- Account: profile, addresses (reusing Phase 29), order list/detail with `timeline` and `payments`, `pay` retry.
+- Cart: server-priced lines with availability (`UNAVAILABLE` / `INSUFFICIENT_STOCK`), `readyForCheckout`.
+  Checkout → `OrderService.create` (server totals, atomic stock reservation, address snapshots; one warehouse per line,
+  default first) + `PaymentService.create`; cart emptied; `metadata.source = "storefront"`.
+- Domains: each gets a TXT challenge (`_pulseops-verify.<domain>`); `POST /workspace/domains/:id/verify`. Unverified
+  claims no longer reserve a domain (a squatter can't block the owner); the first tenant to verify keeps it and other
+  claims are removed (partial unique index on verified domains).
+- Known limits: catalog ranking is done in memory per request (fine for thousands of products, not hundreds of
+  thousands); no split shipments; category filter is direct membership only; payment confirmation still comes from
+  the provider webhook / staff confirm; staff signup/reset emails are still not sent (only shopper emails are);
+  a tenant whose slug is `resolve` cannot use `GET /storefront/resolve` as its info URL. CORS_ORIGINS must include the
+  storefront's origin.
 
 ## PHASE 33 — PLATFORM OPERATIONS
 
