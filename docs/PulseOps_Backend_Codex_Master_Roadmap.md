@@ -441,7 +441,7 @@ PHASE 29 → Customers & Addresses                (done)
 PHASE 30 → Tenant Workspace (settings, domains, support access)  (done)
 PHASE 31 → Reports, Exports & Notification Templates  (done)
 PHASE 32 → Storefront / Public Commerce API  (done)
-PHASE 33 → Platform Operations
+PHASE 33 → Platform Operations  (done)
 PHASE 34 → Data Integrity & API Consistency
 PHASE 35 → Production Deployment
 ```
@@ -2857,6 +2857,26 @@ Delivered (DONE 2026-10-24, migration `20261024_phase32_storefront`). Owner deci
 
 - Platform user management (invite/remove platform admins), use the seeded `platform:billing:*`
   permissions for plans/limits, tenant usage stats, audit trail of platform actions.
+
+Delivered (DONE 2026-10-24, migration `20261024_phase33_platform_operations`):
+- Plans: `plans` table (code, name, limits `{ users, products, warehouses, ordersPerMonth }`, null = unlimited). The
+  migration inserts free / pro / enterprise (unlimited) plus a row for every plan code tenants already use, so existing
+  data stays valid. `GET/POST /platform/plans`, `PATCH /platform/plans/:code` (`platform:billing:*`),
+  `PATCH /platform/tenants/:id/plan`. Tenant create/update (platform and legacy) now reject unknown, inactive or the
+  reserved `platform` plan. Limits are enforced on user registration / tenant admin creation, product, warehouse and
+  order creation (staff and storefront) → 403 `PLAN_LIMIT_REACHED` with `{ resource, limit, used, plan }`. Soft limit
+  (concurrent creates at the boundary can both pass); lowering a limit never deletes anything.
+- Usage: `GET /platform/overview` (tenants by status/plan, growth by month, active users, orders, completed revenue per
+  currency), `GET /platform/tenants/:id/usage`; the tenant list rows gain `usersCount` and `lastActivityAt`.
+- Platform admins: `GET /platform/roles`, `GET/POST /platform/admins`, `DELETE /platform/admins/:userId`
+  (`platform:admin:read/manage`). New admins get an initial password (12+ chars) to share out of band — there is still
+  no staff email delivery. Removal deactivates the account and ends its sessions and support sessions at once; you
+  can't remove yourself, which also guarantees one manager always remains.
+- `platform_audit_logs` + `GET /platform/audit-logs` (`platform:audit:read`): every platform write (tenant create /
+  update / status / plan / admin, legacy tenant routes, support sessions, plans, platform admins) with actor, tenant,
+  details, IP.
+- New permissions `platform:admin:read/manage`, `platform:audit:read` — run `npm run db:seed` so `platform_admin` gets them.
+- Not done: billing/invoicing (plans have no price or payment), platform role editing, platform-wide user search.
 
 ## PHASE 34 — DATA INTEGRITY & API CONSISTENCY
 

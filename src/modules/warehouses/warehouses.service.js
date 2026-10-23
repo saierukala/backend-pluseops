@@ -1,4 +1,5 @@
 import { WarehouseRepository } from './warehouses.repository.js';
+import { assertWithinPlan } from '../plans/plans.service.js';
 import { AppError } from '../../common/errors/app-error.js';
 
 export class WarehouseService {
@@ -7,6 +8,7 @@ export class WarehouseService {
   }
 
   async create(tenantId, data) {
+    await assertWithinPlan(tenantId, 'warehouses');
     const existing = await this.repository.findByCode(data.code, tenantId);
     if (existing) {
       throw new AppError('Warehouse code already exists', { statusCode: 409, code: 'WAREHOUSE_CODE_EXISTS' });

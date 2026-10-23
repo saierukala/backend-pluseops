@@ -11,7 +11,7 @@ export const platformPaths = {
     get: {
       tags: ['Platform'],
       summary: 'List tenants (platform)',
-      description: 'Platform-only. Requires scope=platform JWT with platform:tenant:read permission. Paginated, excludes internal platform tenant.',
+      description: 'Platform-only. Requires scope=platform JWT with platform:tenant:read permission. Paginated, excludes internal platform tenant. Each row also has `usersCount` (active members) and `lastActivityAt` (Phase 33).',
       operationId: 'platformListTenants',
       security: [{ bearerAuth: [] }],
       parameters: [

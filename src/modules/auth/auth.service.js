@@ -1,4 +1,5 @@
 import { AuthRepository } from './auth.repository.js';
+import { assertWithinPlan } from '../plans/plans.service.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { signAccessToken } from './jwt.util.js';
 import { hashPassword, verifyPassword } from './password.util.js';
@@ -48,6 +49,8 @@ export class AuthService {
         code: 'PLATFORM_TENANT_FORBIDDEN',
       });
     }
+
+    await assertWithinPlan(tenantId, 'users');
 
     const existingUser = await this.repository.findUserByEmailAndTenant(email, tenantId);
     if (existingUser) {

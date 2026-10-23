@@ -1,4 +1,5 @@
 import { TenantRepository } from './tenants.repository.js';
+import { assertAssignablePlan } from '../plans/plans.service.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { getCacheService } from '../../common/cache/cache.service.js';
 import { tenantKey, tenantSettingsKey } from '../../common/cache/cache.keys.js';
@@ -14,6 +15,7 @@ export class TenantService {
   }
 
   async create(data) {
+    await assertAssignablePlan(data.plan);
     const existingSlug = await this.repository.existsBySlug(data.slug);
     if (existingSlug) {
       throw new AppError('Tenant with this slug already exists', {
@@ -81,6 +83,7 @@ export class TenantService {
   }
 
   async update(id, data) {
+    await assertAssignablePlan(data.plan);
     await this.getById(id);
 
     if (data.slug) {
