@@ -442,7 +442,7 @@ PHASE 30 → Tenant Workspace (settings, domains, support access)  (done)
 PHASE 31 → Reports, Exports & Notification Templates  (done)
 PHASE 32 → Storefront / Public Commerce API  (done)
 PHASE 33 → Platform Operations  (done)
-PHASE 34 → Data Integrity & API Consistency
+PHASE 34 → Data Integrity & API Consistency  (done)
 PHASE 35 → Production Deployment
 ```
 
@@ -2888,8 +2888,32 @@ Delivered (DONE 2026-10-24, migration `20261024_phase33_platform_operations`):
   `PAYMENT_ALREADY_PENDING`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_HAS_VARIANTS`).
 - Browser → S3 presigned uploads; idempotent S3 delete.
 
+Delivered (DONE 2026-10-24, migration `20261024_phase34_data_integrity`):
+- **Soft-delete reuse:** customers are the only soft-deleted table, so `customers (tenant_id, email)` is now unique only
+  among non-deleted rows; a deleted customer's email can be used again (old record and orders stay). Variants,
+  categories and warehouses are hard-deleted, so their unique keys needed no change.
+- **Cross-tenant guard in the database:** a trigger per relation (35 relations, generated from the schema's FKs)
+  refuses a row whose parent belongs to another tenant, on insert and on changes to the FK or `tenant_id`. Deliberately
+  unguarded: audit/activity logs, support sessions, platform audit logs (they reference platform admins) and auth-token
+  tables. The migration first fails if any existing row already crosses tenants (none in the dev database).
+- **`STORAGE_SIGNING_SECRET`:** signed storage URLs use their own key; required in production (API and worker) and must
+  differ from `JWT_ACCESS_SECRET`; outside production a key is derived from the JWT secret. Added to the prod compose
+  file, CI checks and DEPLOYMENT.md.
+- **Test database:** Jest runs on `<database>_test` (or `TEST_DATABASE_URL`), created and migrated by a global setup —
+  the development database is no longer touched by tests.
+- **409 convention:** 400 = invalid request, 409 = conflicts with current state. Moved to 409: `INSUFFICIENT_STOCK`,
+  `INVALID_STATUS_TRANSITION`, `CANCELLATION_NOT_ALLOWED`, `ALREADY_CANCELLED`, `VARIANT_NOT_SELLABLE`,
+  `CATEGORY_HAS_CHILDREN`, `CATEGORY_HAS_PRODUCTS`, `ATTRIBUTE_IN_USE`, `PRODUCT_HAS_VARIANTS`, `ORDER_NOT_ELIGIBLE`,
+  `PAYMENT_ALREADY_PENDING`, `INVALID_STATE_TRANSITION`, `INVALID_REFUND_STATE`, `EXCESSIVE_REFUND`, `CART_EMPTY`.
+  **Frontend:** any check on `status === 400` for these must switch to 409 or to `error.code`.
+- **S3:** delete was already idempotent (missing object → `false`). Browser → S3 presigned uploads **moved to Phase 35**:
+  they need a real bucket to test end to end and a post-upload content check.
+
 ## PHASE 35 — PRODUCTION DEPLOYMENT
 
 - Real deploy target behind the CI `deployment` job, managed PostgreSQL/Redis (Redis ≥ 6.2 for BullMQ),
   secret manager, backups/restore drill, Prometheus + Grafana on `/metrics`, alerts wired.
+- Real payment provider for the storefront (today only the mock provider exists, so payments are never confirmed).
+- Browser → S3 presigned image uploads with a post-upload content check (moved from Phase 34).
+- Staff signup / password-reset / verification emails (only shopper emails are sent today).
 - Optional: RS256 with key rotation, httpOnly refresh-token cookie mode.

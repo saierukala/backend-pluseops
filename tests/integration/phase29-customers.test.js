@@ -140,7 +140,7 @@ describe('Phase 29 — customers CRUD', () => {
     expect((await api.patch(`/customers/${customer.id}`, A, {})).status).toBe(400);
   });
 
-  it('soft-deletes: hidden from reads, email stays reserved, orders keep working', async () => {
+  it('soft-deletes: hidden from reads, email reusable, orders keep working', async () => {
     const customer = await newCustomer('deleted');
     const kept = await order(customer.id);
     expect(kept.status).toBe(201);
@@ -149,7 +149,10 @@ describe('Phase 29 — customers CRUD', () => {
     expect((await api.get(`/customers/${customer.id}`, A)).status).toBe(404);
     expect((await api.delete(`/customers/${customer.id}`, A)).status).toBe(404);
     expect((await api.get(`/customers?search=deleted-${RUN}`, A)).body.data).toHaveLength(0);
-    expect((await api.post('/customers', A, { email: `deleted-${RUN}@shop.test`, firstName: 'X', lastName: 'Y' })).status).toBe(409);
+    // Phase 34: a soft-deleted customer's email can be used again (the old record and its orders stay)
+    const reused = await api.post('/customers', A, { email: `deleted-${RUN}@shop.test`, firstName: 'X', lastName: 'Y' });
+    expect(reused.status).toBe(201);
+    expect(reused.body.data.id).not.toBe(customer.id);
 
     const blocked = await order(customer.id);
     expect(blocked.status).toBe(404);

@@ -152,6 +152,7 @@ jobs:
           REDIS_URL: redis://localhost:6379
           JWT_ACCESS_SECRET: ci-access-secret-min-32-chars-long-for-testing
           JWT_REFRESH_SECRET: ci-refresh-secret-min-32-chars-long-for-testing
+          STORAGE_SIGNING_SECRET: ci-storage-signing-secret-min-32-chars-long
           PAYMENT_WEBHOOK_SECRET: ci-webhook-secret-min-32-chars-long-for-testing
         run: docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
       - name: Build Docker image
@@ -248,6 +249,7 @@ jobs:
           REDIS_URL: redis://localhost:6379
           JWT_ACCESS_SECRET: ci-access-secret-min-32-chars-long-for-testing
           JWT_REFRESH_SECRET: ci-refresh-secret-min-32-chars-long-for-testing
+          STORAGE_SIGNING_SECRET: ci-storage-signing-secret-min-32-chars-long
           PAYMENT_WEBHOOK_SECRET: ci-webhook-secret-min-32-chars-long-for-testing
         run: |
           echo "Validating deployment configuration..."
@@ -261,9 +263,10 @@ jobs:
           REDIS_URL: ${{ secrets.REDIS_URL }}
           JWT_ACCESS_SECRET: ${{ secrets.JWT_ACCESS_SECRET }}
           JWT_REFRESH_SECRET: ${{ secrets.JWT_REFRESH_SECRET }}
+          STORAGE_SIGNING_SECRET: ${{ secrets.STORAGE_SIGNING_SECRET }}
         run: |
           missing=0
-          for var in DATABASE_URL REDIS_URL JWT_ACCESS_SECRET JWT_REFRESH_SECRET; do
+          for var in DATABASE_URL REDIS_URL JWT_ACCESS_SECRET JWT_REFRESH_SECRET STORAGE_SIGNING_SECRET; do
             val=$(eval echo \$$var)
             if [ -z "$val" ]; then
               echo "::warning::Secret $var is not configured in GitHub Environment 'production' — deployment will be skipped until configured."
@@ -274,7 +277,7 @@ jobs:
           done
           if [ "$missing" = "1" ]; then
             echo "Deployment provider dependency: configure secrets in GitHub Environment 'production' to enable real deployment."
-            echo "Required: DATABASE_URL, REDIS_URL, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, PAYMENT_WEBHOOK_SECRET, STORAGE_* (if S3)."
+            echo "Required: DATABASE_URL, REDIS_URL, JWT_ACCESS_SECRET, JWT_REFRESH_SECRET, STORAGE_SIGNING_SECRET, PAYMENT_WEBHOOK_SECRET, S3_* (if S3)."
             echo "See docs/DEPLOYMENT.md for provider setup."
           fi
       - name: Deployment placeholder (provider-agnostic)
@@ -313,6 +316,7 @@ jobs:
           REDIS_URL: redis://localhost:6379
           JWT_ACCESS_SECRET: ci-access-secret-min-32-chars-long-for-testing
           JWT_REFRESH_SECRET: ci-refresh-secret-min-32-chars-long-for-testing
+          STORAGE_SIGNING_SECRET: ci-storage-signing-secret-min-32-chars-long
           PAYMENT_WEBHOOK_SECRET: ci-webhook-secret-min-32-chars-long-for-testing
         run: |
           echo "Validating deployment configuration (dry-run)..."

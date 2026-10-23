@@ -180,7 +180,7 @@ describe('Phase 10 - Payment & Transaction Processing', () => {
       const r1 = await request(app).post('/api/v1/payments/create').set('Authorization', `Bearer ${tokenA}`).send({ orderId: oId });
       expect(r1.status).toBe(201);
       const r2 = await request(app).post('/api/v1/payments/create').set('Authorization', `Bearer ${tokenA}`).send({ orderId: oId });
-      expect(r2.status).toBe(400);
+      expect(r2.status).toBe(409);
       expect(r2.body.error.code).toBe('PAYMENT_ALREADY_PENDING');
     });
 
@@ -258,7 +258,7 @@ describe('Phase 10 - Payment & Transaction Processing', () => {
       const pay = await request(app).post('/api/v1/payments/create').set('Authorization', `Bearer ${tokenA}`).send({ orderId: ord.body.data.id });
       await request(app).post('/api/v1/payments/confirm').set('Authorization', `Bearer ${tokenA}`).send({ paymentId: pay.body.data.id });
       const res = await request(app).post('/api/v1/payments/confirm').set('Authorization', `Bearer ${tokenA}`).send({ paymentId: pay.body.data.id });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('INVALID_STATE_TRANSITION');
     });
 
@@ -289,7 +289,7 @@ describe('Phase 10 - Payment & Transaction Processing', () => {
       expect(before.status).toBe('COMPLETED');
       const txnCountBefore = await prisma.paymentTransaction.count({ where: { paymentId: id } });
       const bad = await request(app).post('/api/v1/payments/confirm').set('Authorization', `Bearer ${tokenA}`).send({ paymentId: id });
-      expect(bad.status).toBe(400);
+      expect(bad.status).toBe(409);
       const after = await prisma.payment.findFirst({ where: { id, tenantId: tenantAId } });
       expect(after.status).toBe('COMPLETED');
       const txnCountAfter = await prisma.paymentTransaction.count({ where: { paymentId: id } });
@@ -461,7 +461,7 @@ describe('Phase 10 - Payment & Transaction Processing', () => {
       const excessive = (parseFloat(pay.body.data.amount) + 10).toFixed(2);
       const beforeRefunds = await prisma.refund.count({ where: { paymentId: pay.body.data.id } });
       const res = await request(app).post(`/api/v1/payments/${pay.body.data.id}/refund`).set('Authorization', `Bearer ${tokenA}`).send({ amount: excessive });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('EXCESSIVE_REFUND');
       const afterRefunds = await prisma.refund.count({ where: { paymentId: pay.body.data.id } });
       expect(afterRefunds).toBe(beforeRefunds);
@@ -471,7 +471,7 @@ describe('Phase 10 - Payment & Transaction Processing', () => {
       const ord = await request(app).post('/api/v1/orders').set('Authorization', `Bearer ${tokenA}`).send({ customerId: customerAId, items: [{ productVariantId: variantAId, warehouseId: warehouseAId, quantity: 1 }] });
       const pay = await request(app).post('/api/v1/payments/create').set('Authorization', `Bearer ${tokenA}`).send({ orderId: ord.body.data.id });
       const res = await request(app).post(`/api/v1/payments/${pay.body.data.id}/refund`).set('Authorization', `Bearer ${tokenA}`).send({ amount: '10.00' });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('INVALID_REFUND_STATE');
     });
 
@@ -484,7 +484,7 @@ describe('Phase 10 - Payment & Transaction Processing', () => {
       expect(r1.status).toBe(200);
       expect(r1.body.data.status).toBe('REFUNDED');
       const r2 = await request(app).post(`/api/v1/payments/${pay.body.data.id}/refund`).set('Authorization', `Bearer ${tokenA}`).send({ amount: '1.00' });
-      expect(r2.status).toBe(400);
+      expect(r2.status).toBe(409);
       // ensure rollback: still REFUNDED and no new refund created
       const count = await prisma.refund.count({ where: { paymentId: pay.body.data.id } });
       expect(count).toBe(1);
@@ -563,7 +563,7 @@ describe('Phase 10 - Payment & Transaction Processing', () => {
       const total = pay.body.data.amount.toString();
       await request(app).post(`/api/v1/payments/${pay.body.data.id}/refund`).set('Authorization', `Bearer ${tokenA}`).send({ amount: total });
       const res = await request(app).post('/api/v1/payments/confirm').set('Authorization', `Bearer ${tokenA}`).send({ paymentId: pay.body.data.id });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
     });
 
     it('business-agnostic: payment works for generic product (no industry fields)', async () => {

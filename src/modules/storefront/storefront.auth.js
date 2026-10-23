@@ -81,8 +81,8 @@ export class StorefrontAuthService {
   // customer record (e.g. created by staff) is attached; the password is chosen via the emailed link only,
   // so registering with someone else's email gives no access.
   async register(store, { email, firstName, lastName, phone }) {
-    let customer = await this.prisma.customer.findFirst({ where: { tenantId: store.id, email } });
-    if (customer?.deletedAt || customer?.passwordHash) return accepted(null);
+    let customer = await this.prisma.customer.findFirst({ where: { tenantId: store.id, email, deletedAt: null } });
+    if (customer?.passwordHash) return accepted(null);
     if (!customer) {
       try {
         customer = await this.prisma.customer.create({ data: { tenantId: store.id, email, firstName, lastName, phone: phone ?? null, metadata: { source: 'storefront' } } });

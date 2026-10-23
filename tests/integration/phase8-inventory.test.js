@@ -231,7 +231,7 @@ describe('Phase 08 - Inventory Management', () => {
       const beforeRes = await request(app).get(`/api/v1/inventory/variants/${variantA2Id}`).set('Authorization', `Bearer ${tokenA}`);
       const beforeHyd = beforeRes.body.data.find((x) => x.warehouseId === warehouseA1Id).quantity;
       const res = await request(app).post('/api/v1/inventory/adjust').set('Authorization', `Bearer ${tokenA}`).send({ variantId: variantA2Id, warehouseId: warehouseA1Id, quantityChanged: -1000, reason: 'OVERDRAW' });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('INSUFFICIENT_STOCK');
       const afterRes = await request(app).get(`/api/v1/inventory/variants/${variantA2Id}`).set('Authorization', `Bearer ${tokenA}`);
       const afterHyd = afterRes.body.data.find((x) => x.warehouseId === warehouseA1Id).quantity;
@@ -305,7 +305,7 @@ describe('Phase 08 - Inventory Management', () => {
       const srcBefore = beforeSrc.body.data.find((x) => x.warehouseId === warehouseA1Id).quantity;
       const dstBefore = beforeSrc.body.data.find((x) => x.warehouseId === warehouseA2Id).quantity;
       const res = await request(app).post('/api/v1/inventory/transfer').set('Authorization', `Bearer ${tokenA}`).send({ variantId: variantA3Id, sourceWarehouseId: warehouseA1Id, destinationWarehouseId: warehouseA2Id, quantity: 999, reason: 'OVER' });
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(409);
       expect(res.body.error.code).toBe('INSUFFICIENT_STOCK');
       const after = await request(app).get(`/api/v1/inventory/variants/${variantA3Id}`).set('Authorization', `Bearer ${tokenA}`);
       expect(after.body.data.find((x) => x.warehouseId === warehouseA1Id).quantity).toBe(srcBefore);
@@ -467,7 +467,7 @@ describe('Phase 08 - Inventory Management', () => {
       // all failures should be insufficient stock, not server error
       for (const f of failures) {
         expect([400, 409]).toContain(f.status);
-        if (f.status === 400) expect(f.body.error.code).toBe('INSUFFICIENT_STOCK');
+        if (f.status === 409) expect(f.body.error.code).toBe('INSUFFICIENT_STOCK');
       }
       expect(successes.length).toBe(5);
       expect(failures.length).toBe(5);

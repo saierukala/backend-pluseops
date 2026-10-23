@@ -827,7 +827,9 @@ model Customer {
   tokens        CustomerToken[]
   cartItems     CartItem[]
 
-  @@unique([tenantId, email])
+  // Unique per tenant among non-deleted customers only — partial index "customers_tenant_id_email_active_key"
+  // (migration 20261024_phase34_data_integrity), so a soft-deleted customer's email can be used again.
+  @@index([tenantId, email])
   @@index([tenantId, createdAt])
   @@map("customers")
 }

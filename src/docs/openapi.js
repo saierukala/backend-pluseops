@@ -22,7 +22,7 @@ export const openApiSpec = {
   info: {
     title: 'PulseOps API',
     description:
-      'Modular monolith API for PulseOps — multi-tenant e-commerce and operations platform. All endpoints under `/api/v1` except health checks which are also available at `/health`. JWT Bearer authentication. Tenant isolation derived from authenticated identity; client-supplied tenant IDs are ignored or validated. Response envelope: `{success, data, message, meta, requestId}` for success and `{success:false, error:{code,message,details}, requestId}` for errors. RequestId is echoed via `X-Request-Id` header.',
+      'Modular monolith API for PulseOps — multi-tenant e-commerce and operations platform. All endpoints under `/api/v1` except health checks which are also available at `/health`. JWT Bearer authentication. Tenant isolation derived from authenticated identity; client-supplied tenant IDs are ignored or validated. Response envelope: `{success, data, message, meta, requestId}` for success and `{success:false, error:{code,message,details}, requestId}` for errors. RequestId is echoed via `X-Request-Id` header. Status codes (Phase 34): 400 = the request itself is invalid; 409 = it conflicts with the current state of a resource (e.g. `INSUFFICIENT_STOCK`, `INVALID_STATUS_TRANSITION`, `PAYMENT_ALREADY_PENDING`, `CATEGORY_HAS_PRODUCTS`, `CART_EMPTY`) — branch on `error.code`.',
     version: '1.0.0',
     contact: { name: 'PulseOps API Support', url: 'https://pulseops.example.com' },
   },

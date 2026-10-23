@@ -75,7 +75,7 @@ export class OrderService {
     for (const item of normalizedItems) {
       const v = variantMap.get(item.productVariantId);
       if (!v) throw new AppError(`Variant ${item.productVariantId} not found`, { statusCode: 404, code: 'VARIANT_NOT_FOUND' });
-      if (v.status !== 'ACTIVE') throw new AppError(`Variant ${item.productVariantId} is not sellable (status ${v.status})`, { statusCode: 400, code: 'VARIANT_NOT_SELLABLE' });
+      if (v.status !== 'ACTIVE') throw new AppError(`Variant ${item.productVariantId} is not sellable (status ${v.status})`, { statusCode: 409, code: 'VARIANT_NOT_SELLABLE' });
     }
 
     // Validate warehouses
@@ -142,7 +142,7 @@ export class OrderService {
               const rows = await tx.$queryRaw`SELECT "quantity" FROM "inventory" WHERE "tenant_id" = ${tenantId} AND "product_variant_id" = ${it.productVariantId} AND "warehouse_id" = ${it.warehouseId}`;
               const currentQty = rows.length > 0 ? rows[0].quantity : 0;
               if (currentQty < it.quantity) {
-                throw new AppError(`Insufficient stock for variant ${it.productVariantId} in warehouse ${it.warehouseId}: available ${currentQty}, requested ${it.quantity}`, { statusCode: 400, code: 'INSUFFICIENT_STOCK' });
+                throw new AppError(`Insufficient stock for variant ${it.productVariantId} in warehouse ${it.warehouseId}: available ${currentQty}, requested ${it.quantity}`, { statusCode: 409, code: 'INSUFFICIENT_STOCK' });
               }
               const afterQty = currentQty - it.quantity;
               // Check if inventory row exists
@@ -151,7 +151,7 @@ export class OrderService {
                 await tx.$executeRaw`INSERT INTO "warehouse_inventory" ("id", "tenant_id", "warehouse_id", "product_variant_id", "quantity", "reserved_quantity", "created_at", "updated_at") VALUES (gen_random_uuid(), ${tenantId}, ${it.warehouseId}, ${it.productVariantId}, ${afterQty}, 0, NOW(), NOW()) ON CONFLICT ("tenant_id", "warehouse_id", "product_variant_id") DO UPDATE SET "quantity" = ${afterQty}, "updated_at" = NOW()`;
               } else {
                 // Should not happen because insufficient would have triggered, but handle
-                throw new AppError(`Insufficient stock for variant ${it.productVariantId} in warehouse ${it.warehouseId}`, { statusCode: 400, code: 'INSUFFICIENT_STOCK' });
+                throw new AppError(`Insufficient stock for variant ${it.productVariantId} in warehouse ${it.warehouseId}`, { statusCode: 409, code: 'INSUFFICIENT_STOCK' });
               }
             }
 
@@ -336,7 +336,7 @@ export class OrderService {
   async updateStatus(id, tenantId, userId, status, reason, auditContext = {}) {
     const order = await this.getById(id, tenantId);
     if (!isValidTransition(order.status, status)) {
-      throw new AppError(`Invalid status transition from ${order.status} to ${status}`, { statusCode: 400, code: 'INVALID_STATUS_TRANSITION' });
+      throw new AppError(`Invalid status transition from ${order.status} to ${status}`, { statusCode: 409, code: 'INVALID_STATUS_TRANSITION' });
     }
 
     const ipAddress = auditContext.ipAddress || null;
@@ -388,10 +388,10 @@ export class OrderService {
   async cancel(id, tenantId, userId, reason, auditContext = {}) {
     const order = await this.getById(id, tenantId);
     if (!CANCELLABLE_STATUSES.includes(order.status)) {
-      throw new AppError(`Cannot cancel order in status ${order.status}`, { statusCode: 400, code: 'CANCELLATION_NOT_ALLOWED' });
+      throw new AppError(`Cannot cancel order in status ${order.status}`, { statusCode: 409, code: 'CANCELLATION_NOT_ALLOWED' });
     }
     if (order.status === 'CANCELLED') {
-      throw new AppError('Order already cancelled', { statusCode: 400, code: 'ALREADY_CANCELLED' });
+      throw new AppError('Order already cancelled', { statusCode: 409, code: 'ALREADY_CANCELLED' });
     }
 
     const ipAddress = auditContext.ipAddress || null;

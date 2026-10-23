@@ -255,7 +255,7 @@ describe('Phase 07 - Product Management', () => {
         .delete(`/api/v1/categories/${parentId}`)
         .set('Authorization', `Bearer ${tokenA}`);
 
-      expect(response.status).toBe(400);
+      expect(response.status).toBe(409);
       expect(response.body.error.code).toBe('CATEGORY_HAS_CHILDREN');
     });
   });
