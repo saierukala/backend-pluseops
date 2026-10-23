@@ -1,70 +1,29 @@
+import { existsSync } from 'node:fs';
 import { PrismaClient } from '@prisma/client';
 import argon2 from 'argon2';
+import {
+  SYSTEM_PERMISSIONS,
+  SYSTEM_ROLES,
+  MANAGER_EXCLUDED_PERMISSIONS,
+  PLATFORM_PERMISSIONS,
+} from '../src/modules/permissions/system-permissions.js';
+import { resolvePlatformAdminCredentials } from './platform-admin-credentials.js';
+
+// Same precedence as src/config/env.js: deployment-provided variables win over .env
+if (existsSync('.env') && typeof process.loadEnvFile === 'function') {
+  const deploymentEnvironment = { ...process.env };
+  process.loadEnvFile('.env');
+  Object.assign(process.env, deploymentEnvironment);
+}
 
 const prisma = new PrismaClient();
 
-const SYSTEM_PERMISSIONS = [
-  { resource: 'tenant', action: 'read', name: 'tenant:read' },
-  { resource: 'tenant', action: 'update', name: 'tenant:update' },
-  { resource: 'user', action: 'create', name: 'user:create' },
-  { resource: 'user', action: 'read', name: 'user:read' },
-  { resource: 'user', action: 'update', name: 'user:update' },
-  { resource: 'user', action: 'delete', name: 'user:delete' },
-  { resource: 'role', action: 'create', name: 'role:create' },
-  { resource: 'role', action: 'read', name: 'role:read' },
-  { resource: 'role', action: 'update', name: 'role:update' },
-  { resource: 'role', action: 'delete', name: 'role:delete' },
-  { resource: 'permission', action: 'read', name: 'permission:read' },
-  { resource: 'product', action: 'create', name: 'product:create' },
-  { resource: 'product', action: 'read', name: 'product:read' },
-  { resource: 'product', action: 'update', name: 'product:update' },
-  { resource: 'product', action: 'delete', name: 'product:delete' },
-  { resource: 'category', action: 'create', name: 'category:create' },
-  { resource: 'category', action: 'read', name: 'category:read' },
-  { resource: 'category', action: 'update', name: 'category:update' },
-  { resource: 'category', action: 'delete', name: 'category:delete' },
-  { resource: 'order', action: 'create', name: 'order:create' },
-  { resource: 'order', action: 'read', name: 'order:read' },
-  { resource: 'order', action: 'update', name: 'order:update' },
-  { resource: 'order', action: 'cancel', name: 'order:cancel' },
-  { resource: 'customer', action: 'create', name: 'customer:create' },
-  { resource: 'customer', action: 'read', name: 'customer:read' },
-  { resource: 'customer', action: 'update', name: 'customer:update' },
-  { resource: 'customer', action: 'delete', name: 'customer:delete' },
-  { resource: 'warehouse', action: 'create', name: 'warehouse:create' },
-  { resource: 'warehouse', action: 'read', name: 'warehouse:read' },
-  { resource: 'warehouse', action: 'update', name: 'warehouse:update' },
-  { resource: 'warehouse', action: 'delete', name: 'warehouse:delete' },
-  { resource: 'inventory', action: 'read', name: 'inventory:read' },
-  { resource: 'inventory', action: 'update', name: 'inventory:update' },
-  { resource: 'payment', action: 'create', name: 'payment:create' },
-  { resource: 'payment', action: 'read', name: 'payment:read' },
-  { resource: 'payment', action: 'confirm', name: 'payment:confirm' },
-  { resource: 'payment', action: 'refund', name: 'payment:refund' },
-  { resource: 'audit', action: 'read', name: 'audit:read' },
-  { resource: 'activity', action: 'read', name: 'activity:read' },
-  { resource: 'notification', action: 'read', name: 'notification:read' },
-  { resource: 'notification', action: 'update', name: 'notification:update' },
-];
-
-const SYSTEM_ROLES = [
-  { name: 'admin', description: 'Full administrative access' },
-  { name: 'manager', description: 'Management access to most resources' },
-  { name: 'member', description: 'Standard member access' },
-];
-
-const PLATFORM_PERMISSIONS = [
-  { resource: 'platform:tenant', action: 'create', name: 'platform:tenant:create' },
-  { resource: 'platform:tenant', action: 'read', name: 'platform:tenant:read' },
-  { resource: 'platform:tenant', action: 'update', name: 'platform:tenant:update' },
-  { resource: 'platform:tenant', action: 'suspend', name: 'platform:tenant:suspend' },
-  { resource: 'platform:billing', action: 'read', name: 'platform:billing:read' },
-  { resource: 'platform:billing', action: 'update', name: 'platform:billing:update' },
-];
-
 const PLATFORM_TENANT_SLUG = '__platform';
-const PLATFORM_ADMIN_EMAIL = process.env.PLATFORM_ADMIN_EMAIL || 'sairram@gmail.com';
-const PLATFORM_ADMIN_PASSWORD = process.env.PLATFORM_ADMIN_PASSWORD || 'Sairram@123';
+const { email: PLATFORM_ADMIN_EMAIL, password: PLATFORM_ADMIN_PASSWORD, usingDefaults } = resolvePlatformAdminCredentials(process.env);
+if (usingDefaults) {
+  // eslint-disable-next-line no-console
+  console.warn('Seed: PLATFORM_ADMIN_EMAIL/PLATFORM_ADMIN_PASSWORD not set — using the development default platform admin.');
+}
 
 async function hashPassword(password) {
   return argon2.hash(password, { type: argon2.argon2id, memoryCost: 19456, timeCost: 2, parallelism: 1 });
@@ -130,7 +89,7 @@ async function seedTenant(tenantId) {
     });
   }
 
-  const managerExclude = ['user:delete', 'role:delete', 'permission:read', 'tenant:update'];
+  const managerExclude = MANAGER_EXCLUDED_PERMISSIONS;
   const managerPerms = Object.entries(permissions)
     .filter(([key]) => !managerExclude.includes(key))
     .map(([, v]) => v);

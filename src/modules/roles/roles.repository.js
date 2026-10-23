@@ -88,6 +88,13 @@ export class RoleRepository {
     });
   }
 
+  async findPermissionsByIds(permissionIds, tenantId) {
+    return this.prisma.permission.findMany({
+      where: { id: { in: permissionIds }, tenantId },
+      select: { id: true },
+    });
+  }
+
   async assignPermissions(roleId, tenantId, permissionIds) {
     return this.prisma.$transaction(async (tx) => {
       // Validate that all permissions exist and belong to the tenant

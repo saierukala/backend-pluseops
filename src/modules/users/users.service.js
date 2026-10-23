@@ -2,6 +2,8 @@ import { UserRepository } from './users.repository.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { getPrismaClient } from '../../config/database.js';
 import { auditService } from '../audit/audit.service.js';
+import { getCacheService } from '../../common/cache/cache.service.js';
+import { userPermissionsKey } from '../../common/cache/cache.keys.js';
 
 const ALLOWED_UPDATE_FIELDS = ['firstName', 'lastName', 'status'];
 
@@ -9,6 +11,7 @@ export class UserService {
   constructor() {
     this.repository = new UserRepository();
     this.prisma = getPrismaClient();
+    this.cache = getCacheService();
   }
 
   async list(tenantId, options = {}) {
@@ -186,11 +189,18 @@ export class UserService {
       });
     }
 
-    const roles = await this.repository.findRolesByIds(roleIds, tenantId);
-    const validRoleIds = new Set(roles.map((r) => r.id));
-    const validRoleIdsList = roleIds.filter((id) => validRoleIds.has(id));
+    // IDs from another tenant look exactly like unknown IDs: reject the whole request rather than drop them
+    const uniqueRoleIds = [...new Set(roleIds)];
+    const roles = await this.repository.findRolesByIds(uniqueRoleIds, tenantId);
+    if (roles.length !== uniqueRoleIds.length) {
+      throw new AppError('One or more roles do not exist in this tenant', {
+        statusCode: 400,
+        code: 'INVALID_ROLE_IDS',
+      });
+    }
 
-    const userRoles = await this.repository.assignRoles(userId, tenantId, validRoleIdsList);
+    const userRoles = await this.repository.assignRoles(userId, tenantId, uniqueRoleIds);
+    await this.cache.del(userPermissionsKey(tenantId, userId));
     return userRoles.map((ur) => ({
       id: ur.role.id,
       name: ur.role.name,

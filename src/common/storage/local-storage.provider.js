@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { env } from '../../config/env.js';
@@ -99,7 +100,7 @@ export class LocalStorageProvider {
     const fullPath = this.getFullPath(storageKey);
     try {
       await fs.access(fullPath);
-      return fs.createReadStream(fullPath);
+      return createReadStream(fullPath);
     } catch {
       return null;
     }

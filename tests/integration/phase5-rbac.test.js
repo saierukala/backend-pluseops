@@ -2,6 +2,7 @@ import request from 'supertest';
 import { createApp } from '../../src/app/app.js';
 import { getPrismaClient, disconnectDatabase } from '../../src/config/database.js';
 import jwt from 'jsonwebtoken';
+import { createPlatformAdmin } from '../helpers/platform-admin.js';
 
 const app = createApp();
 const prisma = getPrismaClient();
@@ -631,8 +632,9 @@ describe('Phase 05 - Authorization / RBAC', () => {
           .set('Authorization', `Bearer ${tokenA1}`)
           .send({ permissionIds: ['00000000-0000-0000-0000-000000000000'] });
 
-        expect(response.status).toBe(200);
-        expect(response.body.data.length).toBe(2);
+        // Phase 26: unknown IDs are rejected instead of silently ignored
+        expect(response.status).toBe(400);
+        expect(response.body.error.code).toBe('INVALID_PERMISSION_IDS');
       });
 
       it('rejects cross-tenant role', async () => {
@@ -663,11 +665,13 @@ describe('Phase 05 - Authorization / RBAC', () => {
           .set('Authorization', `Bearer ${tokenA1}`)
           .send({ permissionIds: [permBId] });
 
-        expect(response.status).toBe(200);
-        const permNames = response.body.data.map(p => p.name);
-        // Cross-tenant permission should not be added
-        // The response should only contain permissions from tenantA
-        expect(permNames).toEqual(beforePermNames);
+        // Phase 26: cross-tenant IDs are rejected outright, and nothing is added
+        expect(response.status).toBe(400);
+        expect(response.body.error.code).toBe('INVALID_PERMISSION_IDS');
+        const afterResponse = await request(app)
+          .get(`/api/v1/roles/${testRoleId}`)
+          .set('Authorization', `Bearer ${tokenA1}`);
+        expect(afterResponse.body.data.permissions.map(p => p.name)).toEqual(beforePermNames);
       });
 
       it('rejects modifying system role permissions', async () => {
@@ -807,10 +811,13 @@ describe('Phase 05 - Authorization / RBAC', () => {
           .set('Authorization', `Bearer ${tokenA1}`)
           .send({ roleIds: [roleBId] });
 
-        expect(response.status).toBe(200);
-        const roleNames = response.body.data.map(r => r.name);
-        // Cross-tenant role should not be added
-        expect(roleNames).toEqual(beforeRoleNames);
+        // Phase 26: cross-tenant IDs are rejected outright, and nothing is added
+        expect(response.status).toBe(400);
+        expect(response.body.error.code).toBe('INVALID_ROLE_IDS');
+        const afterResponse = await request(app)
+          .get(`/api/v1/users/${targetUserId}/roles`)
+          .set('Authorization', `Bearer ${tokenA1}`);
+        expect(afterResponse.body.data.map(r => r.name)).toEqual(beforeRoleNames);
       });
 
       it('requires user:update permission', async () => {
@@ -857,9 +864,11 @@ describe('Phase 05 - Authorization / RBAC', () => {
         .set('Authorization', `Bearer ${tokenA1}`)
         .send({ roleIds: [roleBId] });
 
-      expect(response.status).toBe(200);
-      const assignedRoles = response.body.data.map(r => r.id);
-      expect(assignedRoles).not.toContain(roleBId);
+      // Phase 26: cross-tenant role IDs are rejected and nothing is assigned
+      expect(response.status).toBe(400);
+      expect(response.body.error.code).toBe('INVALID_ROLE_IDS');
+      const assigned = await prisma.userRole.findMany({ where: { userId: userA2Id, roleId: roleBId } });
+      expect(assigned).toHaveLength(0);
     });
 
     it('Tenant B user cannot access Tenant A permissions', async () => {
@@ -978,12 +987,20 @@ describe('Phase 05 - Regression Tests (Phase 01-04)', () => {
     expect(response.body.data.status).toBe('ok');
   });
 
-  it('Phase 02: Tenant CRUD works', async () => {
-    const response = await request(app)
-      .post('/api/v1/tenants')
-      .send({ name: 'Temp Tenant', slug: 'temp-tenant' });
-    expect(response.status).toBe(201);
-    await request(app).delete(`/api/v1/tenants/${response.body.data.id}`);
+  it('Phase 02: Tenant CRUD works (platform admin only since Phase 26)', async () => {
+    const platformAdmin = await createPlatformAdmin(app, prisma, { suffix: `rbac_${Date.now().toString(36)}` });
+    try {
+      const auth = { Authorization: `Bearer ${platformAdmin.token}` };
+      const response = await request(app)
+        .post('/api/v1/tenants')
+        .set(auth)
+        .send({ name: 'Temp Tenant', slug: 'temp-tenant' });
+      expect(response.status).toBe(201);
+      const deleted = await request(app).delete(`/api/v1/tenants/${response.body.data.id}`).set(auth);
+      expect(deleted.status).toBe(200);
+    } finally {
+      await platformAdmin.cleanup();
+    }
   });
 
   it('Phase 03: Schema constraints work', async () => {

@@ -175,6 +175,7 @@ Use this workflow when you manage PostgreSQL and Redis outside Docker (e.g., loc
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | Yes in prod | JWT secrets (min 32 chars); optional in test. |
 | `JWT_ACCESS_EXPIRY` / `JWT_REFRESH_EXPIRY` | No | JWT expiry; defaults `15m` / `7d`. |
 | `PASSWORD_RESET_EXPIRY` / `EMAIL_VERIFICATION_EXPIRY` | No | Token expiry; defaults `1h` / `24h`. |
+| `PLATFORM_ADMIN_EMAIL` / `PLATFORM_ADMIN_PASSWORD` | Yes outside dev/test | Platform admin created by `npm run db:seed`. Password 12+ chars with upper/lower/digit/symbol. In development the seed falls back to a local default account. |
 | `PAYMENT_WEBHOOK_SECRET` | No | HMAC secret for `x-webhook-signature`/`x-payment-signature`; defaults to test secret. **Required in production.** |
 | `PAYMENT_PROVIDER` | No | `mock` or `http` (or `stripe`, `adyen`); defaults to `mock`. |
 | `PAYMENT_PROVIDER_URL` | No | Base URL for HTTP payment provider; required when `PAYMENT_PROVIDER=http`. |
@@ -217,10 +218,10 @@ Never commit `.env`. The repository `.gitignore` excludes `.env` and `.dockerign
 | GET | `/health` | Liveness probe. Works without PostgreSQL or Redis. |
 | GET | `/health/db` | PostgreSQL readiness probe. Returns `503` until connected. |
 | GET | `/health/redis` | Redis readiness probe. Returns `503` until connected. |
-| POST | `/api/v1/tenants` | Create a tenant |
-| GET | `/api/v1/tenants/:id` | Get tenant by ID |
-| PATCH | `/api/v1/tenants/:id` | Update tenant |
-| DELETE | `/api/v1/tenants/:id` | Delete tenant |
+| POST | `/api/v1/tenants` | Create a tenant (platform admin, `platform:tenant:create`; prefer `/platform/tenants`) |
+| GET | `/api/v1/tenants/:id` | Get tenant by ID (platform admin, `platform:tenant:read`) |
+| PATCH | `/api/v1/tenants/:id` | Update tenant (platform admin, `platform:tenant:update`) |
+| DELETE | `/api/v1/tenants/:id` | Delete tenant and all its data (platform admin, `platform:tenant:delete`) |
 | POST | `/api/v1/auth/register` | Register a user |
 | POST | `/api/v1/auth/login` | Login user |
 | POST | `/api/v1/auth/refresh` | Refresh access token |
@@ -305,11 +306,11 @@ Never commit `.env`. The repository `.gitignore` excludes `.env` and `.dockerign
 | POST | `/api/v1/notifications/read-all` | Mark all visible notifications as read (idempotent) |
 | GET | `/api/v1/notification-preferences` | List notification preferences (4 channels, tenant/user-scoped, defaults) |
 | PATCH | `/api/v1/notification-preferences` | Update notification preferences (upsert IN_APP/EMAIL/SMS/PUSH) |
-| GET | `/api/v1/jobs/status` | Jobs status (enabled, workersStarted, queues) |
-| POST | `/api/v1/jobs/notifications` | Enqueue notification job (tenant-scoped, `title`/`message` required, returns `202` when queued or `200` fallback) |
-| POST | `/api/v1/jobs/cleanup` | Enqueue cleanup expired tokens (tenant-scoped, `202`/`200` fallback) |
-| POST | `/api/v1/jobs/reports` | Enqueue report job (deferred stub, `202`, Phase 18) |
-| POST | `/api/v1/jobs/analytics` | Enqueue analytics job (deferred stub, `202`, Phase 18) |
+| GET | `/api/v1/jobs/status` | Jobs status (enabled, workersStarted, queues; `jobs:read`) |
+| POST | `/api/v1/jobs/notifications` | Enqueue notification job (`jobs:manage`, tenant-scoped, `title`/`message` required, returns `202` when queued or `200` fallback) |
+| POST | `/api/v1/jobs/cleanup` | Enqueue cleanup expired tokens (`jobs:manage`, tenant-scoped, `202`/`200` fallback) |
+| POST | `/api/v1/jobs/reports` | Enqueue report job (`jobs:manage`, deferred stub, `202`, Phase 18) |
+| POST | `/api/v1/jobs/analytics` | Enqueue analytics job (`jobs:manage`, deferred stub, `202`, Phase 18) |
 | GET | `/api/v1/dashboard/overview` | Dashboard overview (orchestrated aggregation, `dashboard:read`, `x-cache: HIT|MISS`) |
 | GET | `/api/v1/analytics/overview` | Analytics overview (tenant-scoped, `analytics:read`, `x-cache: HIT|MISS`) |
 | GET | `/api/v1/analytics/sales` | Sales analytics (tenant-scoped, date range, groupBy, category/product/status filters, `analytics:read`, `x-cache: HIT|MISS`) |

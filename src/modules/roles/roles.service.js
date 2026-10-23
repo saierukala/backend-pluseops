@@ -1,9 +1,15 @@
 import { RoleRepository } from './roles.repository.js';
 import { AppError } from '../../common/errors/app-error.js';
+import { invalidateTenantPermissionsCache } from '../auth/authorization.middleware.js';
 
 export class RoleService {
   constructor() {
     this.repository = new RoleRepository();
+  }
+
+  // A role change affects every holder of the role, so drop all cached user permissions for the tenant
+  async invalidateUserPermissions(tenantId) {
+    await invalidateTenantPermissionsCache(tenantId);
   }
 
   async list(tenantId, { page = 1, limit = 50 } = {}) {
@@ -108,6 +114,7 @@ export class RoleService {
 
     try {
       await this.repository.delete(id, tenantId);
+      await this.invalidateUserPermissions(tenantId);
       return { success: true, message: 'Role deleted successfully' };
     } catch (error) {
       if (error.code === 'P2025') {
@@ -137,7 +144,17 @@ export class RoleService {
       });
     }
 
+    // IDs from another tenant look exactly like unknown IDs: reject the whole request rather than drop them
+    const found = await this.repository.findPermissionsByIds(permissionIds, tenantId);
+    if (found.length !== new Set(permissionIds).size) {
+      throw new AppError('One or more permissions do not exist in this tenant', {
+        statusCode: 400,
+        code: 'INVALID_PERMISSION_IDS',
+      });
+    }
+
     const updated = await this.repository.assignPermissions(id, tenantId, permissionIds);
+    await this.invalidateUserPermissions(tenantId);
     return updated.map((rp) => ({
       id: rp.permission.id,
       name: rp.permission.name,

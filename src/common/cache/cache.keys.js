@@ -24,6 +24,10 @@ export function userPermissionsKey(tenantId, userId) {
   return `${CACHE_PREFIX}:tenant:${sanitizeId(tenantId)}:permissions:user:${sanitizeId(userId)}`;
 }
 
+export function userPermissionsPattern(tenantId) {
+  return `${CACHE_PREFIX}:tenant:${sanitizeId(tenantId)}:permissions:user:*`;
+}
+
 export function productListKey(tenantId, options) {
   const normalized = {
     page: options.page ?? 1,

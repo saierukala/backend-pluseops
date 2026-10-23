@@ -10,5 +10,10 @@ export default [
       'no-console': 'error',
       'no-unused-vars': ['error', { argsIgnorePattern: '^_' }]
     }
+  },
+  {
+    // Operator CLI scripts report to the terminal
+    files: ['scripts/**/*.js'],
+    rules: { 'no-console': 'off' }
   }
 ];

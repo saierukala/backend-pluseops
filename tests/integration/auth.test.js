@@ -5,12 +5,12 @@ import { getPrismaClient, disconnectDatabase } from '../../src/config/database.j
 const app = createApp();
 const prisma = getPrismaClient();
 
+// Tenants created by this suite; users and tokens cascade with them.
+// Never wipe whole tables — the suite shares the database with other data.
+const SUITE_TENANT_SLUGS = ['auth-test-tenant', 'inactive-tenant', 'inactive-login-tenant', 'other-auth-tenant'];
+
 afterAll(async () => {
-  await prisma.refreshToken.deleteMany();
-  await prisma.passwordResetToken.deleteMany();
-  await prisma.emailVerificationToken.deleteMany();
-  await prisma.user.deleteMany();
-  await prisma.tenant.deleteMany();
+  await prisma.tenant.deleteMany({ where: { slug: { in: SUITE_TENANT_SLUGS } } });
   await disconnectDatabase();
 });
 

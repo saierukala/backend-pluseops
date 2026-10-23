@@ -1,0 +1,211 @@
+# PulseOps — Project Status & Roadmap (plain-language)
+
+> Last audited: 2026-10-23 (after Phase 26) · Backend `main` @ `7e021f0` + uncommitted Phase 26 work
+> Detailed phase specs: [`PulseOps_Backend_Codex_Master_Roadmap.md`](PulseOps_Backend_Codex_Master_Roadmap.md) (section 12 = phases 24–35)
+
+---
+
+## 1. PulseOps in one minute
+
+PulseOps is **one platform that many businesses share**, each in its own sealed-off workspace (a *tenant*).
+A shop, a furniture maker and a wholesaler can all run on it; none of them can see the others' data, and
+nothing in the code assumes a particular industry ("Size" and "Color" are just attributes a tenant defines).
+
+Inside its workspace a business manages:
+
+```text
+Catalog      products → variants (SKU/price) → attributes (color, size, voltage…) → images, categories
+Stock        warehouses → stock per variant per warehouse → adjustments, transfers, low-stock alerts
+Selling      orders (price snapshot, stock reserved atomically) → payments → refunds
+People       staff users → roles → permissions ("product:read", "order:cancel", …)
+Insight      dashboard, sales / revenue / inventory / customer analytics
+Trail        audit log (who changed what), activity log, notifications (in-app, email, SMS, push)
+```
+
+### Who uses it
+
+| Person | Logs in with | Can do |
+|---|---|---|
+| **Platform admin** (you) | `scope: "platform"` | Create businesses (tenant + first admin in one step), list, edit, suspend, add admins |
+| **Tenant admin** | email + password (tenant found automatically) | Everything inside their business |
+| **Staff** (manager/member/custom role) | email + password | Only what their role's permissions allow |
+| **Customer / shopper** | — *not built yet* (Phase 32) | Browse, cart, checkout, track orders |
+
+### How a request travels
+
+```text
+Client ──► security layer (helmet, CORS, rate-limit, request-id, size limit)
+       ──► authenticate()   → who are you? tenant comes from the JWT, never from the client
+       ──► authorize('x:y') → does one of your roles grant x:y?  (cached 5 min in Redis)
+       ──► controller → service (business rules, transactions) → repository (always WHERE tenantId = …)
+       ──► PostgreSQL     + side effects: audit log, cache invalidation, BullMQ job, Socket.IO event
+```
+
+Tech: Node 22 · Express 5 · PostgreSQL 16 + Prisma 6 · Redis + BullMQ worker · Socket.IO · JWT + rotating
+refresh tokens · argon2id · Zod · Pino · Jest/Supertest · OpenAPI at `/api-docs` · Docker · GitHub Actions.
+
+---
+
+## 2. What is built (feature status)
+
+| Area | Status | Notes |
+|---|---|---|
+| Health / readiness / metrics | ✅ | `/health`, `/health/db`, `/health/redis`, `/ready`, `/metrics` |
+| Platform admin (tenants) | ✅ | `/api/v1/platform/tenants*`; legacy `/api/v1/tenants` is platform-only (Phase 26) |
+| Login, refresh rotation, logout, forgot/reset, verify email | ✅ | auto tenant resolution, `tenantSlug` |
+| Change password while logged in | ❌ | Phase 28 |
+| Roles & permissions (add) | ✅ | |
+| Roles & permissions (remove), "my permissions" | ❌ | Phase 27 |
+| Users (list/search/update/delete, assign roles) | ✅ | |
+| Categories (tree), attributes & values | ✅ | |
+| Products, variants, variant attributes | ✅ | |
+| Product & variant images, private streaming, signed URLs | ✅ | streaming fixed in this change |
+| Warehouses, inventory adjust/transfer/movements/low-stock | ✅ | |
+| Customers | ❌ | model exists, **no API** — Phase 29 |
+| Orders (state machine, cancel restores stock, history) | ✅ | |
+| Payments (create, confirm, refund, signed idempotent webhooks) | ✅ | mock provider by default |
+| Audit & activity logs | ✅ | |
+| Notifications & preferences | ✅ | templates not exposed (Phase 31) |
+| Background jobs | ⚠️ | notification/cleanup real; report/analytics are stubs; `jobs:read` / `jobs:manage` enforced |
+| Dashboard & analytics (cached) | ✅ | |
+| Real-time (Socket.IO, tenant rooms) | ✅ | |
+| External providers (payment, email, SMS, shipping, maps, S3) | ✅ | mock + HTTP adapters |
+| OpenAPI / Swagger | ✅ | 131 documented operations |
+| Docker / CI | ✅ | deploy job is a placeholder (Phase 35) |
+| Storefront / cart / checkout | ❌ | Phase 32 |
+
+---
+
+## 3. How it was tested (2026-10-23)
+
+**Automated suite** — `npm test`: 1015/1018 after Phase 26; the 2 RBAC failures were stale tests and are fixed (re-run 98/98), the 3rd is a pre-existing flaky BullMQ test (§3.2).
+
+**Live end-to-end audit** — new script [`scripts/api-audit.js`](../scripts/api-audit.js) runs against a real
+server, creates two fresh tenants, and walks every mounted route as platform admin, tenant admin, a
+staff user with no role, and a second tenant trying to reach the first tenant's data.
+
+### 3.1 Live audit results (after Phase 26)
+
+| Group | Pass | Fail | What fails |
+|---|---|---|---|
+| health (13) | 13 | 0 | |
+| platform (17) | 17 | 0 | |
+| legacy-tenants (9) | 9 | 0 | anonymous 401, platform CRUD works, tenant token 403 |
+| auth (22) | 21 | 1 | no change-password endpoint → Phase 28 |
+| rbac (21) | 18 | 3 | no role/permission removal, `/auth/me` has no permissions → Phase 27 |
+| catalog (31) | 31 | 0 | |
+| images (14) | 14 | 0 | |
+| inventory (15) | 15 | 0 | |
+| orders (13) | 12 | 1 | no Customer API → Phase 29 |
+| payments (12) | 12 | 0 | |
+| audit (5) | 5 | 0 | |
+| notifications (6) | 6 | 0 | |
+| jobs (6) | 6 | 0 | |
+| analytics (10) | 10 | 0 | |
+| isolation (8) | 8 | 0 | |
+| realtime (3) | 3 | 0 | |
+| openapi (4) | 4 | 0 | |
+| cleanup (10) | 10 | 0 | |
+| **Total 219** | **214** | **5** | all 5 are missing features with a planned phase |
+
+History: 201/213 before Phase 26 (4 legacy-tenant, 2 jobs, 1 isolation failures). Before the first round of
+fixes in §4 the same audit stopped early (tenant admins could not create attributes) and
+image downloads failed.
+
+### 3.2 Jest suite
+
+| Run | Result |
+|---|---|
+| Before fixes | 988 / 990 — Swagger inventory test out of date; one BullMQ cleanup test timed out while a second API instance was consuming the same queue |
+| After first fixes | **993 / 993** (30 suites) — includes 3 new permission-catalog tests |
+| After Phase 26 | **1015 / 1018** (32 suites). 2 stale RBAC assertions (expected the old silent-drop 200) updated → `phase5-rbac` 98/98 on re-run. Remaining: `phase15 › POST /jobs/cleanup` times out intermittently (also failed in the very first baseline run) — an earlier test in the file calls `shutdownJobs()` and later enqueues can stall on the closed connection; direct enqueue takes 1–45 ms |
+
+Lint: `src/`, `tests/`, `prisma/` clean. Local-only scripts listed in `.gitignore` are not linted in CI.
+
+---
+
+## 4. Corrections made in this change
+
+| # | Problem (proved by the audit) | Fix |
+|---|---|---|
+| 1 | Every tenant created by the platform or the seed was missing `attribute:*`, `analytics:read`, `dashboard:read`, so **even tenant admins got 403** on attributes, analytics and the dashboard. The permission list was copy-pasted in two files. | One catalog: `src/modules/permissions/system-permissions.js`, used by `prisma/seed.js` and `platform.service.js`. New unit test fails if any route requires a permission the catalog lacks. Re-running `npm run db:seed` backfills existing tenants. |
+| 2 | Role/permission changes took up to 5 minutes to apply (permission cache never cleared). | Cache invalidated on assign-roles, assign-permissions and role delete. |
+| 3 | Image download (`…/file`, `/storage/file`, `/storage/signed`) always 404 on local storage — `createReadStream` was called on `fs/promises`, which doesn't have it; the error was swallowed. | Import `createReadStream` from `node:fs`. |
+| 4 | Any unknown `/api/v1/...` path answered **401** instead of 404 (image router's auth guard was mounted at the API root). | Guard scoped to `/products`. |
+| 5 | Swagger inventory test failed after platform routes were added. | Inventory updated with the 6 platform operations. |
+| 6 | `npm run lint` failed on CLI scripts using `console`. | `no-console` off for `scripts/**`. |
+| 7 | Phase 26 — see §5 P0 (legacy tenants, jobs permissions, cross-tenant IDs, seed credentials, test DB wipe). | New tests: `tests/integration/phase26-security.test.js`, `tests/unit/platform-admin-credentials.test.js`, rewritten `tenants.test.js`; shared `tests/helpers/platform-admin.js`. |
+
+---
+
+## 5. Gaps — what still needs to be addressed
+
+### P0 — security — ✅ fixed in Phase 26
+1. ~~Anonymous tenant API~~ → `/api/v1/tenants` now needs a platform token + `platform:tenant:{create,read,update,delete}`;
+   the internal `__platform` tenant is hidden (404) so it can't be renamed or deleted.
+2. ~~Jobs API without permissions~~ → `jobs:read` (status) and `jobs:manage` (enqueue); granted to tenant admin/manager
+   roles through the catalog (members get `jobs:read` only).
+3. ~~Default platform admin outside dev~~ → seed refuses to run when `NODE_ENV` is not development/test unless
+   `PLATFORM_ADMIN_EMAIL` and a strong (12+) `PLATFORM_ADMIN_PASSWORD` are set. **Still to do by you:** change the
+   password of the existing dev account if this database is shared, and keep the default out of any deployed DB.
+4. ~~Cross-tenant IDs silently dropped~~ → `400 INVALID_ROLE_IDS` / `400 INVALID_PERMISSION_IDS`, nothing assigned.
+5. **Test suites wiped the database** — `auth.test.js` and `tenants.test.js` ended with `tenant.deleteMany()` on the
+   shared dev DB, deleting every tenant (incl. the platform admin). Both now delete only their own rows.
+   Remaining (Phase 34): give tests their own database, separate storage signing secret.
+
+### P1 — blocks frontend features
+6. No Customer API (orders can't be created from the UI). → F25, F28
+7. No remove-role / remove-permission endpoints; `/auth/me` lacks permissions. → F07, F20
+8. No change-password, profile edit or session management. → F06, F19
+9. No tenant settings/domains/memberships/switch-tenant API. → F08, F33
+10. No storefront, customer login, cart or checkout. → F26–F30
+
+### P2 — completeness & consistency
+11. Report/analytics jobs are no-ops; no exports; notification templates not exposed.
+12. Mixed 400/409 for business conflicts; permissions list not paginated.
+13. Soft-deleted rows still hold unique SKUs/emails; single-column FKs (cross-tenant safety is app-only).
+14. Global unique email prevents one person from being in two tenants — needs a decision.
+
+### P3 — operations
+15. No real deployment target, secret manager, backups, or Prometheus/Grafana.
+16. Local Redis (Memurai 5.0.14) is below BullMQ's recommended 6.2.
+
+---
+
+## 6. Roadmap at a glance
+
+```text
+DONE   01–23  Foundation → Tenants → Schema → Auth → RBAC → Users → Catalog → Inventory → Orders
+              → Payments → Audit → Notifications → Real-time → Cache → Jobs → Integrations
+              → Orchestration → Analytics → Performance → Security → Testing → OpenAPI → Docker/CI
+DONE   24     Observability & reliability
+DONE   25     Platform admin & dual-scope auth
+DONE   26     Security corrections (P0 gaps 1–5)
+NEXT   27     RBAC completion                 → unblocks frontend F07, F20
+       28     Account self-service             → F06, F19
+       29     Customers & addresses            → F17, F25
+       30     Tenant workspace                 → F08, F33
+       31     Reports, exports, templates      → F21, F23
+       32     Storefront / public commerce     → F26–F30
+       33     Platform operations              → F31, F32
+       34     Data integrity & consistency
+       35     Production deployment
+```
+
+Frontend (`Frontend-PluseOps`, Next.js): F01–F06 committed; F07 (RBAC UI) in progress. Backend 27
+should land before F07 is finished so the UI doesn't have to hide missing actions.
+
+---
+
+## 7. Re-running the checks
+
+```bash
+npm run lint
+npm test
+npm run db:seed
+PORT=3100 RATE_LIMIT_MAX=100000 AUTH_RATE_LIMIT_MAX=100000 npm start      # separate terminal
+AUDIT_BASE_URL=http://localhost:3100 node scripts/api-audit.js --out audit.json
+```
+
+Each audit run leaves two `audit-*` tenants behind (there is no platform tenant delete yet).
+In Claude Code, `/pulseops-audit` runs all of this and refreshes this document.

@@ -5,6 +5,8 @@ import { tenantKey, tenantSettingsKey } from '../../common/cache/cache.keys.js';
 import { CACHE_TTL } from '../../common/cache/cache.config.js';
 import { logger } from '../../config/logger.js';
 
+const PLATFORM_TENANT_SLUG = '__platform';
+
 export class TenantService {
   constructor({ repository, cacheService } = {}) {
     this.repository = repository ?? new TenantRepository();
@@ -33,7 +35,8 @@ export class TenantService {
     }
 
     const tenant = await this.repository.findById(id);
-    if (!tenant) {
+    // The internal platform tenant is never addressable here, so it can't be renamed or deleted
+    if (!tenant || tenant.slug === PLATFORM_TENANT_SLUG) {
       throw new AppError('Tenant not found', {
         statusCode: 404,
         code: 'TENANT_NOT_FOUND',

@@ -1,6 +1,8 @@
 const tenantIdParam = { name: 'id', in: 'path', required: true, schema: { type: 'string', format: 'uuid' }, description: 'Tenant ID' };
 
 const error400 = { description: 'Validation error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } };
+const error401 = { description: 'Missing or invalid platform token', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } };
+const error403 = { description: 'Not a platform token, or missing platform permission', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } };
 const error404 = { description: 'Not found', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } };
 const error409 = { description: 'Conflict - duplicate slug', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } };
 const error500 = { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } };
@@ -10,9 +12,9 @@ export const tenantsPaths = {
     post: {
       tags: ['Tenants'],
       summary: 'Create tenant',
-      description: 'Public tenant provisioning. No authentication required.',
+      description: 'Platform admin only (scope=platform token with `platform:tenant:create`). Prefer /api/v1/platform/tenants, which also provisions roles and a first admin.',
       operationId: 'createTenant',
-      security: [],
+      security: [{ bearerAuth: [] }],
       requestBody: {
         required: true,
         content: {
@@ -33,6 +35,8 @@ export const tenantsPaths = {
       responses: {
         201: { description: 'Tenant created', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { $ref: '#/components/schemas/Tenant' }, message: { type: 'string' } } } } } },
         400: error400,
+        401: error401,
+        403: error403,
         409: error409,
         500: error500,
       },
@@ -42,13 +46,15 @@ export const tenantsPaths = {
     get: {
       tags: ['Tenants'],
       summary: 'Get tenant by ID',
-      description: 'Public. No authentication required.',
+      description: 'Platform admin only (scope=platform token with `platform:tenant:read`). Prefer /api/v1/platform/tenants, which also provisions roles and a first admin.',
       operationId: 'getTenant',
-      security: [],
+      security: [{ bearerAuth: [] }],
       parameters: [tenantIdParam],
       responses: {
         200: { description: 'Tenant retrieved', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { $ref: '#/components/schemas/Tenant' }, message: { type: 'string' } } } } } },
         400: error400,
+        401: error401,
+        403: error403,
         404: error404,
         500: error500,
       },
@@ -56,9 +62,9 @@ export const tenantsPaths = {
     patch: {
       tags: ['Tenants'],
       summary: 'Update tenant',
-      description: 'Public. No authentication required. At least one field required.',
+      description: 'Platform admin only (scope=platform token with `platform:tenant:update`). At least one field required. Prefer /api/v1/platform/tenants, which also provisions roles and a first admin.',
       operationId: 'updateTenant',
-      security: [],
+      security: [{ bearerAuth: [] }],
       parameters: [tenantIdParam],
       requestBody: {
         required: true,
@@ -80,6 +86,8 @@ export const tenantsPaths = {
       responses: {
         200: { description: 'Tenant updated', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { $ref: '#/components/schemas/Tenant' }, message: { type: 'string' } } } } } },
         400: error400,
+        401: error401,
+        403: error403,
         404: error404,
         409: error409,
         500: error500,
@@ -88,13 +96,15 @@ export const tenantsPaths = {
     delete: {
       tags: ['Tenants'],
       summary: 'Delete tenant',
-      description: 'Public. No authentication required.',
+      description: 'Platform admin only (scope=platform token with `platform:tenant:delete`). Prefer /api/v1/platform/tenants, which also provisions roles and a first admin.',
       operationId: 'deleteTenant',
-      security: [],
+      security: [{ bearerAuth: [] }],
       parameters: [tenantIdParam],
       responses: {
         200: { description: 'Tenant deleted', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object', nullable: true }, message: { type: 'string' } } } } } },
         400: error400,
+        401: error401,
+        403: error403,
         404: error404,
         500: error500,
       },

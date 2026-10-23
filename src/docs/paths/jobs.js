@@ -1,5 +1,6 @@
 const error400 = { description: 'Validation error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } };
 const error401 = { description: 'Unauthorized', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } };
+const error403 = { description: 'Missing jobs permission', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } };
 const error500 = { description: 'Internal server error', content: { 'application/json': { schema: { $ref: '#/components/schemas/ErrorResponse' } } } };
 
 export const jobsPaths = {
@@ -7,12 +8,13 @@ export const jobsPaths = {
     get: {
       tags: ['Jobs'],
       summary: 'Get jobs status',
-      description: 'Requires authentication. No specific permission. Tenant-isolated.',
+      description: 'Requires `jobs:read`. Tenant-isolated.',
       operationId: 'getJobsStatus',
       security: [{ bearerAuth: [] }],
       responses: {
         200: { description: 'Jobs status', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object' } } } } } },
         401: error401,
+        403: error403,
         500: error500,
       },
     },
@@ -21,12 +23,13 @@ export const jobsPaths = {
     post: {
       tags: ['Jobs'],
       summary: 'Trigger cleanup job',
-      description: 'Requires authentication. No specific permission.',
+      description: 'Requires `jobs:manage`.',
       operationId: 'triggerCleanup',
       security: [{ bearerAuth: [] }],
       responses: {
         200: { description: 'Cleanup triggered', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object' } } } } } },
         401: error401,
+        403: error403,
         500: error500,
       },
     },
@@ -35,7 +38,7 @@ export const jobsPaths = {
     post: {
       tags: ['Jobs'],
       summary: 'Trigger notification job',
-      description: 'Requires authentication. Strict body.',
+      description: 'Requires `jobs:manage`. Strict body.',
       operationId: 'triggerNotification',
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -64,6 +67,7 @@ export const jobsPaths = {
         200: { description: 'Notification job enqueued', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object' } } } } } },
         400: error400,
         401: error401,
+        403: error403,
         500: error500,
       },
     },
@@ -72,7 +76,7 @@ export const jobsPaths = {
     post: {
       tags: ['Jobs'],
       summary: 'Trigger report job',
-      description: 'Requires authentication. Passthrough body.',
+      description: 'Requires `jobs:manage`. Passthrough body.',
       operationId: 'triggerReport',
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -94,6 +98,7 @@ export const jobsPaths = {
       responses: {
         200: { description: 'Report job enqueued', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object' } } } } } },
         401: error401,
+        403: error403,
         500: error500,
       },
     },
@@ -102,7 +107,7 @@ export const jobsPaths = {
     post: {
       tags: ['Jobs'],
       summary: 'Trigger analytics job',
-      description: 'Requires authentication.',
+      description: 'Requires `jobs:manage`.',
       operationId: 'triggerAnalytics',
       security: [{ bearerAuth: [] }],
       requestBody: {
@@ -125,6 +130,7 @@ export const jobsPaths = {
       responses: {
         200: { description: 'Analytics job enqueued', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'object' } } } } } },
         401: error401,
+        403: error403,
         500: error500,
       },
     },

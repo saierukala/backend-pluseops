@@ -12,6 +12,8 @@ import {
   getTenantSchema,
   deleteTenantSchema,
 } from './tenants.validation.js';
+import { authenticatePlatform } from '../auth/auth.middleware.js';
+import { authorizePlatform } from '../auth/authorization.middleware.js';
 
 function validate(schema) {
   return (req, res, next) => {
@@ -32,7 +34,11 @@ function validate(schema) {
 
 export const tenantsRouter = Router();
 
-tenantsRouter.post('/', validate(createTenantSchema), createTenant);
-tenantsRouter.get('/:id', validate(getTenantSchema), getTenant);
-tenantsRouter.patch('/:id', validate(updateTenantSchema), updateTenant);
-tenantsRouter.delete('/:id', validate(deleteTenantSchema), deleteTenant);
+// Legacy tenant CRUD: platform administrators only (Phase 26). Prefer /api/v1/platform/tenants,
+// which also provisions roles and a first admin; this router is kept for raw CRUD and deletion.
+tenantsRouter.use(authenticatePlatform());
+
+tenantsRouter.post('/', validate(createTenantSchema), authorizePlatform('platform:tenant:create'), createTenant);
+tenantsRouter.get('/:id', validate(getTenantSchema), authorizePlatform('platform:tenant:read'), getTenant);
+tenantsRouter.patch('/:id', validate(updateTenantSchema), authorizePlatform('platform:tenant:update'), updateTenant);
+tenantsRouter.delete('/:id', validate(deleteTenantSchema), authorizePlatform('platform:tenant:delete'), deleteTenant);

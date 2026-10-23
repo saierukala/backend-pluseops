@@ -5,3 +5,17 @@ logs/
 generated/
 /storage/
 storage/tenants/
+
+# Local verification artifacts - MUST REMAIN LOCAL (never commit)
+dev.log
+docs/evidence/
+docs/evidence/*.png
+docs/evidence/*.jpg
+docs/evidence/*.jpeg
+docs/evidence/*.webp
+
+# Temporary verification / diagnostic scripts (local only - keep but do not commit)
+scripts/check-platform.js
+scripts/list-tenants.js
+scripts/platform-verify.js
+scripts/verify-pw.js

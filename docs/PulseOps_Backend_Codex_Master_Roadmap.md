@@ -431,6 +431,19 @@ PHASE 20 → Security Hardening
 PHASE 21 → Complete Testing
 PHASE 22 → Swagger / OpenAPI Documentation
 PHASE 23 → Docker / CI/CD / Deployment
+── extension (see section 12) ──
+PHASE 24 → Observability & Reliability            (done)
+PHASE 25 → Platform Admin & Dual-Scope Auth      (done)
+PHASE 26 → Security Corrections                  (done — storage secret moved to 34)
+PHASE 27 → RBAC Completion
+PHASE 28 → Account Self-Service
+PHASE 29 → Customers & Addresses
+PHASE 30 → Tenant Workspace (settings, domains, memberships)
+PHASE 31 → Reports, Exports & Notification Templates
+PHASE 32 → Storefront / Public Commerce API
+PHASE 33 → Platform Operations
+PHASE 34 → Data Integrity & API Consistency
+PHASE 35 → Production Deployment
 ```
 
 ---
@@ -2667,3 +2680,113 @@ Production readiness
 ```
 
 This backend roadmap should be completed and verified before beginning the React frontend implementation.
+
+---
+
+# 12. Roadmap Extension — Phases 24–35
+
+> Added 2026-10-23 after a live end-to-end audit of every mounted route (`scripts/api-audit.js`, 213 checks).
+> Phases 01–23 above are unchanged. Phases 24–25 record work already shipped; 26–35 are the plan.
+> The same rules apply: one phase at a time, tests + lint + live audit green before the next phase.
+> Status, audit results and the plain-language overview live in `docs/PROJECT_STATUS_AND_ROADMAP.md`.
+
+## PHASE 24 — OBSERVABILITY & RELIABILITY (DONE)
+
+`/ready`, `/metrics`, structured logs with correlation IDs, dependency timeouts/retries, alert definitions
+(`docs/ALERT_DEFINITIONS.md`). 85 dedicated tests.
+
+## PHASE 25 — PLATFORM ADMIN & DUAL-SCOPE AUTH (DONE)
+
+`scope: platform | tenant` JWT claim, hidden `__platform` tenant, `/api/v1/platform/tenants*` (list, create
+tenant + admin atomically, update, suspend/activate, add admin), tenant login without a tenant UUID
+(auto-resolve or `tenantSlug`). Report: `docs/IMPLEMENTATION_REPORT_PLATFORM_AUTH.md`.
+
+## PHASE 26 — SECURITY CORRECTIONS (P0, DONE 2026-10-23)
+
+Fix what the audit proved exploitable before adding features.
+
+Delivered: legacy `/tenants` behind `authenticatePlatform()` + `platform:tenant:{create,read,update,delete}`
+(new `platform:tenant:delete`; `__platform` tenant hidden), `jobs:read` / `jobs:manage`, `400
+INVALID_ROLE_IDS` / `INVALID_PERMISSION_IDS` for unknown or cross-tenant IDs, seed refuses to run outside
+development/test without strong `PLATFORM_ADMIN_*`. Also: test suites no longer wipe the whole `tenants`
+table. Not done here: rotating the existing password and a separate storage signing secret (moved to 34).
+
+- Legacy `/api/v1/tenants` (POST, GET/:id, PATCH/:id, DELETE/:id) is anonymous: anyone can create, read,
+  rename or **cascade-delete** a tenant. Remove the router, or guard it with `authenticatePlatform()` +
+  `authorizePlatform(...)`; move tests that use it onto `/platform/tenants`. Add platform tenant delete
+  (soft-delete / `CANCELLED`) if deletion is still needed.
+- `/api/v1/jobs/*` checks authentication only — any tenant user can read queue status and trigger cleanup,
+  report and analytics jobs. Add `jobs:read` / `jobs:manage` permissions and `authorize()`.
+- `POST /users/:id/roles` silently drops role IDs from another tenant and returns 200 — return 400/404.
+- Seed falls back to a hard-coded platform admin email/password. Require `PLATFORM_ADMIN_EMAIL` /
+  `PLATFORM_ADMIN_PASSWORD` outside development, rotate the existing password, remove it from docs.
+- Signed storage URLs are HMAC'd with `JWT_ACCESS_SECRET`; give them their own `STORAGE_SIGNING_SECRET`.
+
+Completion: audit groups `legacy-tenants`, `jobs`, `isolation` fully green.
+
+## PHASE 27 — RBAC COMPLETION
+
+Unblocks frontend F07/F20.
+
+- `DELETE /users/:id/roles/:roleId`, `DELETE /roles/:id/permissions/:permissionId`,
+  `PUT /roles/:id/permissions` (replace set). Invalidate the user-permission cache on every change
+  (assign paths already do).
+- `GET /auth/me` returns `roles[]` and effective `permissions[]` (or add `GET /auth/me/permissions`).
+- Paginate `GET /permissions` like roles/users.
+
+## PHASE 28 — ACCOUNT SELF-SERVICE
+
+- `POST /auth/change-password` (current + new password, revokes other sessions).
+- `PATCH /auth/me` (own name), `POST /auth/resend-verification`.
+- `GET /auth/sessions`, `DELETE /auth/sessions/:id`, `POST /auth/logout-all`.
+
+## PHASE 29 — CUSTOMERS & ADDRESSES
+
+Orders require a `customerId`, but no API can create a customer (the audit inserts one through Prisma).
+
+- `/api/v1/customers` CRUD + search/pagination using the already-seeded `customer:*` permissions.
+- Structured `CustomerAddress` model (shipping/billing) instead of free-form `metadata`; order snapshots
+  the chosen address.
+- Customer order history: `GET /customers/:id/orders`.
+
+## PHASE 30 — TENANT WORKSPACE
+
+- Tenant admin endpoints for `TenantSettings` and `TenantDomain` (`tenant:read` / `tenant:update`).
+- `GET /auth/memberships` + `POST /auth/switch-tenant` for multi-tenant users.
+- Decide email uniqueness: the schema has both `@@unique([email])` and `@@unique([tenantId, email])`;
+  the global one blocks one person working in two tenants. Pick one model and document it.
+
+## PHASE 31 — REPORTS, EXPORTS & NOTIFICATION TEMPLATES
+
+- Real `report` / `analytics` job processors (today they accept the job and do nothing).
+- `GET /reports`, `GET /reports/:id`, CSV download via signed URL.
+- `NotificationTemplate` CRUD and template rendering in the email/notification processors.
+
+## PHASE 32 — STOREFRONT / PUBLIC COMMERCE API
+
+Unblocks frontend F26–F30.
+
+- Public, read-only catalog resolved by tenant slug or `TenantDomain` (no tenant UUID in URLs).
+- Customer accounts as a third auth scope (`scope: customer`), cart, checkout → order + payment.
+- Customer order tracking. Strict rate limits and response shaping (no cost price, no internal fields).
+
+## PHASE 33 — PLATFORM OPERATIONS
+
+- Platform user management (invite/remove platform admins), use the seeded `platform:billing:*`
+  permissions for plans/limits, tenant usage stats, audit trail of platform actions.
+
+## PHASE 34 — DATA INTEGRITY & API CONSISTENCY
+
+- Partial unique indexes (`WHERE deleted_at IS NULL`) so soft-deleted SKUs/emails/codes can be reused.
+- Composite tenant FKs (or DB checks) so cross-tenant references are impossible at the DB layer.
+- Separate `STORAGE_SIGNING_SECRET` for signed storage URLs (today they reuse `JWT_ACCESS_SECRET`).
+- Integration tests on their own database (`pulseops_test`) instead of the development database.
+- One conflict convention: business-rule conflicts return 409 (today some return 400, e.g.
+  `PAYMENT_ALREADY_PENDING`, `CATEGORY_HAS_PRODUCTS`, `PRODUCT_HAS_VARIANTS`).
+- Browser → S3 presigned uploads; idempotent S3 delete.
+
+## PHASE 35 — PRODUCTION DEPLOYMENT
+
+- Real deploy target behind the CI `deployment` job, managed PostgreSQL/Redis (Redis ≥ 6.2 for BullMQ),
+  secret manager, backups/restore drill, Prometheus + Grafana on `/metrics`, alerts wired.
+- Optional: RS256 with key rotation, httpOnly refresh-token cookie mode.

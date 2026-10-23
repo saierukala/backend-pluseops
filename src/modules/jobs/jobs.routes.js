@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../auth/auth.middleware.js';
+import { authorize } from '../auth/authorization.middleware.js';
 import { getJobsStatus, triggerCleanup, triggerNotification, triggerReport, triggerAnalytics } from './jobs.controller.js';
 
 function validate(schema) {
@@ -28,8 +29,8 @@ const notificationJobSchema = z.object({
 
 export const jobsRouter = Router();
 
-jobsRouter.get('/status', authenticate(), getJobsStatus);
-jobsRouter.post('/cleanup', authenticate(), triggerCleanup);
-jobsRouter.post('/notifications', authenticate(), validate(notificationJobSchema), triggerNotification);
-jobsRouter.post('/reports', authenticate(), validate(z.object({ body: z.object({ reportType: z.string().optional(), filters: z.record(z.string(), z.unknown()).optional(), idempotencyKey: z.string().optional() }).passthrough() })), triggerReport);
-jobsRouter.post('/analytics', authenticate(), validate(z.object({ body: z.object({ metric: z.string().optional(), period: z.string().optional(), filters: z.record(z.string(), z.unknown()).optional(), idempotencyKey: z.string().optional() }).passthrough() })), triggerAnalytics);
+jobsRouter.get('/status', authenticate(), authorize('jobs:read'), getJobsStatus);
+jobsRouter.post('/cleanup', authenticate(), authorize('jobs:manage'), triggerCleanup);
+jobsRouter.post('/notifications', authenticate(), validate(notificationJobSchema), authorize('jobs:manage'), triggerNotification);
+jobsRouter.post('/reports', authenticate(), authorize('jobs:manage'), validate(z.object({ body: z.object({ reportType: z.string().optional(), filters: z.record(z.string(), z.unknown()).optional(), idempotencyKey: z.string().optional() }).passthrough() })), triggerReport);
+jobsRouter.post('/analytics', authenticate(), authorize('jobs:manage'), validate(z.object({ body: z.object({ metric: z.string().optional(), period: z.string().optional(), filters: z.record(z.string(), z.unknown()).optional(), idempotencyKey: z.string().optional() }).passthrough() })), triggerAnalytics);

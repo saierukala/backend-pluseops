@@ -25,6 +25,8 @@ async function setupPerms(tenantId) {
     { resource: 'notification', action: 'read' },
     { resource: 'payment', action: 'create' },
     { resource: 'payment', action: 'read' },
+    { resource: 'jobs', action: 'read' },
+    { resource: 'jobs', action: 'manage' },
   ];
   for (const p of perms) {
     await prisma.permission.upsert({

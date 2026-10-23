@@ -56,7 +56,9 @@ const upload = multer({
 
 export const productImagesRouter = Router({ mergeParams: true });
 
-productImagesRouter.use(authenticate());
+// Scoped to /products: this router is mounted at the API root, so an unscoped
+// use() would turn every unknown /api/v1/* path into a 401 instead of a 404.
+productImagesRouter.use('/products', authenticate());
 
 productImagesRouter.post(
   '/products/:productId/images',

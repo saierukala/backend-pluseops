@@ -1,7 +1,7 @@
 import { getPrismaClient } from '../../config/database.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { getCacheService } from '../../common/cache/cache.service.js';
-import { userPermissionsKey } from '../../common/cache/cache.keys.js';
+import { userPermissionsKey, userPermissionsPattern } from '../../common/cache/cache.keys.js';
 import { CACHE_TTL } from '../../common/cache/cache.config.js';
 import { logger } from '../../config/logger.js';
 
@@ -61,7 +61,7 @@ export async function invalidateUserPermissionsCache(tenantId, userId) {
 export async function invalidateTenantPermissionsCache(tenantId) {
   try {
     const cache = getCacheService();
-    await cache.delByPattern(`${userPermissionsKey(tenantId, '00000000-0000-0000-0000-000000000000').split(':user:')[0]}:user:*`);
+    await cache.delByPattern(userPermissionsPattern(tenantId));
   } catch (error) {
     logger.warn({ err: error, tenantId }, 'Tenant permissions cache invalidation failed');
   }

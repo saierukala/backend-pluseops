@@ -22,10 +22,6 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'GET /metrics/metrics',
     'GET /api/v1/metrics',
     'GET /api/v1/metrics/metrics',
-    'POST /api/v1/tenants',
-    'GET /api/v1/tenants/{id}',
-    'PATCH /api/v1/tenants/{id}',
-    'DELETE /api/v1/tenants/{id}',
     'POST /api/v1/auth/register',
     'POST /api/v1/auth/login',
     'POST /api/v1/auth/refresh',
@@ -186,6 +182,13 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     // Storage 2
     'GET /api/v1/storage/signed',
     'GET /api/v1/storage/file',
+    // Platform admin 6
+    'GET /api/v1/platform/tenants',
+    'POST /api/v1/platform/tenants',
+    'GET /api/v1/platform/tenants/{id}',
+    'PATCH /api/v1/platform/tenants/{id}',
+    'PATCH /api/v1/platform/tenants/{id}/status',
+    'POST /api/v1/platform/tenants/{id}/admin',
   ];
 
   it('OpenAPI JSON endpoint responds successfully', async () => {
@@ -330,9 +333,11 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     expect(createProduct.responses['401']).toBeDefined();
     expect(createProduct.responses['403']).toBeDefined();
 
-    // Tenant public no auth
+    // Legacy tenant CRUD is platform-only since Phase 26
     const createTenant = spec.paths['/api/v1/tenants'].post;
-    expect(createTenant.security).toEqual([]);
+    expect(createTenant.security).toEqual([{ bearerAuth: [] }]);
+    expect(createTenant.responses['401']).toBeDefined();
+    expect(createTenant.responses['403']).toBeDefined();
     expect(createTenant.requestBody.content['application/json'].schema.required).toContain('slug');
 
     // Payments webhook public with header params
@@ -354,10 +359,14 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
   });
 
   it('Representative unauthenticated public endpoint does not require auth', async () => {
-    // Tenants create without auth should not be 401 (should be 400 validation or 201)
+    // Login without a body is a validation error, never an auth error
+    const res = await request(app).post('/api/v1/auth/login').send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('Legacy tenant CRUD requires a platform token (Phase 26)', async () => {
     const res = await request(app).post('/api/v1/tenants').send({});
-    expect([400, 201, 409]).toContain(res.status);
-    expect(res.status).not.toBe(401);
+    expect(res.status).toBe(401);
   });
 
   it('Representative authenticated endpoint requires auth', async () => {
