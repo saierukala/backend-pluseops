@@ -7,6 +7,9 @@
 - Before pushing, run `npm run lint`, `npm test`, and the live audit (`/pulseops-audit` steps, or
   `scripts/api-audit.js` against a server on port 3100). The known intermittent `phase15 › POST /jobs/cleanup`
   failure must pass on re-run.
+- Before pushing, also run the suite the way CI does: committed files only, `.env` moved aside, a fresh unseeded
+  database (`npx prisma migrate deploy` on an empty DB), CI's env vars and Redis. The seeded dev database and
+  untracked files have hidden CI failures before.
 - Merge the PR only once CI is green on its latest commit and there is no merge conflict. If `main` moved, merge
   `origin/main` into the branch (no rebase/force-push), re-run the checks, and push.
 - Never force-push or rewrite `main`.
