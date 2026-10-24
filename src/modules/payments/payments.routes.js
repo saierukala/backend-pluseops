@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { createPayment, confirmPayment, webhookHandler, razorpayWebhookHandler, getPayment, refundPayment } from './payments.controller.js';
-import { createPaymentSchema, confirmPaymentSchema, getPaymentSchema, refundPaymentSchema, webhookSchema, razorpayWebhookSchema } from './payments.validation.js';
+import { createPayment, confirmPayment, webhookHandler, razorpayWebhookHandler, listPayments, getPayment, refundPayment } from './payments.controller.js';
+import { createPaymentSchema, confirmPaymentSchema, listPaymentsSchema, getPaymentSchema, refundPaymentSchema, webhookSchema, razorpayWebhookSchema } from './payments.validation.js';
 import { authenticate } from '../auth/auth.middleware.js';
 import { authorize } from '../auth/authorization.middleware.js';
 import { createWebhookLimiter } from '../../common/middleware/rate-limiters.js';
@@ -41,5 +41,6 @@ paymentsRouter.post('/webhook/razorpay/:tenantId', webhookLimiter, validateWebho
 // All other routes require authentication
 paymentsRouter.post('/create', authenticate(), validate(createPaymentSchema), authorize('payment:create'), createPayment);
 paymentsRouter.post('/confirm', authenticate(), validate(confirmPaymentSchema), authorize('payment:confirm'), confirmPayment);
+paymentsRouter.get('/', authenticate(), validate(listPaymentsSchema), authorize('payment:read'), listPayments);
 paymentsRouter.get('/:id', authenticate(), validate(getPaymentSchema), authorize('payment:read'), getPayment);
 paymentsRouter.post('/:id/refund', authenticate(), validate(refundPaymentSchema), authorize('payment:refund'), refundPayment);

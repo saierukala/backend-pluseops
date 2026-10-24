@@ -33,7 +33,7 @@ This document is the Phase 23 production reference. It covers environment variab
                                └───────────────────────┘
 ```
 
-* `Dockerfile` — multi-stage, `node:22-alpine`, non-root `pulseops`, `tini` PID 1, `wget` healthcheck.
+* `Dockerfile` — multi-stage, `node:26-alpine`, non-root `pulseops`, `tini` PID 1, `wget` healthcheck.
 * `docker-compose.yml` — local development (api + worker + postgres + redis + migrate).
 * `docker-compose.prod.yml` — production overlay (requires real secrets, managed Postgres/Redis, `TRUST_PROXY=true`, `FAIL_ON_DEPENDENCY_ERROR=true`).
 

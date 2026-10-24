@@ -8,10 +8,17 @@ function isSensitiveKey(key) {
   return SENSITIVE_KEYS.some((s) => lower.includes(s.toLowerCase()));
 }
 
+function isPlainObject(value) {
+  const proto = Object.getPrototypeOf(value);
+  return proto === Object.prototype || proto === null;
+}
+
 function stripSensitive(value) {
   if (value === null || value === undefined) return value;
   if (Array.isArray(value)) return value.map(stripSensitive);
-  if (typeof value === 'object') {
+  // Only walk plain objects: Date, Prisma Decimal etc. must reach JSON.stringify intact so their
+  // toJSON() runs — walking them with Object.entries turned timestamps into {} on cache hits
+  if (typeof value === 'object' && isPlainObject(value)) {
     const out = {};
     for (const [k, v] of Object.entries(value)) {
       if (isSensitiveKey(k)) continue;

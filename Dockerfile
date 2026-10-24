@@ -3,7 +3,7 @@
 # ──────────────────────────────────────────────
 # Stage 1 — dependencies (includes native build tools for argon2/bcrypt)
 # ──────────────────────────────────────────────
-FROM node:22-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 
 # argon2 / node-gyp need python3, make, g++
@@ -21,7 +21,7 @@ RUN npx prisma generate
 # ──────────────────────────────────────────────
 # Stage 2 — production runtime
 # ──────────────────────────────────────────────
-FROM node:22-alpine AS production
+FROM node:26-alpine AS production
 WORKDIR /app
 
 ENV NODE_ENV=production

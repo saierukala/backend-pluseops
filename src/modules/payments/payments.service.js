@@ -191,6 +191,10 @@ export class PaymentService {
     return result;
   }
 
+  async list(tenantId, options) {
+    return this.repository.list(tenantId, options);
+  }
+
   async getById(id, tenantId) {
     const payment = await this.repository.findById(id, tenantId);
     if (!payment) throw new AppError('Payment not found', { statusCode: 404, code: 'PAYMENT_NOT_FOUND' });

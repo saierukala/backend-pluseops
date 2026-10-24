@@ -396,6 +396,10 @@ async function main() {
   await check('client amount not accepted', 'POST', '/payments/create', 400, { token: A, body: { orderId: order1.id, amount: '0.01' } });
   await check('get payment', 'GET', `/payments/${paymentId}`, 200, { token: A });
   await check('tenant B cannot read payment', 'GET', `/payments/${paymentId}`, 404, { token: B });
+  const listed = await check('list payments for order', 'GET', `/payments?orderId=${order1.id}`, 200, { token: A });
+  record('payment list contains the payment', (data(listed) || []).some((p) => p.id === paymentId), '');
+  const listedB = await check('tenant B payment list', 'GET', '/payments', 200, { token: B });
+  record('tenant B list excludes tenant A payments', !(data(listedB) || []).some((p) => p.id === paymentId), '');
   const conf = await check('confirm payment', 'POST', '/payments/confirm', 200, { token: A, body: { paymentId } });
   const providerPaymentId = data(conf)?.providerPaymentId || data(conf)?.payment?.providerPaymentId;
   await check('partial refund', 'POST', `/payments/${paymentId}/refund`, [200, 201], { token: A, body: { amount: '1.00', reason: 'Damaged' } });

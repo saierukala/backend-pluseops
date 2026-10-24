@@ -11,10 +11,11 @@
     "lint": "eslint .",
     "prisma:generate": "prisma generate",
     "prisma:validate": "prisma validate",
-    "db:seed": "node prisma/seed.js"
+    "db:seed": "node prisma/seed.js",
+    "db:seed:demo": "node scripts/seed-demo.js"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=26"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

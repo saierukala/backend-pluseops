@@ -168,6 +168,7 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'POST /api/v1/payments/webhook/razorpay/{tenantId}',
     'POST /api/v1/payments/create',
     'POST /api/v1/payments/confirm',
+    'GET /api/v1/payments',
     'GET /api/v1/payments/{id}',
     'POST /api/v1/payments/{id}/refund',
     // Audit 3

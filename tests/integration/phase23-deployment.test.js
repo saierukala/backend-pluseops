@@ -29,9 +29,9 @@ describe('Phase 23 — Docker / CI/CD / Deployment', () => {
       expect(c).toMatch(/AS production/);
     });
 
-    test('uses production Node.js runtime node:22-alpine', () => {
+    test('uses production Node.js runtime node:26-alpine', () => {
       const c = read('Dockerfile');
-      expect(c).toMatch(/FROM node:22-alpine/);
+      expect(c).toMatch(/FROM node:26-alpine/);
     });
 
     test('installs production dependencies reproducibly (npm ci)', () => {
