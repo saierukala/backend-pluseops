@@ -497,7 +497,7 @@ Additional workflow notes:
 
 ## CI/CD
 
-Pipeline (` .github/workflows/ci.yml`, `runs-on: ubuntu-latest`, Node 22):
+Pipeline (` .github/workflows/ci.yml`, `runs-on: ubuntu-latest`, Node 26):
 
 ```text
 install

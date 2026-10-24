@@ -41,7 +41,7 @@ Client ──► security layer (helmet, CORS, rate-limit, request-id, size limi
        ──► PostgreSQL     + side effects: audit log, cache invalidation, BullMQ job, Socket.IO event
 ```
 
-Tech: Node 22 · Express 5 · PostgreSQL 16 + Prisma 6 · Redis + BullMQ worker · Socket.IO · JWT + rotating
+Tech: Node 26 · Express 5 · PostgreSQL 16 + Prisma 6 · Redis + BullMQ worker · Socket.IO · JWT + rotating
 refresh tokens · argon2id · Zod · Pino · Jest/Supertest · OpenAPI at `/api-docs` · Docker · GitHub Actions.
 
 ---

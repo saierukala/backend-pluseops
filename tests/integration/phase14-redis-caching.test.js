@@ -62,6 +62,18 @@ describe('Phase 14 - Redis Caching', () => {
       expect(result).toBeNull();
     });
 
+    it('round-trips Dates and Decimal-like values instead of flattening them to {}', async () => {
+      const fake = new FakeRedis();
+      const cache = new CacheService(fake);
+      const createdAt = new Date('2026-10-24T14:33:05.804Z');
+      const decimal = { toJSON: () => '129.00' };
+      Object.setPrototypeOf(decimal, { constructor: function Decimal() {} });
+      await cache.set('pulseops:v1:test:dates', { recent: [{ createdAt, amount: decimal, token: 'secret' }] }, 60);
+
+      const hit = await cache.get('pulseops:v1:test:dates');
+      expect(hit).toEqual({ recent: [{ createdAt: '2026-10-24T14:33:05.804Z', amount: '129.00' }] });
+    });
+
     it('cache hit returns cached value without hitting loader', async () => {
       const fake = new FakeRedis();
       const cache = new CacheService(fake);
