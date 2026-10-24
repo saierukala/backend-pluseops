@@ -16,6 +16,24 @@ export class PaymentRepository {
     });
   }
 
+  async list(tenantId, { page, limit, status, orderId, sortOrder }) {
+    const where = { tenantId, ...(status && { status }), ...(orderId && { orderId }) };
+    const [payments, total] = await Promise.all([
+      this.prisma.payment.findMany({
+        where,
+        orderBy: [{ createdAt: sortOrder }, { id: 'asc' }],
+        skip: (page - 1) * limit,
+        take: limit,
+        include: {
+          order: { select: { id: true, total: true, status: true, currency: true, customer: { select: { id: true, email: true, firstName: true, lastName: true } } } },
+          refunds: { select: { id: true, amount: true, status: true, createdAt: true } },
+        },
+      }),
+      this.prisma.payment.count({ where }),
+    ]);
+    return { data: payments, meta: { page, limit, total, totalPages: Math.ceil(total / limit) } };
+  }
+
   async findByProviderPaymentId(providerPaymentId, tenantId, tx = this.prisma) {
     if (!providerPaymentId) return null;
     return tx.payment.findFirst({ where: { providerPaymentId, tenantId } });

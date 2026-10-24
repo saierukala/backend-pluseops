@@ -296,6 +296,29 @@ export const ordersPaymentsPaths = {
       },
     },
   },
+  '/api/v1/payments': {
+    get: {
+      tags: ['Payments'],
+      summary: 'List payments',
+      description: 'Requires `payment:read`. Newest first by default; each payment includes an order summary with its customer and refunds.',
+      operationId: 'listPayments',
+      security: [{ bearerAuth: [] }],
+      parameters: [
+        { name: 'page', in: 'query', schema: { type: 'integer', minimum: 1, default: 1 } },
+        { name: 'limit', in: 'query', schema: { type: 'integer', minimum: 1, maximum: 100, default: 20 } },
+        { name: 'status', in: 'query', schema: { type: 'string', enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'REFUNDED', 'PARTIALLY_REFUNDED'] } },
+        { name: 'orderId', in: 'query', schema: { type: 'string', format: 'uuid' } },
+        { name: 'sortOrder', in: 'query', schema: { type: 'string', enum: ['asc', 'desc'], default: 'desc' } },
+      ],
+      responses: {
+        200: { description: 'Payments retrieved', content: { 'application/json': { schema: { type: 'object', properties: { success: { type: 'boolean', example: true }, data: { type: 'array', items: { $ref: '#/components/schemas/Payment' } }, meta: { $ref: '#/components/schemas/PaginationMeta' } } } } } },
+        400: error400,
+        401: error401,
+        403: error403,
+        500: error500,
+      },
+    },
+  },
   '/api/v1/payments/{id}': {
     get: {
       tags: ['Payments'],

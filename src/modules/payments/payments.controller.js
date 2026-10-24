@@ -1,5 +1,6 @@
 import { PaymentService } from './payments.service.js';
 import { razorpayPaymentsService } from './razorpay-payments.service.js';
+import { listPaymentsQuery } from './payments.validation.js';
 
 const paymentService = new PaymentService();
 
@@ -63,6 +64,13 @@ export async function razorpayWebhookHandler(req, res, next) {
   try {
     const result = await razorpayPaymentsService.handleWebhook(req.params.tenantId, req.rawBody, req.headers['x-razorpay-signature'], req.headers['x-razorpay-event-id']);
     res.status(200).json({ success: true, data: result, message: result.duplicate ? 'Webhook already processed' : 'Webhook processed' });
+  } catch (error) { next(error); }
+}
+
+export async function listPayments(req, res, next) {
+  try {
+    const result = await paymentService.list(req.context.tenantId, listPaymentsQuery.parse(req.query));
+    res.status(200).json({ success: true, data: result.data, meta: result.meta, message: 'Payments retrieved successfully' });
   } catch (error) { next(error); }
 }
 

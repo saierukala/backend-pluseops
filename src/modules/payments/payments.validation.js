@@ -38,6 +38,16 @@ export const webhookSchema = z.object({
   }).passthrough().optional(),
 });
 
+export const listPaymentsQuery = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  status: z.enum(['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED', 'REFUNDED', 'PARTIALLY_REFUNDED']).optional(),
+  orderId: uuid.optional(),
+  sortOrder: z.enum(['asc', 'desc']).default('desc'),
+});
+
+export const listPaymentsSchema = z.object({ query: listPaymentsQuery });
+
 export const getPaymentSchema = z.object({
   params: z.object({ id: uuid }),
 });
