@@ -2,6 +2,9 @@ import { getPrismaClient } from '../../config/database.js';
 
 const ADDRESS_ORDER = [{ type: 'asc' }, { isDefault: 'desc' }, { createdAt: 'asc' }];
 
+// Storefront shoppers have a password hash; staff-facing reads must never return it.
+const PRIVATE_FIELDS = { passwordHash: true };
+
 export class CustomerRepository {
   constructor() {
     this.prisma = getPrismaClient();
@@ -23,6 +26,7 @@ export class CustomerRepository {
   async findById(id, tenantId, tx = this.prisma) {
     return tx.customer.findFirst({
       where: { id, tenantId, deletedAt: null },
+      omit: PRIVATE_FIELDS,
       include: { addresses: { orderBy: ADDRESS_ORDER } },
     });
   }
@@ -46,7 +50,7 @@ export class CustomerRepository {
       ];
     }
     const [data, total] = await Promise.all([
-      this.prisma.customer.findMany({ where, orderBy: [{ [sortBy]: sortOrder }, { id: 'asc' }], skip, take }),
+      this.prisma.customer.findMany({ where, omit: PRIVATE_FIELDS, orderBy: [{ [sortBy]: sortOrder }, { id: 'asc' }], skip, take }),
       this.prisma.customer.count({ where }),
     ]);
     return { data, meta: { page, limit: take, total, totalPages: Math.ceil(total / take) } };

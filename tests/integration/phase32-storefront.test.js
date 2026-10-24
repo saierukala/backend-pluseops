@@ -241,6 +241,14 @@ describe('Phase 32 — shopper accounts', () => {
     expect(claimed.customer.id).toBe(staffMade.id);
     const orders = await api.get(sf('/account/orders'), claimed.accessToken);
     expect(orders.body.meta.total).toBe(1);
+
+    // Once the shopper has a password, staff reads of the customer must not carry the hash
+    const detail = await api.get(`/customers/${staffMade.id}`, A);
+    expect(detail.status).toBe(200);
+    expect(detail.body.data).not.toHaveProperty('passwordHash');
+    const list = await api.get(`/customers?search=walkin-${RUN}`, A);
+    expect(list.body.data[0].id).toBe(staffMade.id);
+    expect(list.body.data[0]).not.toHaveProperty('passwordHash');
   });
 
   it('profile and addresses', async () => {
