@@ -206,6 +206,7 @@ model Tenant {
   refreshTokens         RefreshToken[]
   passwordResetTokens   PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
+  invoiceSequences      InvoiceSequence[]
 
   @@map("tenants")
 }
@@ -629,6 +630,11 @@ model Product {
   brand         String?
   status        ProductStatus @default(DRAFT)
   basePrice     Decimal?      @db.Decimal(12, 2) @map("base_price")
+  // Phase 38: GST classification; gstRatePercent null = the workspace default rate
+  hsnCode        String?       @db.VarChar(8) @map("hsn_code")
+  gstRatePercent Decimal?      @db.Decimal(5, 2) @map("gst_rate_percent")
+  gstTaxability  String        @default("TAXABLE") @map("gst_taxability")
+  unit           String?       @db.VarChar(10)
   createdAt     DateTime      @db.Timestamptz(6) @default(now()) @map("created_at")
   updatedAt     DateTime      @db.Timestamptz(6) @updatedAt @map("updated_at")
   deletedAt     DateTime?     @db.Timestamptz(6) @map("deleted_at")
@@ -669,6 +675,7 @@ model ProductVariant {
   barcode     String?
   price       Decimal       @db.Decimal(12, 2)
   costPrice   Decimal?      @db.Decimal(12, 2) @map("cost_price")
+  mrp         Decimal?      @db.Decimal(12, 2)
   status      VariantStatus @default(DRAFT)
   createdAt   DateTime      @db.Timestamptz(6) @default(now()) @map("created_at")
   updatedAt   DateTime      @db.Timestamptz(6) @updatedAt @map("updated_at")
@@ -868,6 +875,12 @@ model Customer {
   lastName      String   @map("last_name")
   phone         String?
   metadata      Json     @default("{}")
+  // Phase 38: CONSUMER or BUSINESS (registered for GST)
+  customerType  String   @default("CONSUMER") @map("customer_type")
+  companyName   String?  @map("company_name")
+  gstin         String?  @db.VarChar(15)
+  pan           String?  @db.VarChar(10)
+  stateCode     String?  @db.VarChar(2) @map("state_code")
   // Phase 32: storefront account (per tenant). Null until the shopper sets a password via the emailed link.
   passwordHash    String?   @map("password_hash")
   emailVerifiedAt DateTime? @db.Timestamptz(6) @map("email_verified_at")
@@ -987,6 +1000,16 @@ model Order {
   metadata        Json         @default("{}")
   shippingAddress Json?        @map("shipping_address")
   billingAddress  Json?        @map("billing_address")
+  // Phase 38: the tax invoice
+  invoiceNumber   String?      @map("invoice_number")
+  invoiceDate     DateTime?    @db.Timestamptz(6) @map("invoice_date")
+  placeOfSupply   String?      @db.VarChar(2) @map("place_of_supply")
+  supplyType      String?      @map("supply_type")
+  cgstTotal       Decimal      @default(0) @db.Decimal(12, 2) @map("cgst_total")
+  sgstTotal       Decimal      @default(0) @db.Decimal(12, 2) @map("sgst_total")
+  igstTotal       Decimal      @default(0) @db.Decimal(12, 2) @map("igst_total")
+  buyerSnapshot   Json?        @map("buyer_snapshot")
+  sellerSnapshot  Json?        @map("seller_snapshot")
   createdAt       DateTime     @db.Timestamptz(6) @default(now()) @map("created_at")
   updatedAt       DateTime     @db.Timestamptz(6) @updatedAt @map("updated_at")
   deletedAt       DateTime?    @db.Timestamptz(6) @map("deleted_at")
@@ -999,6 +1022,7 @@ model Order {
   @@index([tenantId, createdAt])
   @@index([tenantId, customerId])
   @@index([tenantId, customerId, createdAt])
+  @@unique([tenantId, invoiceNumber])
   @@map("orders")
 }
 
@@ -1019,6 +1043,13 @@ model OrderItem {
   discount                Decimal  @default(0) @db.Decimal(12, 2)
   tax                     Decimal  @default(0) @db.Decimal(12, 2)
   lineTotal               Decimal  @db.Decimal(12, 2) @map("line_total")
+  // Phase 38: what the GST was worked out on
+  hsnCode                 String?  @db.VarChar(8) @map("hsn_code")
+  gstRatePercent          Decimal  @default(0) @db.Decimal(5, 2) @map("gst_rate_percent")
+  taxableValue            Decimal  @default(0) @db.Decimal(12, 2) @map("taxable_value")
+  cgst                    Decimal  @default(0) @db.Decimal(12, 2)
+  sgst                    Decimal  @default(0) @db.Decimal(12, 2)
+  igst                    Decimal  @default(0) @db.Decimal(12, 2)
   createdAt               DateTime @db.Timestamptz(6) @default(now()) @map("created_at")
 
   @@index([tenantId, productVariantId])
@@ -1223,4 +1254,16 @@ model ActivityLog {
   @@index([tenantId, action, createdAt])
   @@index([tenantId, createdAt])
   @@map("activity_logs")
+}
+
+// Phase 38: running invoice number per workspace per Indian financial year (e.g. "2026-27")
+model InvoiceSequence {
+  tenantId      String   @map("tenant_id")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  financialYear String   @db.VarChar(7) @map("financial_year")
+  lastNumber    Int      @default(0) @map("last_number")
+  updatedAt     DateTime @default(now()) @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  @@id([tenantId, financialYear])
+  @@map("invoice_sequences")
 }

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { orderStatusEnum } from '../orders/orders.validation.js';
+import { isValidGstin, isValidPan, toStateCode } from '../gst/india.js';
 
 export const addressTypeEnum = z.enum(['SHIPPING', 'BILLING']);
 
@@ -25,6 +26,22 @@ const addressFields = {
 
 export const addressBodySchema = z.object(addressFields);
 
+// Phase 38: consumer or GST-registered business. A business needs its company name; GSTIN/PAN are checked.
+const upper = (schema) => z.string().trim().transform((v) => v.toUpperCase()).pipe(schema);
+const taxFields = {
+  customerType: z.enum(['CONSUMER', 'BUSINESS']).optional(),
+  companyName: optionalText(255),
+  gstin: upper(z.string().refine(isValidGstin, { message: 'gstin is not a valid GSTIN (format or check digit)' })).nullable().optional(),
+  pan: upper(z.string().refine(isValidPan, { message: 'pan must look like ABCDE1234F' })).nullable().optional(),
+  stateCode: z.string().transform((v, ctx) => {
+    const code = toStateCode(v);
+    if (!code) ctx.addIssue({ code: 'custom', message: 'stateCode must be an Indian state (GST code, short form or name)' });
+    return code ?? z.NEVER;
+  }).nullable().optional(),
+};
+const businessHasName = (data) => data.customerType !== 'BUSINESS' || Boolean(data.companyName);
+const gstinMatchesState = (data) => !data.gstin || !data.stateCode || data.gstin.slice(0, 2) === data.stateCode;
+
 const customerId = z.object({ id: z.string().uuid() });
 const addressParams = z.object({ id: z.string().uuid(), addressId: z.string().uuid() });
 const atLeastOne = (data) => Object.keys(data).length > 0;
@@ -37,7 +54,9 @@ export const createCustomerSchema = z.object({
     phone: optionalText(30),
     metadata: z.record(z.string(), z.unknown()).optional(),
     addresses: z.array(addressBodySchema).max(20).optional(),
-  }),
+    ...taxFields,
+  }).refine(businessHasName, { message: 'A business customer needs a company name', path: ['companyName'] })
+    .refine(gstinMatchesState, { message: 'The GSTIN belongs to a different state', path: ['gstin'] }),
 });
 
 export const updateCustomerSchema = z.object({
@@ -48,7 +67,9 @@ export const updateCustomerSchema = z.object({
     lastName: z.string().trim().min(1).max(100).optional(),
     phone: optionalText(30),
     metadata: z.record(z.string(), z.unknown()).optional(),
-  }).refine(atLeastOne, { message: 'At least one field must be provided' }),
+    ...taxFields,
+  }).refine(atLeastOne, { message: 'At least one field must be provided' })
+    .refine(gstinMatchesState, { message: 'The GSTIN belongs to a different state', path: ['gstin'] }),
 });
 
 export const getCustomerSchema = z.object({ params: customerId });

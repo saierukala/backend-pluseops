@@ -5,7 +5,12 @@ import { assertWithinPlan } from '../plans/plans.service.js';
 import { auditService } from '../audit/audit.service.js';
 import { CustomerService, toAddressSnapshot } from '../customers/customers.service.js';
 import { emitOrderCreated, emitOrderUpdated } from '../../realtime/realtime.service.js';
-import { gstCents, resolveOrderDefaults } from './gst.js';
+import { formatInvoiceNumber, invoicePrefix, isIntraState, lineRate, lineTax, placeOfSupply, resolveOrderDefaults, splitTax } from './gst.js';
+import { financialYear, stateName } from '../gst/india.js';
+
+const NO_GST_REGISTRATIONS = ['COMPOSITION', 'UNREGISTERED'];
+const cents = (value) => Math.round(parseFloat(value) * 100);
+const money = (c) => (c / 100).toFixed(2);
 
 const ORDER_STATUS_TRANSITIONS = {
   DRAFT: ['PENDING', 'CANCELLED'],
@@ -28,6 +33,42 @@ function isValidTransition(from, to) {
   return allowed.includes(to);
 }
 
+/** The shop as printed on the invoice. */
+function sellerOf(tenant, profile) {
+  return {
+    name: profile.legalName || tenant?.name || null,
+    tradeName: profile.tradeName || null,
+    gstin: profile.gstin || null,
+    pan: profile.pan || null,
+    registrationType: profile.registrationType || null,
+    stateCode: profile.stateCode || null,
+    stateName: profile.stateCode ? stateName(profile.stateCode) : null,
+    address: profile.address || null,
+    phone: profile.phone || null,
+    email: profile.email || null,
+    bank: profile.bankName ? { name: profile.bankName, accountNumber: profile.accountNumber || null, ifsc: profile.ifsc || null } : null,
+    upiId: profile.upiId || null,
+    signatory: profile.signatory || null,
+    terms: profile.invoiceTerms || null,
+  };
+}
+
+/** The buyer as printed on the invoice: a business by company name and GSTIN, a consumer by name. */
+function buyerOf(customer) {
+  const person = [customer.firstName, customer.lastName].filter(Boolean).join(' ');
+  const business = customer.customerType === 'BUSINESS';
+  return {
+    type: business ? 'BUSINESS' : 'CONSUMER',
+    name: business && customer.companyName ? customer.companyName : person,
+    contactName: business ? person : null,
+    gstin: business ? customer.gstin ?? null : null,
+    pan: business ? customer.pan ?? null : null,
+    stateCode: customer.stateCode ?? (customer.gstin ? customer.gstin.slice(0, 2) : null),
+    email: customer.email ?? null,
+    phone: customer.phone ?? null,
+  };
+}
+
 export class OrderService {
   constructor() {
     this.repository = new OrderRepository();
@@ -41,9 +82,13 @@ export class OrderService {
     const shippingTotalStr = body.shippingTotal || '0';
     const defaults = await resolveOrderDefaults(this.prisma, tenantId);
     const currency = body.currency || defaults.currency;
-    const gstRatePercent = defaults.gstRatePercent;
-    // The applied rate travels with the order so invoices show it even if the setting changes later
-    const metadata = { ...(body.metadata || {}), gstRatePercent };
+    const taxProfile = defaults.taxProfile;
+    // Composition dealers and unregistered shops issue a bill of supply: no GST is charged
+    const chargesGst = !NO_GST_REGISTRATIONS.includes(taxProfile.registrationType);
+    const gstRatePercent = chargesGst ? defaults.gstRatePercent : 0;
+    const inclusive = Boolean(taxProfile.pricesIncludeTax);
+    // The applied default rate travels with the order so invoices show it even if the setting changes later
+    const metadata = { ...(body.metadata || {}), gstRatePercent, pricesIncludeTax: inclusive };
 
     // Validate customer exists tenant-scoped
     const customer = await this.prisma.customer.findFirst({ where: { id: customerId, tenantId, deletedAt: null } });
@@ -53,6 +98,11 @@ export class OrderService {
     // Snapshot the chosen (or default) addresses so later address edits don't rewrite the order
     const shippingAddress = toAddressSnapshot(await this.customerService.resolveOrderAddress(customerId, tenantId, 'SHIPPING', body.shippingAddressId));
     const billingAddress = toAddressSnapshot(await this.customerService.resolveOrderAddress(customerId, tenantId, 'BILLING', body.billingAddressId));
+
+    // CGST + SGST inside the shop's state, IGST across states
+    const sellerState = taxProfile.stateCode ?? null;
+    const supplyState = placeOfSupply({ shippingAddress, billingAddress, customer });
+    const intraState = isIntraState(sellerState, supplyState);
 
     // Normalize items: resolve productVariantId
     const normalizedItems = itemsInput.map((it) => ({
@@ -72,7 +122,7 @@ export class OrderService {
     const variants = await this.prisma.productVariant.findMany({
       where: { id: { in: variantIds }, tenantId },
       include: {
-        product: { select: { id: true, name: true } },
+        product: { select: { id: true, name: true, hsnCode: true, gstRatePercent: true, gstTaxability: true } },
         attributes: { include: { attributeDefinition: true } },
       },
     });
@@ -95,6 +145,7 @@ export class OrderService {
     let subtotalCents = 0;
     let discountTotalCents = 0;
     let taxTotalCents = 0;
+    const gstTotals = { cgst: 0, sgst: 0, igst: 0 };
     const shippingCents = Math.round(parseFloat(shippingTotalStr) * 100);
 
     const itemCalculations = [];
@@ -106,13 +157,21 @@ export class OrderService {
       if (qty <= 0) throw new AppError('Quantity must be positive', { statusCode: 400, code: 'INVALID_QUANTITY' });
       const discountCents = Math.round(parseFloat(item.discount) * 100);
       if (discountCents < 0) throw new AppError('Discount/tax cannot be negative', { statusCode: 400, code: 'INVALID_MONEY' });
-      const taxCents = item.tax !== undefined ? Math.round(parseFloat(item.tax) * 100) : gstCents(unitCents * qty - discountCents, gstRatePercent);
-      if (taxCents < 0) throw new AppError('Discount/tax cannot be negative', { statusCode: 400, code: 'INVALID_MONEY' });
-      const lineTotalCents = unitCents * qty - discountCents + taxCents;
-      if (lineTotalCents < 0) throw new AppError('Line total cannot be negative', { statusCode: 400, code: 'INVALID_LINE_TOTAL' });
-      subtotalCents += unitCents * qty;
+      const explicitTaxCents = item.tax !== undefined ? cents(item.tax) : undefined;
+      if (explicitTaxCents < 0) throw new AppError('Discount/tax cannot be negative', { statusCode: 400, code: 'INVALID_MONEY' });
+      const grossCents = unitCents * qty - discountCents;
+      if (grossCents < 0) throw new AppError('Line total cannot be negative', { statusCode: 400, code: 'INVALID_LINE_TOTAL' });
+      const rate = chargesGst ? lineRate(variant.product, gstRatePercent) : 0;
+      // With tax-inclusive prices the GST comes out of the price instead of being added on top
+      const { taxableCents, taxCents } = lineTax(grossCents, rate, { inclusive, explicitTaxCents });
+      const split = splitTax(taxCents, intraState);
+      const lineTotalCents = taxableCents + taxCents;
+      subtotalCents += taxableCents + discountCents;
       discountTotalCents += discountCents;
       taxTotalCents += taxCents;
+      gstTotals.cgst += split.cgst;
+      gstTotals.sgst += split.sgst;
+      gstTotals.igst += split.igst;
       itemCalculations.push({
         productVariantId: item.productVariantId,
         warehouseId: item.warehouseId,
@@ -121,6 +180,7 @@ export class OrderService {
         discountStr: (discountCents / 100).toFixed(2),
         taxStr: (taxCents / 100).toFixed(2),
         lineTotalStr: (lineTotalCents / 100).toFixed(2),
+        gst: { rate, taxable: money(taxableCents), cgst: money(split.cgst), sgst: money(split.sgst), igst: money(split.igst) },
         variant,
       });
     }
@@ -130,6 +190,12 @@ export class OrderService {
     const taxTotalStr = (taxTotalCents / 100).toFixed(2);
     const totalStr = (totalCents / 100).toFixed(2);
     const shippingTotalFixed = (shippingCents / 100).toFixed(2);
+
+    // Who sold and who bought, frozen on the invoice
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true, slug: true } });
+    const sellerSnapshot = sellerOf(tenant, taxProfile);
+    const buyerSnapshot = buyerOf(customer);
+    const prefix = invoicePrefix(taxProfile, tenant?.slug);
 
     // Transaction with inventory locking
     const execute = async (maxRetries = 3) => {
@@ -161,6 +227,10 @@ export class OrderService {
               }
             }
 
+            // Next invoice number for this financial year (the upsert locks the counter row)
+            const fy = financialYear();
+            const [{ last_number: invoiceSeq }] = await tx.$queryRaw`INSERT INTO "invoice_sequences" ("tenant_id", "financial_year", "last_number", "updated_at") VALUES (${tenantId}, ${fy}, 1, NOW()) ON CONFLICT ("tenant_id", "financial_year") DO UPDATE SET "last_number" = "invoice_sequences"."last_number" + 1, "updated_at" = NOW() RETURNING "last_number"`;
+
             // Create order
             const order = await tx.order.create({
               data: {
@@ -176,6 +246,15 @@ export class OrderService {
                 metadata,
                 shippingAddress: shippingAddress ?? undefined,
                 billingAddress: billingAddress ?? undefined,
+                invoiceNumber: formatInvoiceNumber(prefix, fy, invoiceSeq),
+                invoiceDate: new Date(),
+                placeOfSupply: supplyState ?? sellerState,
+                supplyType: intraState ? 'INTRA' : 'INTER',
+                cgstTotal: money(gstTotals.cgst),
+                sgstTotal: money(gstTotals.sgst),
+                igstTotal: money(gstTotals.igst),
+                buyerSnapshot,
+                sellerSnapshot,
               },
             });
 
@@ -205,6 +284,12 @@ export class OrderService {
                   discount: it.discountStr,
                   tax: it.taxStr,
                   lineTotal: it.lineTotalStr,
+                  hsnCode: variant.product.hsnCode ?? null,
+                  gstRatePercent: it.gst.rate,
+                  taxableValue: it.gst.taxable,
+                  cgst: it.gst.cgst,
+                  sgst: it.gst.sgst,
+                  igst: it.gst.igst,
                 },
               });
             }

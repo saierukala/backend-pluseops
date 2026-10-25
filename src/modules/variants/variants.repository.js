@@ -14,6 +14,7 @@ export class VariantRepository {
         barcode: data.barcode,
         price: data.price,
         costPrice: data.costPrice,
+        mrp: data.mrp,
         status: data.status ?? 'DRAFT',
       },
     });
@@ -96,6 +97,7 @@ export class VariantRepository {
         barcode: data.barcode,
         price: data.price,
         costPrice: data.costPrice,
+        mrp: data.mrp,
         status: data.status,
       },
     });

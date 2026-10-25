@@ -19,6 +19,11 @@ export class CustomerRepository {
         lastName: data.lastName,
         phone: data.phone ?? null,
         metadata: data.metadata ?? {},
+        customerType: data.customerType ?? 'CONSUMER',
+        companyName: data.companyName ?? null,
+        gstin: data.gstin ?? null,
+        pan: data.pan ?? (data.gstin ? data.gstin.slice(2, 12) : null),
+        stateCode: data.stateCode ?? (data.gstin ? data.gstin.slice(0, 2) : null),
       },
     });
   }
@@ -65,6 +70,11 @@ export class CustomerRepository {
         lastName: data.lastName,
         phone: data.phone,
         metadata: data.metadata,
+        customerType: data.customerType,
+        companyName: data.companyName,
+        gstin: data.gstin,
+        pan: data.pan,
+        stateCode: data.stateCode,
       },
     });
   }

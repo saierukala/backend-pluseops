@@ -107,7 +107,7 @@ export class VariantService {
     }
 
     const updateData = {};
-    const allowedFields = ['sku', 'barcode', 'price', 'costPrice', 'status'];
+    const allowedFields = ['sku', 'barcode', 'price', 'costPrice', 'mrp', 'status'];
     for (const field of allowedFields) {
       if (data[field] !== undefined) {
         updateData[field] = data[field];

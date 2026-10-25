@@ -14,6 +14,10 @@ export class ProductRepository {
         brand: data.brand,
         status: data.status ?? 'DRAFT',
         basePrice: data.basePrice,
+        hsnCode: data.hsnCode ?? null,
+        gstRatePercent: data.gstRatePercent ?? null,
+        gstTaxability: data.gstTaxability ?? 'TAXABLE',
+        unit: data.unit ?? null,
       },
     });
   }
@@ -161,6 +165,10 @@ export class ProductRepository {
         brand: data.brand,
         status: data.status,
         basePrice: data.basePrice,
+        hsnCode: data.hsnCode,
+        gstRatePercent: data.gstRatePercent,
+        gstTaxability: data.gstTaxability,
+        unit: data.unit,
       },
     });
   }

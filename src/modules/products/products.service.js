@@ -101,7 +101,7 @@ export class ProductService {
     }
 
     const updateData = {};
-    const allowedFields = ['name', 'description', 'brand', 'status', 'basePrice'];
+    const allowedFields = ['name', 'description', 'brand', 'status', 'basePrice', 'hsnCode', 'gstRatePercent', 'gstTaxability', 'unit'];
     for (const field of allowedFields) {
       if (data[field] !== undefined) {
         updateData[field] = data[field];

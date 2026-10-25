@@ -39,6 +39,20 @@ export async function updateSettings(req, res, next) {
   } catch (error) { next(error); }
 }
 
+export async function getTaxProfile(req, res, next) {
+  try {
+    const profile = await workspaceService.getTaxProfile(req.context.tenantId);
+    res.status(200).json({ success: true, data: profile, message: 'Tax profile retrieved successfully' });
+  } catch (error) { next(error); }
+}
+
+export async function updateTaxProfile(req, res, next) {
+  try {
+    const profile = await workspaceService.updateTaxProfile(req.context.tenantId, req.body, auditContextFrom(req));
+    res.status(200).json({ success: true, data: profile, message: 'Tax profile updated successfully' });
+  } catch (error) { next(error); }
+}
+
 export async function listDomains(req, res, next) {
   try {
     const domains = await workspaceService.listDomains(req.context.tenantId);

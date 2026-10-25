@@ -18,6 +18,7 @@ import crypto from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { io as ioClient } from 'socket.io-client';
 import { env } from '../src/config/env.js';
+import { gstinCheckChar } from '../src/modules/gst/india.js';
 
 const BASE = process.env.AUDIT_BASE_URL || 'http://localhost:3000';
 const API = `${BASE}/api/v1`;
@@ -472,6 +473,38 @@ async function main() {
       const o = data(r);
       const expected = (Math.round(Number(o?.subtotal) * 18) / 100).toFixed(2);
       return o?.currency === 'INR' && Number(o?.taxTotal).toFixed(2) === expected && o?.metadata?.gstRatePercent === 18;
+    },
+  });
+  // Phase 38: GST tax invoices — tax profile, invoice numbers, CGST+SGST in-state, IGST across states
+  const sellerGstin = '29AAACA1234A1Z';
+  const fullGstin = (first14) => first14 + gstinCheckChar(first14);
+  await check('set tax profile (GSTIN → Karnataka)', 'PATCH', '/workspace/tax-profile', 200, {
+    token: A, body: { legalName: `Audit A ${RUN} Pvt Ltd`, gstin: fullGstin(sellerGstin), invoicePrefix: 'AUD' },
+    assert: (r) => data(r)?.stateCode === '29' && data(r)?.stateName === 'Karnataka' && data(r)?.pan?.length === 10,
+  });
+  await check('invalid GSTIN rejected', 'PATCH', '/workspace/tax-profile', 400, { token: A, body: { gstin: '29AAACA1234A1ZX' } });
+  await check('staff cannot change tax profile', 'PATCH', '/workspace/tax-profile', 403, { token: S, body: { legalName: 'Pwned' } });
+  await check('in-state order: invoice number, CGST + SGST', 'POST', '/orders', 201, {
+    token: A,
+    body: { customerId: customer.id, items: [{ productVariantId: variantId, warehouseId: W1, quantity: 1 }] },
+    assert: (r) => {
+      const o = data(r);
+      return /^AUD\/\d{4}-\d{2}\/\d{4}$/.test(o?.invoiceNumber ?? '') && o?.supplyType === 'INTRA' && Number(o?.igstTotal) === 0
+        && (Number(o?.cgstTotal) + Number(o?.sgstTotal)).toFixed(2) === Number(o?.taxTotal).toFixed(2) && o?.sellerSnapshot?.stateCode === '29';
+    },
+  });
+  const b2b = await check('business customer with a Maharashtra GSTIN', 'POST', '/customers', 201, {
+    token: A, body: { email: `b2b-${RUN}@audit.test`, firstName: 'Ravi', lastName: 'Rao', customerType: 'BUSINESS', companyName: 'Ravi Traders', gstin: fullGstin('27AAPFU0939F1Z') },
+    assert: (r) => data(r)?.stateCode === '27' && data(r)?.pan === 'AAPFU0939F',
+  });
+  await check('business customer needs a company name', 'POST', '/customers', 400, { token: A, body: { email: `b2c-${RUN}@audit.test`, firstName: 'No', lastName: 'Co', customerType: 'BUSINESS' } });
+  await check('inter-state order: IGST, buyer GSTIN on invoice', 'POST', '/orders', 201, {
+    token: A,
+    body: { customerId: data(b2b)?.id, items: [{ productVariantId: variantId, warehouseId: W1, quantity: 1 }] },
+    assert: (r) => {
+      const o = data(r);
+      return o?.supplyType === 'INTER' && o?.placeOfSupply === '27' && Number(o?.cgstTotal) === 0
+        && Number(o?.igstTotal).toFixed(2) === Number(o?.taxTotal).toFixed(2) && o?.buyerSnapshot?.gstin?.startsWith('27');
     },
   });
   const dom = await check('add domain', 'POST', '/workspace/domains', 201, { token: A, body: { domain: `shop-${RUN}.audit.test` }, assert: (r) => data(r)?.primary === true });

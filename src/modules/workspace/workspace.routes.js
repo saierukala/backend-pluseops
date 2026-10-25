@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import {
-  getWorkspace, updateWorkspace, getSettings, updateSettings, listDomains, createDomain, updateDomain, verifyDomain, deleteDomain,
+  getWorkspace, updateWorkspace, getSettings, updateSettings, getTaxProfile, updateTaxProfile, listDomains, createDomain, updateDomain, verifyDomain, deleteDomain,
   getPaymentGateway, savePaymentGateway, updatePaymentGateway, deletePaymentGateway,
 } from './workspace.controller.js';
 import {
-  updateWorkspaceSchema, updateSettingsSchema, createDomainSchema, updateDomainSchema, deleteDomainSchema, savePaymentGatewaySchema, updatePaymentGatewaySchema,
+  updateWorkspaceSchema, updateSettingsSchema, updateTaxProfileSchema, createDomainSchema, updateDomainSchema, deleteDomainSchema, savePaymentGatewaySchema, updatePaymentGatewaySchema,
 } from './workspace.validation.js';
 import { authenticate } from '../auth/auth.middleware.js';
 import { authorize } from '../auth/authorization.middleware.js';
@@ -28,6 +28,9 @@ workspaceRouter.get('/', authorize('tenant:read'), getWorkspace);
 workspaceRouter.patch('/', validate(updateWorkspaceSchema), authorize('tenant:update'), updateWorkspace);
 workspaceRouter.get('/settings', authorize('tenant:read'), getSettings);
 workspaceRouter.patch('/settings', validate(updateSettingsSchema), authorize('tenant:update'), updateSettings);
+// Phase 38: GST identity printed on tax invoices
+workspaceRouter.get('/tax-profile', authorize('tenant:read'), getTaxProfile);
+workspaceRouter.patch('/tax-profile', validate(updateTaxProfileSchema), authorize('tenant:update'), updateTaxProfile);
 workspaceRouter.get('/domains', authorize('tenant:read'), listDomains);
 workspaceRouter.post('/domains', validate(createDomainSchema), authorize('tenant:update'), createDomain);
 workspaceRouter.patch('/domains/:domainId', validate(updateDomainSchema), authorize('tenant:update'), updateDomain);

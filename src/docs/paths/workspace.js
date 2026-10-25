@@ -11,6 +11,7 @@ const ok = (description, schema) => ({
 });
 const workspace = { $ref: '#/components/schemas/Workspace' };
 const settings = { $ref: '#/components/schemas/WorkspaceSettings' };
+const taxProfile = { $ref: '#/components/schemas/TaxProfile' };
 const domain = { $ref: '#/components/schemas/TenantDomain' };
 const paymentGateway = { $ref: '#/components/schemas/PaymentGateway' };
 const domainIdParam = { name: 'domainId', in: 'path', required: true, schema: { type: 'string', format: 'uuid' } };
@@ -62,6 +63,25 @@ export const workspacePaths = {
       security,
       requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', minProperties: 1, properties: settingsProperties } } } },
       responses: { 200: ok('Settings updated', settings), 400: error400, 401: error401, 403: error403, 500: error500 },
+    },
+  },
+  '/api/v1/workspace/tax-profile': {
+    get: {
+      tags: ['Workspace'],
+      summary: 'Get the GST tax profile',
+      description: 'Requires `tenant:read`. Printed on every tax invoice; unset keys are `null`.',
+      operationId: 'getWorkspaceTaxProfile',
+      security,
+      responses: { 200: ok('Tax profile retrieved', taxProfile), 401: error401, 403: error403, 500: error500 },
+    },
+    patch: {
+      tags: ['Workspace'],
+      summary: 'Update the GST tax profile',
+      description: 'Requires `tenant:update`. Partial; `null` clears a key. The GSTIN is checked (format and check digit) and fills in the state and PAN when they are not given; `stateCode` accepts a GST code, short form or state name. New orders use it: CGST + SGST inside the state, IGST outside, no GST for COMPOSITION/UNREGISTERED, and GST taken out of the price when `pricesIncludeTax` is true.',
+      operationId: 'updateWorkspaceTaxProfile',
+      security,
+      requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', minProperties: 1, properties: { ...taxProfile } } } } },
+      responses: { 200: ok('Tax profile updated', taxProfile), 400: error400, 401: error401, 403: error403, 500: error500 },
     },
   },
   '/api/v1/workspace/domains': {

@@ -233,6 +233,8 @@ describe('Phase 22 - Swagger / OpenAPI Documentation', () => {
     'PATCH /api/v1/workspace',
     'GET /api/v1/workspace/settings',
     'PATCH /api/v1/workspace/settings',
+    'GET /api/v1/workspace/tax-profile',
+    'PATCH /api/v1/workspace/tax-profile',
     // Phase 35
     'GET /api/v1/workspace/payment-gateway',
     'PUT /api/v1/workspace/payment-gateway',

@@ -11,6 +11,8 @@ export const createVariantSchema = z.object({
     barcode: z.string().max(100).optional(),
     price: z.string().regex(/^\d+(\.\d{1,2})?$/),
     costPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
+    // Phase 38: printed maximum retail price
+    mrp: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
     status: variantStatusEnum.default('DRAFT'),
     attributes: z.array(z.object({
       attributeDefinitionId: z.string().uuid(),
@@ -30,6 +32,7 @@ export const updateVariantSchema = z.object({
     barcode: z.string().max(100).nullable().optional(),
     price: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
     costPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
+    mrp: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
     status: variantStatusEnum.optional(),
     attributes: z.array(z.object({
       attributeDefinitionId: z.string().uuid(),

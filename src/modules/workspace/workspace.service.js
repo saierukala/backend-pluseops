@@ -5,6 +5,7 @@ import { AppError } from '../../common/errors/app-error.js';
 import { WorkspaceRepository } from './workspace.repository.js';
 import { auditService } from '../audit/audit.service.js';
 import { logger } from '../../config/logger.js';
+import { stateName } from '../gst/india.js';
 
 export const SETTING_KEYS = ['currency', 'timezone', 'locale', 'contactEmail', 'contactPhone', 'gstRatePercent'];
 
@@ -22,6 +23,18 @@ export function toSettings(metadata) {
   const settings = {};
   for (const key of SETTING_KEYS) settings[key] = metadata?.[key] ?? null;
   return settings;
+}
+
+export const TAX_PROFILE_KEYS = [
+  'legalName', 'tradeName', 'registrationType', 'gstin', 'pan', 'stateCode', 'address', 'phone', 'email',
+  'bankName', 'accountNumber', 'ifsc', 'upiId', 'signatory', 'invoicePrefix', 'invoiceTerms', 'pricesIncludeTax',
+];
+
+function toTaxProfile(profile) {
+  const out = {};
+  for (const key of TAX_PROFILE_KEYS) out[key] = profile?.[key] ?? null;
+  out.stateName = stateName(out.stateCode);
+  return out;
 }
 
 function toDomain(d) {
@@ -84,6 +97,38 @@ export class WorkspaceService {
         activity: 'tenant.settings.update', description: `Workspace settings updated (${Object.keys(changes).join(', ')})`,
       });
       return toSettings(next);
+    });
+  }
+
+  // Phase 38: the GST identity on invoices, kept in TenantSettings.metadata.taxProfile
+  async getTaxProfile(tenantId) {
+    return toTaxProfile((await this.repository.findSettings(tenantId))?.metadata?.taxProfile);
+  }
+
+  async updateTaxProfile(tenantId, changes, auditContext = {}) {
+    return this.prisma.$transaction(async (tx) => {
+      const metadata = (await this.repository.findSettings(tenantId, tx))?.metadata ?? {};
+      const before = metadata.taxProfile ?? {};
+      const next = { ...before };
+      for (const [key, value] of Object.entries(changes)) {
+        if (value === null) delete next[key];
+        else next[key] = value;
+      }
+      // A GSTIN carries the state and the PAN; fill them in when they weren't given
+      if (next.gstin) {
+        next.stateCode ??= next.gstin.slice(0, 2);
+        next.pan ??= next.gstin.slice(2, 12);
+      }
+      if (next.gstin && next.stateCode !== next.gstin.slice(0, 2)) {
+        throw new AppError('The GSTIN belongs to a different state than the business state', { statusCode: 400, code: 'GSTIN_STATE_MISMATCH' });
+      }
+      await this.repository.saveSettings(tenantId, { ...metadata, taxProfile: next }, tx);
+      await this.log(tx, auditContext, {
+        tenantId, action: 'UPDATE', resource: 'tenant_settings', resourceId: tenantId,
+        oldValue: { taxProfile: before }, newValue: { taxProfile: next },
+        activity: 'tenant.tax_profile.update', description: `Tax profile updated (${Object.keys(changes).join(', ')})`,
+      });
+      return toTaxProfile(next);
     });
   }
 
