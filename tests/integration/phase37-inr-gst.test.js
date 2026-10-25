@@ -151,3 +151,22 @@ describe('Phase 37 — single sign-in form', () => {
     expect(platform.status).toBe(200);
   });
 });
+
+describe('Phase 37 — clearing optional fields from the staff app', () => {
+  it('a variant barcode and cost can be cleared with null', async () => {
+    const product = (await api.post('/products', token, { name: 'Mug', status: 'ACTIVE', basePrice: '10.00' })).body.data;
+    const variant = (await api.post(`/products/${product.id}/variants`, token, { sku: `MUG-${RUN}`, price: '10.00', barcode: `890${RUN}`, costPrice: '4.00' })).body.data;
+
+    const res = await api.patch(`/products/${product.id}/variants/${variant.id}`, token, { barcode: null, costPrice: null });
+    expect(res.status).toBe(200);
+    const stored = await prisma.productVariant.findUnique({ where: { id: variant.id } });
+    expect(stored.barcode).toBeNull();
+    expect(stored.costPrice).toBeNull();
+  });
+
+  it('a top-level category is created without a parent', async () => {
+    const res = await api.post('/categories', token, { name: 'Kitchen', slug: `kitchen-${RUN}` });
+    expect(res.status).toBe(201);
+    expect(res.body.data.parentId).toBeNull();
+  });
+});

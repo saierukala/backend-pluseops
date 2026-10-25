@@ -592,11 +592,28 @@ export class AnalyticsRepository {
       `SELECT date_trunc('${trunc}', p."created_at" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' as bucket, COUNT(*)::int as "paymentCount", COALESCE(SUM(p."amount"),0)::text as "grossRevenue" FROM "payments" p WHERE ${whereClause} GROUP BY bucket ORDER BY bucket ASC LIMIT $${idx} OFFSET $${idx + 1}`,
       ...params, limit, skip
     );
-    const data = dataRows.map((r) => ({
-      bucket: r.bucket ? new Date(r.bucket).toISOString() : null,
-      paymentCount: Number(r.paymentCount),
-      grossRevenue: formatDecimal(r.grossRevenue),
-    }));
+    // Completed refunds in the same buckets, so each row carries refunded and net like the summary does
+    const refundConditions = [`r."tenant_id" = $1`, `r."status" = 'COMPLETED'::"RefundStatus"`];
+    const refundParams = [tenantId];
+    if (fromDate) { refundConditions.push(`r."created_at" >= $${refundParams.length + 1}`); refundParams.push(fromDate); }
+    if (toDate) { refundConditions.push(`r."created_at" <= $${refundParams.length + 1}`); refundParams.push(toDate); }
+    const refundRows = await this.prisma.$queryRawUnsafe(
+      `SELECT date_trunc('${trunc}', r."created_at" AT TIME ZONE 'UTC') AT TIME ZONE 'UTC' as bucket, COALESCE(SUM(r."amount"),0)::text as "totalRefunded" FROM "refunds" r WHERE ${refundConditions.join(' AND ')} GROUP BY bucket`,
+      ...refundParams
+    );
+    const refundedByBucket = new Map(refundRows.map((r) => [new Date(r.bucket).toISOString(), formatDecimal(r.totalRefunded)]));
+    const data = dataRows.map((r) => {
+      const bucket = r.bucket ? new Date(r.bucket).toISOString() : null;
+      const gross = formatDecimal(r.grossRevenue);
+      const refunded = (bucket && refundedByBucket.get(bucket)) || '0.00';
+      return {
+        bucket,
+        paymentCount: Number(r.paymentCount),
+        grossRevenue: gross,
+        totalRefunded: refunded,
+        netRevenue: (parseFloat(gross) - parseFloat(refunded)).toFixed(2),
+      };
+    });
     return {
       summary: { grossRevenue, totalRefunded, netRevenue, paymentCount: count },
       data,

@@ -287,6 +287,11 @@ describe('Phase 18 - Analytics & Reporting', () => {
       const res = await request(app).get('/api/v1/analytics/revenue?groupBy=day').set('Authorization', `Bearer ${tokenA}`);
       expect(res.status).toBe(200);
       expect(Array.isArray(res.body.data)).toBe(true);
+      // every bucket carries refunded and net (gross minus refunded)
+      for (const b of res.body.data) {
+        expect(b).toEqual(expect.objectContaining({ grossRevenue: expect.any(String), totalRefunded: expect.any(String), netRevenue: expect.any(String) }));
+        expect((parseFloat(b.grossRevenue) - parseFloat(b.totalRefunded)).toFixed(2)).toBe(b.netRevenue);
+      }
     });
     it('revenue date range filtering', async () => {
       const res = await request(app).get('/api/v1/analytics/revenue?from=2026-08-10&to=2026-08-10').set('Authorization', `Bearer ${tokenA}`);

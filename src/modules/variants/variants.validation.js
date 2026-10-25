@@ -26,9 +26,10 @@ export const updateVariantSchema = z.object({
   }),
   body: z.object({
     sku: z.string().min(1).max(100).optional(),
-    barcode: z.string().max(100).optional(),
+    // null clears the barcode / cost
+    barcode: z.string().max(100).nullable().optional(),
     price: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
-    costPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
+    costPrice: z.string().regex(/^\d+(\.\d{1,2})?$/).nullable().optional(),
     status: variantStatusEnum.optional(),
     attributes: z.array(z.object({
       attributeDefinitionId: z.string().uuid(),
