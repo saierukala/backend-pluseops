@@ -168,6 +168,14 @@ describe('Phase 23 — Docker / CI/CD / Deployment', () => {
       expect(c).toMatch(/src\/worker\.js/);
     });
 
+    test('web app service is opt-in (profile "web") and waits for a healthy api', () => {
+      const c = read('docker-compose.yml');
+      expect(c).toMatch(/^\s*web:/m);
+      expect(c).toMatch(/profiles:\s*\["web"\]/);
+      expect(c).toMatch(/NEXT_PUBLIC_API_BASE_URL:/);
+      expect(c).toMatch(/"3001:3000"/);
+    });
+
     test(' compose config is valid YAML (docker compose config)', () => {
       try {
         execSync('docker compose config --quiet', { stdio: 'pipe', timeout: 15000 });
