@@ -66,7 +66,7 @@ describe('Phase 30 — workspace profile and tenant context', () => {
     const res = await api.get('/workspace', A);
     expect(res.status).toBe(200);
     expect(res.body.data).toMatchObject({ id: tenantA.id, slug: `phase30-a-${RUN}`, status: 'ACTIVE', domains: [] });
-    expect(res.body.data.settings).toEqual({ currency: null, timezone: null, locale: null, contactEmail: null, contactPhone: null });
+    expect(res.body.data.settings).toEqual({ currency: null, timezone: null, locale: null, contactEmail: null, contactPhone: null, gstRatePercent: null });
   });
 
   it('GET /auth/me includes the tenant the login belongs to', async () => {
@@ -102,7 +102,7 @@ describe('Phase 30 — settings', () => {
   it('sets, normalises and partially updates settings', async () => {
     const first = await api.patch('/workspace/settings', A, { currency: 'inr', timezone: 'Asia/Kolkata', locale: 'en-IN', contactEmail: 'Help@Ravi.example' });
     expect(first.status).toBe(200);
-    expect(first.body.data).toEqual({ currency: 'INR', timezone: 'Asia/Kolkata', locale: 'en-IN', contactEmail: 'help@ravi.example', contactPhone: null });
+    expect(first.body.data).toEqual({ currency: 'INR', timezone: 'Asia/Kolkata', locale: 'en-IN', contactEmail: 'help@ravi.example', contactPhone: null, gstRatePercent: null });
 
     const second = await api.patch('/workspace/settings', A, { contactPhone: '+91 90000 00000', locale: null });
     expect(second.body.data).toMatchObject({ currency: 'INR', locale: null, contactPhone: '+91 90000 00000' });
