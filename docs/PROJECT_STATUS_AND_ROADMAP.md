@@ -124,7 +124,7 @@ staff user with no role, and a second tenant trying to reach the first tenant's 
 | cleanup (11) | 11 | 0 | |
 | **Total 379** | **379** | **0** | |
 
-History: 374/374 after Phase 36a; 363/363 after Phase 35 part 1; 352/352 after Phase 34; 351/351 after Phase 33; 333/333 after Phase 32; 308/308 after Phase 31; 290/290 after Phase 30; 266/266 after Phase 29; 243/244 after Phase 28; 227/229 after Phase 27; 214/219 after Phase 26; 201/213 before it. 201/213 before Phase 26 (4 legacy-tenant, 2 jobs, 1 isolation failures). Before the first round of
+History: 388/388 after Phase 37 (new: GST order, GST rate validation, unscoped platform-login checks; storefront checkout total now includes GST); 374/374 after Phase 36a; 363/363 after Phase 35 part 1; 352/352 after Phase 34; 351/351 after Phase 33; 333/333 after Phase 32; 308/308 after Phase 31; 290/290 after Phase 30; 266/266 after Phase 29; 243/244 after Phase 28; 227/229 after Phase 27; 214/219 after Phase 26; 201/213 before it. 201/213 before Phase 26 (4 legacy-tenant, 2 jobs, 1 isolation failures). Before the first round of
 fixes in §4 the same audit stopped early (tenant admins could not create attributes) and
 image downloads failed.
 
@@ -134,6 +134,7 @@ image downloads failed.
 |---|---|
 | Before fixes | 988 / 990 — Swagger inventory test out of date; one BullMQ cleanup test timed out while a second API instance was consuming the same queue |
 | After first fixes | **993 / 993** (30 suites) — includes 3 new permission-catalog tests |
+| After Phase 37 | 10 new tests in `phase37-inr-gst.test.js` (GST arithmetic, INR defaults, GST on staff and storefront orders, explicit-tax override, rate validation, unscoped login). Suite runs with `DEFAULT_GST_RATE_PERCENT=0` (set in `tests/jest.test-database.js`) so earlier fixtures keep tax-free totals; one Phase 10 assertion moved from USD to INR |
 | After Phase 36b | **1211 / 1211** (43 suites) — 12 new tests (RS256/rotation/alg confusion, cookie mode for staff and shoppers, CORS) |
 | After Phase 36a | **1199 / 1199** (42 suites) — 15 new Phase 36 tests |
 | After Phase 35 part 1 | **1184 / 1184** (41 suites) — 18 new Phase 35 tests (fake Razorpay behind `fetch`, SMTP via nodemailer's JSON transport); one Phase 22 list updated for the new PUT |
@@ -231,6 +232,8 @@ DONE   34     Data integrity & consistency
 PART   35     Razorpay per shop + SMTP email done; deployment target, S3 presigned uploads waiting on the hosting choice
 DONE   36     Report retention + schedules, analytics without deleted customers, storefront listing in SQL;
               RS256 with key rotation + JWKS, httpOnly refresh-token cookie mode (both opt-in)
+DONE   37     Rupees by default (INR); 18% GST on order lines (per-workspace gstRatePercent,
+              DEFAULT_GST_RATE_PERCENT); unscoped login no longer reveals platform accounts without the password
 ```
 
 Frontend (`Frontend-PluseOps`, Next.js): F01–F06 committed; F07 (RBAC UI) in progress. Backend 27 is

@@ -195,6 +195,14 @@ export class AuthService {
         (m) => m.tenant?.slug !== PLATFORM_TENANT_SLUG && m.status === 'ACTIVE'
       );
       if (tenantMemberships.length === 0) {
+        // Only reveal that this is a platform account to someone who knows its password; otherwise the
+        // answer would let anyone probe which emails belong to platform administrators.
+        if (!(await verifyPassword(globalUser.passwordHash, password))) {
+          throw new AppError('Invalid credentials', {
+            statusCode: 401,
+            code: 'INVALID_CREDENTIALS',
+          });
+        }
         // Check if user is platform-only (no business tenant)
         const hasPlatform = await this.repository.hasPlatformRole(globalUser.id);
         if (hasPlatform) {

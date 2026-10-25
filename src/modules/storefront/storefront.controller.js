@@ -17,7 +17,8 @@ const handle = (fn) => async (req, res, next) => {
 
 function storeInfo(store) {
   const { currency, locale, timezone, contactEmail, contactPhone } = { ...store.settings, currency: store.currency };
-  return { slug: store.slug, name: store.name, currency, locale, timezone, contactEmail, contactPhone };
+  // GST rate lets the shop preview tax in the cart; the order total is still computed server-side at checkout
+  return { slug: store.slug, name: store.name, currency, locale, timezone, contactEmail, contactPhone, gstRatePercent: store.gstRatePercent };
 }
 
 // Host → store, for a storefront app serving several businesses: a verified custom domain, or

@@ -290,7 +290,7 @@ export const schemas = {
   },
   StorefrontStore: {
     type: 'object',
-    properties: { slug: { type: 'string' }, name: { type: 'string' }, currency: { type: 'string', example: 'INR' }, locale: { type: 'string', nullable: true }, timezone: { type: 'string', nullable: true }, contactEmail: { type: 'string', nullable: true }, contactPhone: { type: 'string', nullable: true }, onlinePayment: { type: 'object', properties: { provider: { type: 'string', example: 'razorpay' }, enabled: { type: 'boolean' } } } },
+    properties: { slug: { type: 'string' }, name: { type: 'string' }, currency: { type: 'string', example: 'INR' }, locale: { type: 'string', nullable: true }, timezone: { type: 'string', nullable: true }, contactEmail: { type: 'string', nullable: true }, contactPhone: { type: 'string', nullable: true }, gstRatePercent: { type: 'number', description: 'Effective GST % for cart previews; checkout totals are computed server-side', example: 18 }, onlinePayment: { type: 'object', properties: { provider: { type: 'string', example: 'razorpay' }, enabled: { type: 'boolean' } } } },
   },
   StorefrontImage: {
     type: 'object', nullable: true,
@@ -417,6 +417,7 @@ export const schemas = {
       locale: { type: 'string', nullable: true, example: 'en-IN' },
       contactEmail: { type: 'string', nullable: true },
       contactPhone: { type: 'string', nullable: true },
+      gstRatePercent: { type: 'number', minimum: 0, maximum: 100, nullable: true, description: 'GST % applied to new orders (at most two decimals); null uses DEFAULT_GST_RATE_PERCENT (18)', example: 18 },
     },
   },
   TenantDomain: {
@@ -529,7 +530,7 @@ export const schemas = {
       taxTotal: { type: 'string' },
       shippingTotal: { type: 'string' },
       total: { type: 'string' },
-      currency: { type: 'string', example: 'USD' },
+      currency: { type: 'string', example: 'INR' },
       metadata: { type: 'object' },
       shippingAddress: { $ref: '#/components/schemas/AddressSnapshot' },
       billingAddress: { $ref: '#/components/schemas/AddressSnapshot' },
@@ -557,7 +558,7 @@ export const schemas = {
       tenantId: { type: 'string', format: 'uuid' },
       orderId: { type: 'string', format: 'uuid' },
       amount: { type: 'string', example: '199.98' },
-      currency: { type: 'string', example: 'USD' },
+      currency: { type: 'string', example: 'INR' },
       status: { type: 'string', enum: ['PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'REFUNDED', 'PARTIALLY_REFUNDED', 'CANCELLED'] },
       provider: { type: 'string', nullable: true },
       providerPaymentId: { type: 'string', nullable: true },

@@ -22,6 +22,7 @@ const settingsProperties = {
   locale: { type: 'string', nullable: true, description: 'BCP 47 tag', example: 'en-IN' },
   contactEmail: { type: 'string', format: 'email', nullable: true },
   contactPhone: { type: 'string', maxLength: 30, nullable: true },
+  gstRatePercent: { type: 'number', minimum: 0, maximum: 100, nullable: true, description: 'GST % applied to new orders (at most two decimals); null uses DEFAULT_GST_RATE_PERCENT (18)', example: 18 },
 };
 
 export const workspacePaths = {

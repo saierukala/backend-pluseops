@@ -33,6 +33,8 @@ export const settingsBody = z.object({
   locale: nullable(z.string().trim().refine(isLocale, { message: 'locale must be a BCP 47 tag, e.g. en-IN' })),
   contactEmail: nullable(z.string().trim().toLowerCase().email().max(255)),
   contactPhone: nullable(z.string().trim().max(30)),
+  // Phase 37: GST percent applied to new orders; null falls back to DEFAULT_GST_RATE_PERCENT
+  gstRatePercent: nullable(z.number().min(0).max(100).refine((n) => Number.isInteger(n * 100), { message: 'gstRatePercent allows at most two decimals' })),
 }).refine((data) => Object.keys(data).length > 0, { message: 'At least one setting must be provided' });
 
 export const updateWorkspaceSchema = z.object({

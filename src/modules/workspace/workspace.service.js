@@ -6,7 +6,7 @@ import { WorkspaceRepository } from './workspace.repository.js';
 import { auditService } from '../audit/audit.service.js';
 import { logger } from '../../config/logger.js';
 
-export const SETTING_KEYS = ['currency', 'timezone', 'locale', 'contactEmail', 'contactPhone'];
+export const SETTING_KEYS = ['currency', 'timezone', 'locale', 'contactEmail', 'contactPhone', 'gstRatePercent'];
 
 // The same message whether the domain is this tenant's or another's, so the API doesn't reveal who owns it.
 const domainTaken = () => new AppError('This domain is already registered', { statusCode: 409, code: 'DOMAIN_TAKEN' });
