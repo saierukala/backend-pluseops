@@ -359,7 +359,9 @@ export const schemas = {
     properties: {
       id: { type: 'string' }, number: { type: 'string', example: '1A2B3C4D' }, status: { type: 'string' }, createdAt: { type: 'string', format: 'date-time' }, currency: { type: 'string' },
       subtotal: { type: 'string' }, discountTotal: { type: 'string' }, taxTotal: { type: 'string' }, shippingTotal: { type: 'string' }, total: { type: 'string' },
-      items: { type: 'array', items: { type: 'object', properties: { productName: { type: 'string' }, variantName: { type: 'string' }, sku: { type: 'string' }, unitPrice: { type: 'string' }, quantity: { type: 'integer' }, lineTotal: { type: 'string' } } } },
+      invoiceNumber: { type: 'string', nullable: true, example: 'ACME/2026-27/0001' }, supplyType: { type: 'string', enum: ['INTRA', 'INTER'], nullable: true },
+      cgstTotal: { type: 'string' }, sgstTotal: { type: 'string' }, igstTotal: { type: 'string' },
+      items: { type: 'array', items: { type: 'object', properties: { productName: { type: 'string' }, variantName: { type: 'string' }, sku: { type: 'string' }, unitPrice: { type: 'string' }, quantity: { type: 'integer' }, lineTotal: { type: 'string' }, hsnCode: { type: 'string', nullable: true }, gstRatePercent: { type: 'number' } } } },
       shippingAddress: { $ref: '#/components/schemas/AddressSnapshot' },
       billingAddress: { $ref: '#/components/schemas/AddressSnapshot' },
       timeline: { type: 'array', items: { type: 'object', properties: { status: { type: 'string' }, at: { type: 'string', format: 'date-time' } } } },

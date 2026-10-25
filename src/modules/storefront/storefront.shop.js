@@ -95,7 +95,14 @@ export function toCustomerOrder(o) {
     createdAt: o.createdAt,
     currency: o.currency,
     subtotal: money(o.subtotal), discountTotal: money(o.discountTotal), taxTotal: money(o.taxTotal), shippingTotal: money(o.shippingTotal), total: money(o.total),
-    items: o.items.map((i) => ({ productName: i.productNameSnapshot, variantName: i.variantNameSnapshot, sku: i.skuSnapshot, unitPrice: money(i.unitPrice), quantity: i.quantity, lineTotal: money(i.lineTotal) })),
+    // Phase 38: the tax invoice as the shopper sees it
+    invoiceNumber: o.invoiceNumber ?? null,
+    supplyType: o.supplyType ?? null,
+    cgstTotal: money(o.cgstTotal), sgstTotal: money(o.sgstTotal), igstTotal: money(o.igstTotal),
+    items: o.items.map((i) => ({
+      productName: i.productNameSnapshot, variantName: i.variantNameSnapshot, sku: i.skuSnapshot, unitPrice: money(i.unitPrice), quantity: i.quantity, lineTotal: money(i.lineTotal),
+      hsnCode: i.hsnCode ?? null, gstRatePercent: Number(i.gstRatePercent ?? 0),
+    })),
     shippingAddress: o.shippingAddress ?? null,
     billingAddress: o.billingAddress ?? null,
     timeline: o.statusHistory.map((h) => ({ status: h.toStatus, at: h.createdAt })),
