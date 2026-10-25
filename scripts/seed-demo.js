@@ -59,16 +59,16 @@ async function ensureTenant() {
 
 const CATALOG = [
   { category: 'Apparel', products: [
-    { name: 'Everyday Hoodie', brand: 'Northwind', price: '59.00', skus: ['HOOD-S', 'HOOD-M', 'HOOD-L'] },
-    { name: 'Merino Crew Tee', brand: 'Northwind', price: '34.00', skus: ['TEE-M', 'TEE-L'] },
+    { name: 'Everyday Hoodie', brand: 'Northwind', price: '2499.00', skus: ['HOOD-S', 'HOOD-M', 'HOOD-L'] },
+    { name: 'Merino Crew Tee', brand: 'Northwind', price: '1299.00', skus: ['TEE-M', 'TEE-L'] },
   ] },
   { category: 'Electronics', products: [
-    { name: 'Wireless Earbuds Pro', brand: 'Sonic', price: '129.00', skus: ['EAR-BLK', 'EAR-WHT'] },
-    { name: 'USB-C Charging Dock', brand: 'Voltix', price: '79.50', skus: ['DOCK-1'] },
+    { name: 'Wireless Earbuds Pro', brand: 'Sonic', price: '4999.00', skus: ['EAR-BLK', 'EAR-WHT'] },
+    { name: 'USB-C Charging Dock', brand: 'Voltix', price: '2799.00', skus: ['DOCK-1'] },
   ] },
   { category: 'Home', products: [
-    { name: 'Ceramic Pour-Over Set', brand: 'Kinto', price: '42.00', skus: ['POUR-WHT'] },
-    { name: 'Linen Throw Blanket', brand: 'Hearth', price: '88.00', skus: ['THROW-SND', 'THROW-SLT'] },
+    { name: 'Ceramic Pour-Over Set', brand: 'Kinto', price: '1599.00', skus: ['POUR-WHT'] },
+    { name: 'Linen Throw Blanket', brand: 'Hearth', price: '3299.00', skus: ['THROW-SND', 'THROW-SLT'] },
   ] },
 ];
 
@@ -99,8 +99,8 @@ async function main() {
   }
 
   const warehouses = [];
-  for (const [name, code, city, isDefault] of [['Main Warehouse', 'MAIN', 'Austin', true], ['East Fulfillment', 'EAST', 'Newark', false]]) {
-    warehouses.push(await call('POST', '/warehouses', { token, body: { name, code, city, country: 'US', isDefault } }));
+  for (const [name, code, city, isDefault] of [['Main Warehouse', 'MAIN', 'Bengaluru', true], ['West Fulfillment', 'WEST', 'Mumbai', false]]) {
+    warehouses.push(await call('POST', '/warehouses', { token, body: { name, code, city, country: 'IN', isDefault } }));
   }
 
   const variants = [];
@@ -135,7 +135,7 @@ async function main() {
     const items = [variants[i % variants.length], variants[(i * 3 + 1) % variants.length]]
       .filter((v, idx, all) => all.findIndex((x) => x.id === v.id) === idx)
       .map((v, idx) => ({ productVariantId: v.id, warehouseId: warehouses[0].id, quantity: 1 + ((i + idx) % 3) }));
-    const order = await call('POST', '/orders', { token, body: { customerId: customers[i % customers.length].id, items, shippingTotal: '7.50' } });
+    const order = await call('POST', '/orders', { token, body: { customerId: customers[i % customers.length].id, items, shippingTotal: '99.00' } });
 
     const path = PATHS[i % PATHS.length];
     if (path === 'CANCEL') {
