@@ -16,6 +16,7 @@ import { ordersPaymentsPaths } from './paths/orders-payments.js';
 import { auditNotificationsPaths } from './paths/audit-notifications.js';
 import { jobsPaths } from './paths/jobs.js';
 import { analyticsStoragePaths } from './paths/analytics-storage.js';
+import { posPaths } from './paths/pos.js';
 
 export const openApiSpec = {
   openapi: '3.0.3',
@@ -37,6 +38,8 @@ export const openApiSpec = {
     { name: 'Platform', description: 'Platform administration - tenant lifecycle, requires scope=platform and platform:tenant:* permissions' },
     { name: 'Auth', description: 'Authentication, registration, tokens, password flows. Dual-scope login: platform vs tenant.' },
     { name: 'Workspace', description: "The caller's own tenant: profile, settings, domains" },
+    { name: 'POS', description: 'Selling at the shop counter: lookup, counter sale with split payments, held sales, UPI QR' },
+    { name: 'Cash register', description: 'Counters and shifts: opening float, cash in/out, closing with variance' },
     { name: 'Roles', description: 'Tenant role management' },
     { name: 'Permissions', description: 'Tenant permissions' },
     { name: 'Users', description: 'Tenant user management' },
@@ -129,6 +132,7 @@ export const openApiSpec = {
     ...storefrontPaths,
     ...platformOpsPaths,
     ...analyticsStoragePaths,
+    ...posPaths,
   },
   security: [],
 };

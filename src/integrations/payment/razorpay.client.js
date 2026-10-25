@@ -69,6 +69,24 @@ export function createOrder(credentials, { amountMinor, currency, receipt, notes
   return call(credentials, 'POST', '/orders', { amount: amountMinor, currency, receipt: String(receipt).slice(0, 40), notes, payment_capture: 1 });
 }
 
+// Phase 39: a single-use UPI QR for an exact amount, shown at the shop counter.
+// Docs: https://razorpay.com/docs/api/qr-codes/
+export function createUpiQr(credentials, { amountMinor, name, description, closeBy, notes }) {
+  return call(credentials, 'POST', '/payments/qr_codes', {
+    type: 'upi_qr', usage: 'single_use', fixed_amount: true, payment_amount: amountMinor,
+    name: String(name ?? '').slice(0, 30) || undefined, description: description?.slice(0, 100), close_by: closeBy, notes,
+  });
+}
+
+/** Payments received on a QR code (newest first). */
+export function qrPayments(credentials, qrId) {
+  return call(credentials, 'GET', `/payments/qr_codes/${encodeURIComponent(qrId)}/payments`);
+}
+
+export function closeQr(credentials, qrId) {
+  return call(credentials, 'POST', `/payments/qr_codes/${encodeURIComponent(qrId)}/close`);
+}
+
 export function refundPayment(credentials, razorpayPaymentId, { amountMinor, notes }) {
   return call(credentials, 'POST', `/payments/${encodeURIComponent(razorpayPaymentId)}/refund`, { amount: amountMinor, notes, speed: 'normal' });
 }

@@ -80,6 +80,7 @@ refresh tokens · argon2id · Zod · Pino · Jest/Supertest · OpenAPI at `/api-
 | Docker / CI | ✅ | deploy job is a placeholder (Phase 35) |
 | Storefront: public catalog, shopper accounts, cart, checkout, order tracking | ✅ | Phase 32 — `/api/v1/storefront/{slug}` |
 | Custom domains with DNS verification | ✅ | Phase 32 — only verified domains resolve |
+| Counter POS & cash register | ✅ | Phase 39 — `/pos/*` (barcode/SKU lookup, walk-in customer, one-step counter sale with split cash/UPI/card/bank/cheque payments, held sales, Razorpay UPI QR verified server-side), `/cash-registers/*` (float, cash in/out, close with variance); `Idempotency-Key` on counter sales, new orders and shop checkout |
 | GST tax invoices | ✅ | Phase 38 — tax profile (`/workspace/tax-profile`), per-product HSN/rate/taxability, business customers with validated GSTIN, CGST+SGST vs IGST by place of supply, tax-inclusive prices, composition = no GST, invoice numbers per financial year |
 
 ---
@@ -125,7 +126,7 @@ staff user with no role, and a second tenant trying to reach the first tenant's 
 | cleanup (11) | 11 | 0 | |
 | **Total 379** | **379** | **0** | |
 
-History: 395/395 after Phase 38 (new: tax profile, invalid GSTIN, staff can't edit tax profile, in-state CGST+SGST with invoice number, business customer from GSTIN, company name required, inter-state IGST); 388/388 after Phase 37 (new: GST order, GST rate validation, unscoped platform-login checks; storefront checkout total now includes GST); 374/374 after Phase 36a; 363/363 after Phase 35 part 1; 352/352 after Phase 34; 351/351 after Phase 33; 333/333 after Phase 32; 308/308 after Phase 31; 290/290 after Phase 30; 266/266 after Phase 29; 243/244 after Phase 28; 227/229 after Phase 27; 214/219 after Phase 26; 201/213 before it. 201/213 before Phase 26 (4 legacy-tenant, 2 jobs, 1 isolation failures). Before the first round of
+History: 407/407 after Phase 39 (new `pos` group: context, permissions, lookup, register closed, open/second open, cash sale with change, Idempotency-Key replay, payment mismatch, cash in, close with variance, cross-tenant close); 395/395 after Phase 38 (new: tax profile, invalid GSTIN, staff can't edit tax profile, in-state CGST+SGST with invoice number, business customer from GSTIN, company name required, inter-state IGST); 388/388 after Phase 37 (new: GST order, GST rate validation, unscoped platform-login checks; storefront checkout total now includes GST); 374/374 after Phase 36a; 363/363 after Phase 35 part 1; 352/352 after Phase 34; 351/351 after Phase 33; 333/333 after Phase 32; 308/308 after Phase 31; 290/290 after Phase 30; 266/266 after Phase 29; 243/244 after Phase 28; 227/229 after Phase 27; 214/219 after Phase 26; 201/213 before it. 201/213 before Phase 26 (4 legacy-tenant, 2 jobs, 1 isolation failures). Before the first round of
 fixes in §4 the same audit stopped early (tenant admins could not create attributes) and
 image downloads failed.
 
@@ -135,6 +136,7 @@ image downloads failed.
 |---|---|
 | Before fixes | 988 / 990 — Swagger inventory test out of date; one BullMQ cleanup test timed out while a second API instance was consuming the same queue |
 | After first fixes | **993 / 993** (30 suites) — includes 3 new permission-catalog tests |
+| After Phase 39 | 15 new tests in `phase39-pos-cash-register.test.js` (lookup by barcode, permissions, walk-in context, register closed/open, cash sale with change + stock + drawer, split tender, payment mismatch rolls back, cash short, Idempotency-Key replay/reuse/retry-after-failure, Razorpay UPI QR verify + reuse refused, cash in/out, close with variance, held sales) |
 | After Phase 38 | 14 new tests in `phase38-gst-invoices.test.js` (GSTIN/PAN/state/financial-year helpers, tax split and inclusive extraction, tax profile validation and derivation, business customers, CGST+SGST / IGST invoices, invoice numbering, inclusive prices, composition). Two Phase 37 tests cover clearing variant barcode/cost and top-level categories |
 | After Phase 37 | 10 new tests in `phase37-inr-gst.test.js` (GST arithmetic, INR defaults, GST on staff and storefront orders, explicit-tax override, rate validation, unscoped login). Suite runs with `DEFAULT_GST_RATE_PERCENT=0` (set in `tests/jest.test-database.js`) so earlier fixtures keep tax-free totals; one Phase 10 assertion moved from USD to INR |
 | After Phase 36b | **1211 / 1211** (43 suites) — 12 new tests (RS256/rotation/alg confusion, cookie mode for staff and shoppers, CORS) |
@@ -238,7 +240,9 @@ DONE   37     Rupees by default (INR); 18% GST on order lines (per-workspace gst
               DEFAULT_GST_RATE_PERCENT); unscoped login no longer reveals platform accounts without the password
 DONE   38     GST tax invoices: tax profile, HSN + rate per product, B2B customers (GSTIN/PAN/state),
               CGST+SGST / IGST, tax-inclusive prices, invoice numbers per financial year, buyer/seller snapshots
-NEXT   39–44  Counter POS + cash register → quotes/recurring/returns/credit → purchases & costs
+DONE   39     Counter POS + cash register: lookup, walk-in, split payments, held sales, Razorpay UPI QR,
+              shifts with float / cash in-out / variance; Idempotency-Key on sales, orders and checkout
+NEXT   40–44  Quotes/recurring/returns/credit → purchases & costs
               → owner/accountant reports → batch/expiry, serial/IMEI, labels → self sign-up + Razorpay plans
 ```
 

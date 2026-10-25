@@ -33,6 +33,9 @@ export const SYSTEM_PERMISSIONS = [
   ...perms('jobs', ['read', 'manage']),
   ...perms('report', ['create', 'read']),
   ...perms('notification_template', CRUD),
+  // Phase 39: counter sales and the cash drawer
+  ...perms('pos', ['sell']),
+  ...perms('cash_register', ['read', 'manage']),
 ];
 
 // Global platform permissions (no tenantId), granted to platform roles only.

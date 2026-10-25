@@ -1,3 +1,4 @@
+import { idempotent } from '../../common/middleware/idempotency.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { createOrder, listOrders, getOrder, updateOrderStatus, cancelOrder, getOrderHistory } from './orders.controller.js';
@@ -19,7 +20,8 @@ function validate(schema) {
 export const ordersRouter = Router();
 ordersRouter.use(authenticate());
 
-ordersRouter.post('/', validate(createOrderSchema), authorize('order:create'), createOrder);
+// Phase 39: Idempotency-Key makes a double-clicked "Place order" create one order
+ordersRouter.post('/', validate(createOrderSchema), authorize('order:create'), idempotent(), createOrder);
 ordersRouter.get('/', validate(listOrdersQuerySchema), authorize('order:read'), listOrders);
 ordersRouter.get('/:id', validate(getOrderSchema), authorize('order:read'), getOrder);
 ordersRouter.patch('/:id/status', validate(updateOrderStatusSchema), authorize('order:update'), updateOrderStatus);

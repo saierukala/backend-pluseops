@@ -1,3 +1,4 @@
+import { idempotent } from '../../common/middleware/idempotency.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import { env } from '../../config/env.js';
@@ -61,4 +62,4 @@ store.get('/cart', signedIn, c.getCart);
 store.put('/cart/items/:variantId', signedIn, validate(v.setCartItemSchema), c.setCartItem);
 store.delete('/cart/items/:variantId', signedIn, validate(v.cartItemParamsSchema), c.removeCartItem);
 store.delete('/cart', signedIn, c.clearCart);
-store.post('/checkout', signedIn, validate(v.checkoutSchema), c.checkout);
+store.post('/checkout', signedIn, validate(v.checkoutSchema), idempotent((req) => req.store?.id), c.checkout);

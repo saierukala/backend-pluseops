@@ -1,6 +1,7 @@
 import { logger } from '../../config/logger.js';
 import { QUEUE_NAMES, JOB_NAMES } from '../jobs.config.js';
 import { getPrismaClient } from '../../config/database.js';
+import { IDEMPOTENCY_RETENTION_HOURS } from '../../common/middleware/idempotency.js';
 
 /**
  * Cleanup expired tokens.
@@ -59,8 +60,17 @@ export async function processCleanupExpiredTokens(payload, opts = {}) {
       },
     });
 
+    // Phase 39: stored Idempotency-Key responses are only needed for retries, which happen within minutes
+    const oldIdempotencyKeys = await prisma.idempotencyKey.deleteMany({
+      where: {
+        createdAt: { lt: new Date(Date.now() - IDEMPOTENCY_RETENTION_HOURS * 60 * 60 * 1000) },
+        ...(tenantId ? { scopeId: tenantId } : {}),
+      },
+    });
+
     const result = {
       refreshTokensDeleted: expiredRefresh.count,
+      idempotencyKeysDeleted: oldIdempotencyKeys.count,
       passwordResetTokensDeleted: expiredPassword.count,
       emailVerificationTokensDeleted: expiredEmail.count,
       oldUsedPasswordDeleted: oldUsedPassword.count,

@@ -555,6 +555,7 @@ export const schemas = {
       igstTotal: { type: 'string', example: '0.00' },
       buyerSnapshot: { type: 'object', nullable: true, description: 'Buyer as printed on the invoice (name, GSTIN, PAN, state…)' },
       sellerSnapshot: { type: 'object', nullable: true, description: 'Seller as printed on the invoice (legal name, GSTIN, address, bank…)' },
+      channel: { type: 'string', enum: ['STAFF', 'STOREFRONT', 'POS'], description: 'Where the order came from' },
       createdAt: { type: 'string', format: 'date-time' },
       updatedAt: { type: 'string', format: 'date-time' },
     },
@@ -575,6 +576,26 @@ export const schemas = {
       cgst: { type: 'string' },
       sgst: { type: 'string' },
       igst: { type: 'string' },
+    },
+  },
+  PosItem: {
+    type: 'object',
+    properties: {
+      variantId: { type: 'string', format: 'uuid' }, productId: { type: 'string', format: 'uuid' }, name: { type: 'string' }, brand: { type: 'string', nullable: true },
+      sku: { type: 'string' }, barcode: { type: 'string', nullable: true }, price: { type: 'string' }, mrp: { type: 'string', nullable: true }, unit: { type: 'string', nullable: true },
+      hsnCode: { type: 'string', nullable: true }, gstRatePercent: { type: 'number', description: 'Effective rate (0 for exempt goods)' }, stock: { type: 'integer' },
+      exactMatch: { type: 'boolean', description: 'Barcode or SKU matched exactly (scanner input)' },
+    },
+  },
+  CashSession: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' }, registerId: { type: 'string', format: 'uuid' }, registerName: { type: 'string' }, status: { type: 'string', enum: ['OPEN', 'CLOSED'] },
+      openingFloat: { type: 'string' }, expectedCash: { type: 'string', nullable: true }, countedCash: { type: 'string', nullable: true },
+      variance: { type: 'string', nullable: true, description: 'counted − expected; negative = short' },
+      openedBy: { type: 'string', nullable: true }, openedAt: { type: 'string', format: 'date-time' }, closedBy: { type: 'string', nullable: true }, closedAt: { type: 'string', format: 'date-time', nullable: true },
+      totals: { type: 'object', properties: { openingFloat: { type: 'string' }, cashSales: { type: 'string' }, cashRefunds: { type: 'string' }, cashIn: { type: 'string' }, cashOut: { type: 'string' }, expectedCash: { type: 'string' } } },
+      movements: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, type: { type: 'string', enum: ['SALE', 'REFUND', 'CASH_IN', 'CASH_OUT'] }, amount: { type: 'string' }, reason: { type: 'string', nullable: true }, orderId: { type: 'string', nullable: true }, createdAt: { type: 'string', format: 'date-time' } } } },
     },
   },
   TaxProfile: {

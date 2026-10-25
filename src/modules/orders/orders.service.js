@@ -76,7 +76,11 @@ export class OrderService {
     this.customerService = new CustomerService();
   }
 
-  async create(tenantId, userId, body, auditContext = {}) {
+  /**
+   * `options.inTx(tx, order)` runs inside the same transaction once the order and its lines exist (Phase 39: the
+   * counter sale records its payments there, so the sale and its money land together or not at all).
+   */
+  async create(tenantId, userId, body, auditContext = {}, options = {}) {
     const customerId = body.customerId;
     const itemsInput = body.items;
     const shippingTotalStr = body.shippingTotal || '0';
@@ -255,6 +259,7 @@ export class OrderService {
                 igstTotal: money(gstTotals.igst),
                 buyerSnapshot,
                 sellerSnapshot,
+                channel: body.channel ?? 'STAFF',
               },
             });
 
@@ -348,6 +353,8 @@ export class OrderService {
               metadata: { orderId: order.id, total: totalStr, itemCount: itemCalculations.length },
               ipAddress, userAgent, tx,
             });
+
+            if (options.inTx) await options.inTx(tx, order);
 
             // Return full order with items and history
             const full = await tx.order.findFirst({

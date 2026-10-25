@@ -26,6 +26,7 @@ import { reportsRouter, reportSchedulesRouter } from '../modules/reports/reports
 import { notificationTemplatesRouter } from '../modules/notification-templates/notification-templates.routes.js';
 import { storefrontRouter } from '../modules/storefront/storefront.routes.js';
 import { platformRouter } from '../modules/platform/platform.routes.js';
+import { posRouter, cashRegistersRouter } from '../modules/pos/pos.routes.js';
 
 export const apiRouter = Router();
 apiRouter.use('/health', healthRouter);
@@ -44,6 +45,8 @@ apiRouter.use('/warehouses', warehousesRouter);
 apiRouter.use('/inventory', inventoryRouter);
 apiRouter.use('/customers', customersRouter);
 apiRouter.use('/orders', ordersRouter);
+apiRouter.use('/pos', posRouter);
+apiRouter.use('/cash-registers', cashRegistersRouter);
 apiRouter.use('/payments', paymentsRouter);
 apiRouter.use('/audit-logs', auditRouter);
 apiRouter.use('/activity-logs', activityRouter);

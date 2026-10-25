@@ -72,7 +72,8 @@ export function createApp() {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'PUT', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Webhook-Signature', 'X-Payment-Signature', 'X-Refresh-Token-Transport'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-Webhook-Signature', 'X-Payment-Signature', 'X-Refresh-Token-Transport', 'Idempotency-Key'],
+    exposedHeaders: ['Idempotent-Replayed'],
     maxAge: 600,
   }));
   app.use(compression({ threshold: 512, level: 6 }));

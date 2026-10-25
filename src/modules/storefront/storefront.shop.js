@@ -186,7 +186,7 @@ export async function checkout(store, customerId, { shippingAddressId, billingAd
   }
 
   const created = await orderService.create(store.id, null, {
-    customerId, items: lines, shippingAddressId, billingAddressId, currency: store.currency, metadata: { source: 'storefront' },
+    customerId, items: lines, shippingAddressId, billingAddressId, currency: store.currency, metadata: { source: 'storefront' }, channel: 'STOREFRONT',
   }, client);
   await prisma.cartItem.deleteMany({ where: { tenantId: store.id, customerId } });
 

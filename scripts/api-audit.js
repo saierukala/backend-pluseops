@@ -660,6 +660,36 @@ async function main() {
   await check('B product list excludes A', 'GET', `/products?search=${RUN}`, 200, { token: B, assert: (r) => data(r).length === 0 });
   await check('B cannot assign A role', 'POST', `/users/${data(bLogin).user.id}/roles`, [400, 404], { token: B, body: { roleIds: [roleId] } });
 
+  // ── Counter POS & cash register (Phase 39) ──────────────────────────
+  group = 'pos';
+  const posCtx = await check('POS context', 'GET', '/pos/context', 200, { token: A, assert: (r) => Boolean(data(r)?.walkInCustomerId) && data(r)?.registers?.length >= 1 });
+  const registerId = data(posCtx)?.registers?.[0]?.id;
+  await check('staff (no perms) cannot use POS', 'GET', '/pos/context', 403, { token: S });
+  await check('POS lookup by SKU', 'GET', `/pos/lookup?q=${encodeURIComponent(data(vr)?.sku ?? '')}&warehouseId=${W1}`, 200, { token: A, assert: (r) => data(r)?.[0]?.variantId === variantId && data(r)?.[0]?.exactMatch === true });
+  const posQuote = await call('POST', '/orders', { token: A, body: { customerId: customer.id, items: [{ productVariantId: variantId, warehouseId: W1, quantity: 1 }] } });
+  const posTotal = Number(data(posQuote)?.total ?? 0).toFixed(2);
+  const posSale = { warehouseId: W1, items: [{ variantId, quantity: 1 }], payments: [{ method: 'CASH', amount: posTotal, tendered: (Number(posTotal) + 50).toFixed(2) }] };
+  await check('cash refused while register closed', 'POST', '/pos/sales', 409, { token: A, body: posSale, assert: (r) => r.json?.error?.code === 'REGISTER_CLOSED' });
+  const shift = await check('open register with float', 'POST', `/cash-registers/${registerId}/open`, 201, { token: A, body: { openingFloat: '500' } });
+  await check('second open refused', 'POST', `/cash-registers/${registerId}/open`, 409, { token: A, body: { openingFloat: '1' } });
+  const saleKey = `audit-sale-${RUN}`;
+  const sold = await check('walk-in cash sale (delivered, change)', 'POST', '/pos/sales', 201, {
+    token: A, body: posSale, headers: { 'Idempotency-Key': saleKey },
+    assert: (r) => data(r)?.order?.channel === 'POS' && data(r)?.order?.status === 'DELIVERED' && data(r)?.change === '50.00',
+  });
+  await check('double-clicked sale replays (same order)', 'POST', '/pos/sales', 201, {
+    token: A, body: posSale, headers: { 'Idempotency-Key': saleKey },
+    assert: (r) => r.headers.get('idempotent-replayed') === 'true' && data(r)?.order?.id === data(sold)?.order?.id,
+  });
+  await check('payments must match the bill', 'POST', '/pos/sales', 400, { token: A, body: { ...posSale, payments: [{ method: 'CARD', amount: '1.00' }] }, assert: (r) => r.json?.error?.code === 'PAYMENT_TOTAL_MISMATCH' });
+  await check('cash in', 'POST', `/cash-registers/sessions/${data(shift)?.id}/movements`, 201, { token: A, body: { type: 'CASH_IN', amount: '100', reason: 'Change top-up' } });
+  const expectedCash = (500 + Number(posTotal) + 100).toFixed(2);
+  await check('close shift with variance', 'POST', `/cash-registers/sessions/${data(shift)?.id}/close`, 200, {
+    token: A, body: { countedCash: (Number(expectedCash) - 5).toFixed(2) },
+    assert: (r) => Number(data(r)?.expectedCash).toFixed(2) === expectedCash && Number(data(r)?.variance) === -5,
+  });
+  await check('B cannot close A shift', 'POST', `/cash-registers/sessions/${data(shift)?.id}/close`, 404, { token: B, body: { countedCash: '0' } });
+
   // ── Realtime ─────────────────────────────────────────────────────────
   group = 'realtime';
   await socketCheck('socket connects with tenant token', A, true);
