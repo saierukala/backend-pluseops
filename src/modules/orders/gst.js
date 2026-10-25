@@ -1,4 +1,5 @@
 import { env } from '../../config/env.js';
+import { AppError } from '../../common/errors/app-error.js';
 import { toStateCode } from '../gst/india.js';
 
 /**
@@ -87,3 +88,55 @@ export function invoicePrefix(taxProfile, slug) {
 }
 
 export const formatInvoiceNumber = (prefix, fy, n) => `${prefix}/${fy}/${String(n).padStart(4, '0')}`;
+
+const toCents = (value) => Math.round(parseFloat(value) * 100);
+const money = (c) => (c / 100).toFixed(2);
+
+/**
+ * Prices order/quote lines from the catalog (Phase 40: shared by orders and quotes so they always agree).
+ * `items`: { productVariantId, warehouseId?, quantity, discount, tax? }; `variantMap`: id → variant with product.
+ * Returns each line (unit price, discount, tax, total, GST split) and the totals, all in paise.
+ */
+export function priceItems(items, variantMap, { chargesGst, gstRatePercent, inclusive, intraState }) {
+  let subtotalCents = 0;
+  let discountTotalCents = 0;
+  let taxTotalCents = 0;
+  const gstTotals = { cgst: 0, sgst: 0, igst: 0 };
+  const lines = [];
+  for (const item of items) {
+    const variant = variantMap.get(item.productVariantId);
+    const unitPriceStr = variant.price.toString();
+    const unitCents = toCents(unitPriceStr);
+    const qty = item.quantity;
+    if (qty <= 0) throw new AppError('Quantity must be positive', { statusCode: 400, code: 'INVALID_QUANTITY' });
+    const discountCents = toCents(item.discount ?? '0');
+    if (discountCents < 0) throw new AppError('Discount/tax cannot be negative', { statusCode: 400, code: 'INVALID_MONEY' });
+    const explicitTaxCents = item.tax !== undefined ? toCents(item.tax) : undefined;
+    if (explicitTaxCents < 0) throw new AppError('Discount/tax cannot be negative', { statusCode: 400, code: 'INVALID_MONEY' });
+    const grossCents = unitCents * qty - discountCents;
+    if (grossCents < 0) throw new AppError('Line total cannot be negative', { statusCode: 400, code: 'INVALID_LINE_TOTAL' });
+    const rate = chargesGst ? lineRate(variant.product, gstRatePercent) : 0;
+    // With tax-inclusive prices the GST comes out of the price instead of being added on top
+    const { taxableCents, taxCents } = lineTax(grossCents, rate, { inclusive, explicitTaxCents });
+    const split = splitTax(taxCents, intraState);
+    const lineTotalCents = taxableCents + taxCents;
+    subtotalCents += taxableCents + discountCents;
+    discountTotalCents += discountCents;
+    taxTotalCents += taxCents;
+    gstTotals.cgst += split.cgst;
+    gstTotals.sgst += split.sgst;
+    gstTotals.igst += split.igst;
+    lines.push({
+      productVariantId: item.productVariantId,
+      warehouseId: item.warehouseId,
+      quantity: qty,
+      unitPriceStr,
+      discountStr: money(discountCents),
+      taxStr: money(taxCents),
+      lineTotalStr: money(lineTotalCents),
+      gst: { rate, taxable: money(taxableCents), cgst: money(split.cgst), sgst: money(split.sgst), igst: money(split.igst) },
+      variant,
+    });
+  }
+  return { lines, subtotalCents, discountTotalCents, taxTotalCents, gstTotals };
+}

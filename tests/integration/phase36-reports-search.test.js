@@ -186,7 +186,7 @@ describe('Phase 36 — report retention', () => {
     for (const name of [QUEUE_NAMES.CLEANUP, QUEUE_NAMES.REPORT]) {
       const queue = new Queue(name, { connection, prefix: QUEUE_PREFIX });
       const ids = (await queue.getJobSchedulers()).map((s) => s.key ?? s.id);
-      for (const s of SCHEDULES.filter((x) => (name === QUEUE_NAMES.REPORT) === x.id.startsWith('run-report'))) expect(ids).toContain(s.id);
+      for (const s of SCHEDULES.filter((x) => x.queue()?.name === name)) expect(ids).toContain(s.id);
       // Don't leave them firing in the test Redis
       for (const s of SCHEDULES) await queue.removeJobScheduler(s.id);
       await queue.close();

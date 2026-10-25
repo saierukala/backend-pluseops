@@ -51,7 +51,7 @@ export const posPaths = {
           items: { type: 'array', minItems: 1, items: { type: 'object', required: ['variantId', 'quantity'], properties: { variantId: uuid, quantity: { type: 'integer', minimum: 1 }, discount: money } } },
           payments: {
             type: 'array', minItems: 1, maxItems: 5,
-            items: { type: 'object', required: ['method', 'amount'], properties: { method: { type: 'string', enum: ['CASH', 'UPI', 'CARD', 'BANK', 'CHEQUE'] }, amount: money, tendered: money, reference: { type: 'string' }, razorpayQrId: { type: 'string', pattern: '^qr_' } } },
+            items: { type: 'object', required: ['method', 'amount'], properties: { method: { type: 'string', enum: ['CASH', 'UPI', 'CARD', 'BANK', 'CHEQUE', 'CREDIT'], description: 'CREDIT = pay later (named customer only; stays owing)' }, amount: money, tendered: money, reference: { type: 'string' }, razorpayQrId: { type: 'string', pattern: '^qr_' } } },
           },
         },
       }),

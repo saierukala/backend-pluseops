@@ -19,6 +19,14 @@ export async function processGenerateReport(payload, opts = {}) {
 }
 
 /** Phase 36: hourly — requests the reports whose schedule period has just ended (all tenants, server-triggered). */
+/** Phase 40: raise the recurring invoices that are due. */
+export async function processRunRecurringInvoices(payload, opts = {}) {
+  const { recurringInvoicesService } = await import('../../modules/recurring/recurring-invoices.service.js');
+  const result = await recurringInvoicesService.runDue(new Date());
+  logger.info({ queue: QUEUE_NAMES.REPORT, jobId: opts.jobId || 'unknown', checked: result.checked, raised: result.raised }, 'Recurring invoices checked');
+  return result;
+}
+
 export async function processRunReportSchedules(payload, opts = {}) {
   const { reportScheduleService } = await import('../../modules/reports/report-schedules.service.js');
   const result = await reportScheduleService.runDue(new Date());

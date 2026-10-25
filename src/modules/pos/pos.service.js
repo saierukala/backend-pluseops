@@ -14,7 +14,8 @@ import { cashRegisterService } from './cash-register.service.js';
  * its stock movements, its payments (cash, UPI, card, bank transfer, cheque — or several) and the cash drawer
  * entry are written in one transaction, then the order is marked delivered.
  */
-export const PAYMENT_METHODS = ['CASH', 'UPI', 'CARD', 'BANK', 'CHEQUE'];
+// CREDIT (Phase 40) = pay later: no payment is recorded, the amount stays owing on the customer's account
+export const PAYMENT_METHODS = ['CASH', 'UPI', 'CARD', 'BANK', 'CHEQUE', 'CREDIT'];
 const WALK_IN = { firstName: 'Walk-in', lastName: 'Customer' };
 const QR_MINUTES = 15;
 
@@ -129,7 +130,11 @@ export class PosService {
 
   /** Sell at the counter. Everything (order, stock, payments, cash drawer, delivered status) commits together. */
   async sale(tenantId, userId, body, auditContext = {}) {
-    const customerId = body.customerId ?? (await this.walkInCustomer(tenantId)).id;
+    const walkIn = await this.walkInCustomer(tenantId);
+    const customerId = body.customerId ?? walkIn.id;
+    if (customerId === walkIn.id && body.payments.some((p) => p.method === 'CREDIT')) {
+      throw new AppError('Pay later needs a named customer, not a walk-in', { statusCode: 400, code: 'CREDIT_NEEDS_CUSTOMER' });
+    }
     const warehouseId = body.warehouseId ?? (await this.defaultWarehouse(tenantId))?.id;
     if (!warehouseId) throw new AppError('Add a warehouse before selling', { statusCode: 409, code: 'NO_WAREHOUSE' });
 
@@ -164,7 +169,7 @@ export class PosService {
             statusCode: 400, code: 'PAYMENT_TOTAL_MISMATCH', details: { total: money(totalCents), paid: money(paidCents) },
           });
         }
-        for (const p of payments) {
+        for (const p of payments.filter((t) => t.method !== 'CREDIT')) {
           const razorpayPaid = p.method === 'UPI' && p.razorpayPaymentId;
           const tendered = p.method === 'CASH' && p.tendered ? cents(p.tendered) : null;
           if (tendered !== null && tendered < p.amountCents) throw new AppError('Cash given is less than the cash amount', { statusCode: 400, code: 'CASH_SHORT' });
@@ -189,7 +194,9 @@ export class PosService {
           if (p.method === 'CASH') await cashRegisterService.recordSale(tx, { tenantId, sessionId: session.id, amount: payment.amount, orderId: o.id, paymentId: payment.id, userId });
           created.push(payment);
         }
-        // Paid and handed over at the counter
+        const creditCents = payments.filter((t) => t.method === 'CREDIT').reduce((n, t) => n + t.amountCents, 0);
+        if (creditCents) await tx.order.update({ where: { id: o.id }, data: { metadata: { ...(o.metadata ?? {}), payLater: money(creditCents) } } });
+        // Handed over at the counter (paid, or owing on the customer's account)
         await tx.order.update({ where: { id: o.id }, data: { status: 'DELIVERED' } });
         await tx.orderStatusHistory.create({ data: { tenantId, orderId: o.id, fromStatus: 'PENDING', toStatus: 'DELIVERED', reason: 'Counter sale', createdBy: userId } });
       },

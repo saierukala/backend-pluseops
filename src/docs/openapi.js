@@ -17,6 +17,7 @@ import { auditNotificationsPaths } from './paths/audit-notifications.js';
 import { jobsPaths } from './paths/jobs.js';
 import { analyticsStoragePaths } from './paths/analytics-storage.js';
 import { posPaths } from './paths/pos.js';
+import { salesDocumentsPaths } from './paths/sales-documents.js';
 
 export const openApiSpec = {
   openapi: '3.0.3',
@@ -40,6 +41,10 @@ export const openApiSpec = {
     { name: 'Workspace', description: "The caller's own tenant: profile, settings, domains" },
     { name: 'POS', description: 'Selling at the shop counter: lookup, counter sale with split payments, held sales, UPI QR' },
     { name: 'Cash register', description: 'Counters and shifts: opening float, cash in/out, closing with variance' },
+    { name: 'Quotes', description: 'Estimates priced like invoices; convert to an order in one step' },
+    { name: 'Returns', description: 'Sales returns: credit notes that reverse GST, restock and refund' },
+    { name: 'Customer balances', description: 'What customers owe: balance, statement, receivables with ageing, payments against the account, payment links' },
+    { name: 'Recurring invoices', description: 'Bill the same items weekly, monthly, quarterly or yearly' },
     { name: 'Roles', description: 'Tenant role management' },
     { name: 'Permissions', description: 'Tenant permissions' },
     { name: 'Users', description: 'Tenant user management' },
@@ -133,6 +138,7 @@ export const openApiSpec = {
     ...platformOpsPaths,
     ...analyticsStoragePaths,
     ...posPaths,
+    ...salesDocumentsPaths,
   },
   security: [],
 };

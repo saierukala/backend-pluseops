@@ -5,11 +5,10 @@ import { assertWithinPlan } from '../plans/plans.service.js';
 import { auditService } from '../audit/audit.service.js';
 import { CustomerService, toAddressSnapshot } from '../customers/customers.service.js';
 import { emitOrderCreated, emitOrderUpdated } from '../../realtime/realtime.service.js';
-import { formatInvoiceNumber, invoicePrefix, isIntraState, lineRate, lineTax, placeOfSupply, resolveOrderDefaults, splitTax } from './gst.js';
+import { formatInvoiceNumber, invoicePrefix, isIntraState, placeOfSupply, priceItems, resolveOrderDefaults } from './gst.js';
 import { financialYear, stateName } from '../gst/india.js';
 
 const NO_GST_REGISTRATIONS = ['COMPOSITION', 'UNREGISTERED'];
-const cents = (value) => Math.round(parseFloat(value) * 100);
 const money = (c) => (c / 100).toFixed(2);
 
 const ORDER_STATUS_TRANSITIONS = {
@@ -144,50 +143,11 @@ export class OrderService {
       if (!warehouseMap.has(item.warehouseId)) throw new AppError(`Warehouse ${item.warehouseId} not found`, { statusCode: 404, code: 'WAREHOUSE_NOT_FOUND' });
     }
 
-    // Validate quantities and compute totals server-side using variant.price authoritative
-    // Use integer cents to avoid float errors, but keep Decimal string handling
-    let subtotalCents = 0;
-    let discountTotalCents = 0;
-    let taxTotalCents = 0;
-    const gstTotals = { cgst: 0, sgst: 0, igst: 0 };
+    // Totals computed server-side from the catalog price (shared with quotes, Phase 40)
     const shippingCents = Math.round(parseFloat(shippingTotalStr) * 100);
-
-    const itemCalculations = [];
-    for (const item of normalizedItems) {
-      const variant = variantMap.get(item.productVariantId);
-      const unitPriceStr = variant.price.toString();
-      const unitCents = Math.round(parseFloat(unitPriceStr) * 100);
-      const qty = item.quantity;
-      if (qty <= 0) throw new AppError('Quantity must be positive', { statusCode: 400, code: 'INVALID_QUANTITY' });
-      const discountCents = Math.round(parseFloat(item.discount) * 100);
-      if (discountCents < 0) throw new AppError('Discount/tax cannot be negative', { statusCode: 400, code: 'INVALID_MONEY' });
-      const explicitTaxCents = item.tax !== undefined ? cents(item.tax) : undefined;
-      if (explicitTaxCents < 0) throw new AppError('Discount/tax cannot be negative', { statusCode: 400, code: 'INVALID_MONEY' });
-      const grossCents = unitCents * qty - discountCents;
-      if (grossCents < 0) throw new AppError('Line total cannot be negative', { statusCode: 400, code: 'INVALID_LINE_TOTAL' });
-      const rate = chargesGst ? lineRate(variant.product, gstRatePercent) : 0;
-      // With tax-inclusive prices the GST comes out of the price instead of being added on top
-      const { taxableCents, taxCents } = lineTax(grossCents, rate, { inclusive, explicitTaxCents });
-      const split = splitTax(taxCents, intraState);
-      const lineTotalCents = taxableCents + taxCents;
-      subtotalCents += taxableCents + discountCents;
-      discountTotalCents += discountCents;
-      taxTotalCents += taxCents;
-      gstTotals.cgst += split.cgst;
-      gstTotals.sgst += split.sgst;
-      gstTotals.igst += split.igst;
-      itemCalculations.push({
-        productVariantId: item.productVariantId,
-        warehouseId: item.warehouseId,
-        quantity: qty,
-        unitPriceStr,
-        discountStr: (discountCents / 100).toFixed(2),
-        taxStr: (taxCents / 100).toFixed(2),
-        lineTotalStr: (lineTotalCents / 100).toFixed(2),
-        gst: { rate, taxable: money(taxableCents), cgst: money(split.cgst), sgst: money(split.sgst), igst: money(split.igst) },
-        variant,
-      });
-    }
+    const priced = priceItems(normalizedItems, variantMap, { chargesGst, gstRatePercent, inclusive, intraState });
+    const { subtotalCents, discountTotalCents, taxTotalCents, gstTotals } = priced;
+    const itemCalculations = priced.lines;
     const totalCents = subtotalCents - discountTotalCents + taxTotalCents + shippingCents;
     const subtotalStr = (subtotalCents / 100).toFixed(2);
     const discountTotalStr = (discountTotalCents / 100).toFixed(2);

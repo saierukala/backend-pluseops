@@ -211,6 +211,10 @@ model Tenant {
   cashSessions          CashSession[]
   cashMovements         CashMovement[]
   posHeldSales          PosHeldSale[]
+  documentSequences     DocumentSequence[]
+  quotes                Quote[]
+  creditNotes           CreditNote[]
+  recurringInvoices     RecurringInvoice[]
 
   @@map("tenants")
 }
@@ -894,6 +898,8 @@ model Customer {
   deletedAt     DateTime? @db.Timestamptz(6) @map("deleted_at")
 
   orders        Order[]
+  quotes        Quote[]
+  recurringInvoices RecurringInvoice[]
   addresses     CustomerAddress[]
   sessions      CustomerSession[]
   tokens        CustomerToken[]
@@ -1023,6 +1029,7 @@ model Order {
   items           OrderItem[]
   statusHistory   OrderStatusHistory[]
   payments        Payment[]
+  creditNotes     CreditNote[]
 
   @@index([tenantId, status])
   @@index([tenantId, createdAt])
@@ -1358,4 +1365,108 @@ model IdempotencyKey {
   @@id([scopeId, key])
   @@index([createdAt])
   @@map("idempotency_keys")
+}
+
+// Phase 40: running numbers for quotes and credit notes (kind QUOTE / CREDIT_NOTE) per financial year
+model DocumentSequence {
+  tenantId      String   @map("tenant_id")
+  tenant        Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  kind          String
+  financialYear String   @db.VarChar(7) @map("financial_year")
+  lastNumber    Int      @default(0) @map("last_number")
+  updatedAt     DateTime @default(now()) @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  @@id([tenantId, kind, financialYear])
+  @@map("document_sequences")
+}
+
+// Phase 40: an estimate for a customer; becomes an order when accepted
+model Quote {
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  tenant           Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  number           String
+  customerId       String    @map("customer_id")
+  customer         Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  // DRAFT, SENT, ACCEPTED, DECLINED, CONVERTED
+  status           String    @default("DRAFT")
+  validUntil       DateTime? @db.Date @map("valid_until")
+  items            Json
+  subtotal         Decimal   @db.Decimal(12, 2)
+  discountTotal    Decimal   @default(0) @db.Decimal(12, 2) @map("discount_total")
+  taxTotal         Decimal   @default(0) @db.Decimal(12, 2) @map("tax_total")
+  total            Decimal   @db.Decimal(12, 2)
+  currency         String    @default("INR")
+  placeOfSupply    String?   @db.VarChar(2) @map("place_of_supply")
+  supplyType       String?   @map("supply_type")
+  notes            String?
+  convertedOrderId String?   @map("converted_order_id")
+  createdBy        String?   @map("created_by")
+  createdAt        DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  @@unique([tenantId, number])
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, customerId])
+  @@map("quotes")
+}
+
+// Phase 40: a sales return; reduces what the customer owes and may refund money
+model CreditNote {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  tenant         Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  number         String
+  orderId        String   @map("order_id")
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  customerId     String   @map("customer_id")
+  reason         String?
+  // CREDIT (kept on the customer's account), CASH (from the drawer) or ORIGINAL (back to how they paid)
+  refundMethod   String   @map("refund_method")
+  items          Json
+  taxableTotal   Decimal  @db.Decimal(12, 2) @map("taxable_total")
+  taxTotal       Decimal  @default(0) @db.Decimal(12, 2) @map("tax_total")
+  cgstTotal      Decimal  @default(0) @db.Decimal(12, 2) @map("cgst_total")
+  sgstTotal      Decimal  @default(0) @db.Decimal(12, 2) @map("sgst_total")
+  igstTotal      Decimal  @default(0) @db.Decimal(12, 2) @map("igst_total")
+  total          Decimal  @db.Decimal(12, 2)
+  refundedAmount Decimal  @default(0) @db.Decimal(12, 2) @map("refunded_amount")
+  createdBy      String?  @map("created_by")
+  createdAt      DateTime @default(now()) @db.Timestamptz(6) @map("created_at")
+
+  @@unique([tenantId, number])
+  @@index([tenantId, orderId])
+  @@index([tenantId, customerId])
+  @@map("credit_notes")
+}
+
+// Phase 40: bill a customer the same items every week/month/quarter/year
+model RecurringInvoice {
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerId      String    @map("customer_id")
+  customer        Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  name            String
+  items           Json
+  warehouseId     String?   @map("warehouse_id")
+  // WEEKLY, MONTHLY, QUARTERLY or YEARLY
+  frequency       String
+  startOn         DateTime  @db.Date @map("start_on")
+  nextRunOn       DateTime  @db.Date @map("next_run_on")
+  endOn           DateTime? @db.Date @map("end_on")
+  // ACTIVE, PAUSED or ENDED
+  status          String    @default("ACTIVE")
+  sendPaymentLink Boolean   @default(false) @map("send_payment_link")
+  runsCount       Int       @default(0) @map("runs_count")
+  lastRunAt       DateTime? @db.Timestamptz(6) @map("last_run_at")
+  lastOrderId     String?   @map("last_order_id")
+  lastError       String?   @map("last_error")
+  createdBy       String?   @map("created_by")
+  createdAt       DateTime  @default(now()) @db.Timestamptz(6) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @db.Timestamptz(6) @map("updated_at")
+
+  @@index([status, nextRunOn])
+  @@index([tenantId])
+  @@map("recurring_invoices")
 }

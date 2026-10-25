@@ -158,18 +158,22 @@ export class RazorpayPaymentsService {
       throw new AppError('Webhook body is not JSON', { statusCode: 400, code: 'INVALID_WEBHOOK' });
     }
     const entity = event?.payload?.payment?.entity;
+    // Phase 40: payment links are matched by the link id we stored as providerPaymentId
+    const link = event?.event === 'payment_link.paid' ? event?.payload?.payment_link?.entity : null;
     // Razorpay sends x-razorpay-event-id; it repeats on retries, which is what makes this idempotent
     const eventId = `razorpay:${eventIdHeader || crypto.createHash('sha256').update(rawBody).digest('hex')}`;
     const record = (tx, paymentId) => tx.paymentWebhookEvent.create({
-      data: { tenantId, paymentId, eventId, providerEventId: eventIdHeader || null, providerPaymentId: entity?.order_id || null, type: String(event?.event || 'unknown'), payload: event },
+      data: { tenantId, paymentId, eventId, providerEventId: eventIdHeader || null, providerPaymentId: link?.id || entity?.order_id || null, type: String(event?.event || 'unknown'), payload: event },
     });
     const isDuplicate = (err) => err?.code === 'P2002';
 
-    const payment = entity?.order_id
-      ? await this.prisma.payment.findFirst({ where: { tenantId, provider: PROVIDER, providerPaymentId: entity.order_id } })
+    const lookupId = link?.id ?? entity?.order_id;
+    const payment = lookupId
+      ? await this.prisma.payment.findFirst({ where: { tenantId, provider: PROVIDER, providerPaymentId: lookupId } })
       : null;
-    const paid = PAID_EVENTS.includes(event?.event) && payment;
-    if (paid && Number(entity.amount) !== Number(payment.metadata?.amountMinor ?? razorpay.toMinorUnits(payment.amount, payment.currency))) {
+    const paid = (PAID_EVENTS.includes(event?.event) || Boolean(link)) && payment;
+    const paidAmount = link ? link.amount_paid ?? link.amount : entity?.amount;
+    if (paid && Number(paidAmount) !== Number(payment.metadata?.amountMinor ?? razorpay.toMinorUnits(payment.amount, payment.currency))) {
       logger.error({ tenantId, paymentId: payment.id, expected: payment.metadata?.amountMinor, got: entity.amount }, 'Razorpay webhook amount mismatch: not marked paid');
     } else if (paid) {
       try {

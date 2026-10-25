@@ -578,6 +578,44 @@ export const schemas = {
       igst: { type: 'string' },
     },
   },
+  Quote: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' }, number: { type: 'string', example: 'ACME-QT/2026-27/0001' }, customerId: { type: 'string', format: 'uuid' },
+      status: { type: 'string', enum: ['DRAFT', 'SENT', 'ACCEPTED', 'DECLINED', 'CONVERTED'] }, validUntil: { type: 'string', format: 'date', nullable: true },
+      items: { type: 'array', items: { type: 'object', properties: { variantId: { type: 'string' }, productName: { type: 'string' }, sku: { type: 'string' }, hsnCode: { type: 'string', nullable: true }, unitPrice: { type: 'string' }, quantity: { type: 'integer' }, discount: { type: 'string' }, gstRatePercent: { type: 'number' }, taxableValue: { type: 'string' }, tax: { type: 'string' }, cgst: { type: 'string' }, sgst: { type: 'string' }, igst: { type: 'string' }, lineTotal: { type: 'string' } } } },
+      subtotal: { type: 'string' }, discountTotal: { type: 'string' }, taxTotal: { type: 'string' }, total: { type: 'string' }, currency: { type: 'string' },
+      placeOfSupply: { type: 'string', nullable: true }, supplyType: { type: 'string', enum: ['INTRA', 'INTER'], nullable: true }, notes: { type: 'string', nullable: true },
+      convertedOrderId: { type: 'string', nullable: true }, createdAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  CreditNote: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' }, number: { type: 'string', example: 'ACME-CN/2026-27/0001' }, orderId: { type: 'string', format: 'uuid' }, customerId: { type: 'string', format: 'uuid' },
+      reason: { type: 'string', nullable: true }, refundMethod: { type: 'string', enum: ['CREDIT', 'CASH', 'ORIGINAL'] },
+      items: { type: 'array', items: { type: 'object', properties: { orderItemId: { type: 'string' }, productName: { type: 'string' }, quantity: { type: 'integer' }, taxableValue: { type: 'string' }, cgst: { type: 'string' }, sgst: { type: 'string' }, igst: { type: 'string' }, total: { type: 'string' }, restocked: { type: 'boolean' } } } },
+      taxableTotal: { type: 'string' }, taxTotal: { type: 'string' }, cgstTotal: { type: 'string' }, sgstTotal: { type: 'string' }, igstTotal: { type: 'string' }, total: { type: 'string' },
+      refundedAmount: { type: 'string', description: 'Money paid back; the rest of the total reduced what the customer owes' }, createdAt: { type: 'string', format: 'date-time' },
+    },
+  },
+  CustomerBalance: {
+    type: 'object',
+    properties: {
+      customerId: { type: 'string', format: 'uuid' }, billed: { type: 'string' }, credited: { type: 'string' }, paid: { type: 'string' },
+      outstanding: { type: 'string', description: 'Negative = credit on account' },
+      invoices: { type: 'array', items: { type: 'object', properties: { id: { type: 'string' }, invoiceNumber: { type: 'string' }, total: { type: 'string' }, credited: { type: 'string' }, paid: { type: 'string' }, due: { type: 'string' }, ageDays: { type: 'integer' } } } },
+    },
+  },
+  RecurringInvoice: {
+    type: 'object',
+    properties: {
+      id: { type: 'string', format: 'uuid' }, customerId: { type: 'string', format: 'uuid' }, name: { type: 'string' }, items: { type: 'array', items: { type: 'object' } },
+      frequency: { type: 'string', enum: ['WEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY'] }, startOn: { type: 'string', format: 'date' }, nextRunOn: { type: 'string', format: 'date' }, endOn: { type: 'string', format: 'date', nullable: true },
+      status: { type: 'string', enum: ['ACTIVE', 'PAUSED', 'ENDED'] }, sendPaymentLink: { type: 'boolean' }, runsCount: { type: 'integer' }, lastRunAt: { type: 'string', format: 'date-time', nullable: true },
+      lastOrderId: { type: 'string', nullable: true }, lastError: { type: 'string', nullable: true },
+    },
+  },
   PosItem: {
     type: 'object',
     properties: {

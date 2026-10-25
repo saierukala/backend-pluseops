@@ -9,6 +9,8 @@ export const SCHEDULES = [
   { id: 'prune-reports-nightly', queue: getCleanupQueue, pattern: '27 3 * * *', name: JOB_NAMES.PRUNE_REPORTS },
   // Hourly, so a period that just ended (midnight UTC) is reported within the hour
   { id: 'run-report-schedules-hourly', queue: getReportQueue, pattern: '7 * * * *', name: JOB_NAMES.RUN_REPORT_SCHEDULES },
+  // Phase 40: recurring invoices due today (India date); hourly so a failed run is retried
+  { id: 'run-recurring-invoices-hourly', queue: getReportQueue, pattern: '12 * * * *', name: JOB_NAMES.RUN_RECURRING_INVOICES },
 ];
 
 export async function registerSchedulers() {

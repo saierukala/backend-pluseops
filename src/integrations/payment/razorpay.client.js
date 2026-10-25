@@ -83,6 +83,15 @@ export function qrPayments(credentials, qrId) {
   return call(credentials, 'GET', `/payments/qr_codes/${encodeURIComponent(qrId)}/payments`);
 }
 
+// Phase 40: a hosted payment page sent to the customer by email/SMS (recurring invoices, credit sales).
+// Docs: https://razorpay.com/docs/api/payments/payment-links/
+export function createPaymentLink(credentials, { amountMinor, currency, description, referenceId, customer, notify, notes, expireBy }) {
+  return call(credentials, 'POST', '/payment_links', {
+    amount: amountMinor, currency, accept_partial: false, description: description?.slice(0, 2048), reference_id: String(referenceId).slice(0, 40),
+    customer, notify, notes, reminder_enable: true, ...(expireBy ? { expire_by: expireBy } : {}),
+  });
+}
+
 export function closeQr(credentials, qrId) {
   return call(credentials, 'POST', `/payments/qr_codes/${encodeURIComponent(qrId)}/close`);
 }

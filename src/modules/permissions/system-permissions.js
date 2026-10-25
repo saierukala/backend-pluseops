@@ -20,7 +20,8 @@ export const SYSTEM_PERMISSIONS = [
   ...perms('product', CRUD),
   ...perms('category', CRUD),
   ...perms('attribute', CRUD),
-  ...perms('order', ['create', 'read', 'update', 'cancel']),
+  // Phase 40: `return` = sales returns / credit notes
+  ...perms('order', ['create', 'read', 'update', 'cancel', 'return']),
   ...perms('customer', CRUD),
   ...perms('warehouse', CRUD),
   ...perms('inventory', ['read', 'update']),
@@ -36,6 +37,9 @@ export const SYSTEM_PERMISSIONS = [
   // Phase 39: counter sales and the cash drawer
   ...perms('pos', ['sell']),
   ...perms('cash_register', ['read', 'manage']),
+  // Phase 40: quotes and recurring invoices
+  ...perms('quote', CRUD),
+  ...perms('recurring_invoice', CRUD),
 ];
 
 // Global platform permissions (no tenantId), granted to platform roles only.

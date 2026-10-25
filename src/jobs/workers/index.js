@@ -7,7 +7,7 @@ import { processSendNotification } from '../processors/notification.processor.js
 import { processCleanupExpiredTokens, processPruneReports } from '../processors/cleanup.processor.js';
 import { processWebhook } from '../processors/webhook.processor.js';
 import { processSendEmail } from '../processors/email.processor.js';
-import { processGenerateReport, processRunReportSchedules } from '../processors/report.processor.js';
+import { processGenerateReport, processRunReportSchedules, processRunRecurringInvoices } from '../processors/report.processor.js';
 import { processCalculateAnalytics } from '../processors/analytics.processor.js';
 
 let workers = [];
@@ -30,6 +30,7 @@ const PROCESSORS = {
   [QUEUE_NAMES.REPORT]: {
     [JOB_NAMES.GENERATE_REPORT]: processGenerateReport,
     [JOB_NAMES.RUN_REPORT_SCHEDULES]: processRunReportSchedules,
+    [JOB_NAMES.RUN_RECURRING_INVOICES]: processRunRecurringInvoices,
   },
   [QUEUE_NAMES.ANALYTICS]: {
     [JOB_NAMES.CALCULATE_ANALYTICS]: processCalculateAnalytics,

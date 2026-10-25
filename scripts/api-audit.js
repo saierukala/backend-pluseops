@@ -690,6 +690,61 @@ async function main() {
   });
   await check('B cannot close A shift', 'POST', `/cash-registers/sessions/${data(shift)?.id}/close`, 404, { token: B, body: { countedCash: '0' } });
 
+  // ── Quotes, returns, customer balances, recurring invoices (Phase 40) ──
+  group = 'sales-docs';
+  const quote = await check('quote priced like an invoice', 'POST', '/quotes', 201, {
+    token: A, body: { customerId: customer.id, items: [{ variantId, quantity: 2 }], validUntil: '2099-12-31' },
+    assert: (r) => /-QT\//.test(data(r)?.number ?? '') && data(r)?.status === 'DRAFT' && Number(data(r)?.total) > 0 && data(r)?.items?.length === 1,
+  });
+  const quoteId = data(quote)?.id;
+  await check('quote list', 'GET', '/quotes', 200, { token: A, assert: (r) => data(r)?.some?.((x) => x.id === quoteId) });
+  await check('B cannot see A quote', 'GET', `/quotes/${quoteId}`, 404, { token: B });
+  await check('quote edit while draft', 'PATCH', `/quotes/${quoteId}`, 200, { token: A, body: { notes: 'Audit quote' } });
+  await check('quote marked sent', 'POST', `/quotes/${quoteId}/status`, 200, { token: A, body: { status: 'SENT' } });
+  const converted = await check('quote converts to an order', 'POST', `/quotes/${quoteId}/convert`, 201, {
+    token: A, body: { warehouseId: W1 },
+    assert: (r) => data(r)?.quote?.status === 'CONVERTED' && Number(data(r)?.order?.total) === Number(data(quote)?.total),
+  });
+  await check('quote converts only once', 'POST', `/quotes/${quoteId}/convert`, 409, { token: A, body: {}, assert: (r) => r.json?.error?.code === 'QUOTE_LOCKED' });
+  const balBefore = await check('customer balance', 'GET', `/customers/${customer.id}/balance`, 200, { token: A, assert: (r) => Array.isArray(data(r)?.invoices) });
+  await check('B cannot read A customer balance', 'GET', `/customers/${customer.id}/balance`, 404, { token: B });
+  await check('pay later needs a named customer', 'POST', '/pos/sales', 400, {
+    token: A, body: { warehouseId: W1, items: [{ variantId, quantity: 1 }], payments: [{ method: 'CREDIT', amount: '1.00' }] },
+    assert: (r) => r.json?.error?.code === 'CREDIT_NEEDS_CUSTOMER',
+  });
+  const owed = Number(data(balBefore)?.outstanding ?? 0);
+  await check('payment over the balance refused', 'POST', `/customers/${customer.id}/payments`, 400, { token: A, body: { amount: (owed + 1000).toFixed(2), method: 'BANK' }, assert: (r) => r.json?.error?.code === 'PAYMENT_EXCEEDS_DUE' });
+  await check('payment against the account', 'POST', `/customers/${customer.id}/payments`, 201, {
+    token: A, body: { amount: '1.00', method: 'BANK', reference: `AUDIT-${RUN}` },
+    assert: (r) => Math.abs(Number(data(r)?.balance?.outstanding) - (owed - 1)) < 0.001,
+  });
+  const qOrder = data(converted)?.order;
+  await check('confirm the converted order', 'PATCH', `/orders/${qOrder?.id}/status`, 200, { token: A, body: { status: 'CONFIRMED' } });
+  const qItems = data(await call('GET', `/orders/${qOrder?.id}`, { token: A }))?.items ?? [];
+  const qReturn = await check('return one unit (credit note)', 'POST', `/orders/${qOrder?.id}/returns`, 201, {
+    token: A, body: { items: [{ orderItemId: qItems[0]?.id, quantity: 1 }], reason: 'Audit return' },
+    assert: (r) => /-CN\//.test(data(r)?.creditNote?.number ?? '') && Number(data(r)?.creditNote?.total) > 0,
+  });
+  await check('cannot return more than sold', 'POST', `/orders/${qOrder?.id}/returns`, 409, { token: A, body: { items: [{ orderItemId: qItems[0]?.id, quantity: 5 }] }, assert: (r) => r.json?.error?.code === 'RETURN_EXCEEDS_SOLD' });
+  await check('order credit notes', 'GET', `/orders/${qOrder?.id}/credit-notes`, 200, { token: A, assert: (r) => data(r)?.length === 1 });
+  await check('credit note by id', 'GET', `/credit-notes/${data(qReturn)?.creditNote?.id}`, 200, { token: A });
+  await check('B cannot see A credit note', 'GET', `/credit-notes/${data(qReturn)?.creditNote?.id}`, 404, { token: B });
+  const balAfter = await call('GET', `/customers/${customer.id}/balance`, { token: A });
+  await check('statement closes at the balance', 'GET', `/customers/${customer.id}/statement`, 200, { token: A, assert: (r) => data(r)?.closingBalance === data(balAfter)?.outstanding });
+  await check('receivables with ageing', 'GET', '/receivables', 200, { token: A, assert: (r) => Array.isArray(data(r)?.customers) && data(r)?.totals !== undefined });
+  await check('payment link (needs Razorpay or 409)', 'POST', `/orders/${qOrder?.id}/payment-link`, [201, 409], { token: A, body: {} });
+  const rec = await check('recurring invoice created', 'POST', '/recurring-invoices', 201, {
+    token: A, body: { customerId: customer.id, name: `Audit ${RUN}`, items: [{ variantId, quantity: 1 }], frequency: 'MONTHLY', startOn: '2099-01-31' },
+    assert: (r) => data(r)?.status === 'ACTIVE' && String(data(r)?.nextRunOn).startsWith('2099-01-31'),
+  });
+  const recId = data(rec)?.id;
+  await check('recurring list', 'GET', '/recurring-invoices', 200, { token: A, assert: (r) => data(r)?.some?.((x) => x.id === recId) });
+  await check('bill now', 'POST', `/recurring-invoices/${recId}/run`, 201, { token: A, body: {} });
+  await check('pause recurring', 'PATCH', `/recurring-invoices/${recId}`, 200, { token: A, body: { status: 'PAUSED' } });
+  await check('paused cannot bill', 'POST', `/recurring-invoices/${recId}/run`, 409, { token: A, body: {} });
+  await check('B cannot see A recurring invoice', 'GET', `/recurring-invoices/${recId}`, 404, { token: B });
+  await check('delete recurring', 'DELETE', `/recurring-invoices/${recId}`, [200, 204], { token: A });
+
   // ── Realtime ─────────────────────────────────────────────────────────
   group = 'realtime';
   await socketCheck('socket connects with tenant token', A, true);

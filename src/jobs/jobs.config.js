@@ -23,6 +23,8 @@ export const JOB_NAMES = {
   // Phase 36 recurring jobs (registered as BullMQ job schedulers)
   PRUNE_REPORTS: 'prune-reports',
   RUN_REPORT_SCHEDULES: 'run-report-schedules',
+  // Phase 40
+  RUN_RECURRING_INVOICES: 'run-recurring-invoices',
 };
 
 export const DEFAULT_JOB_OPTIONS = {

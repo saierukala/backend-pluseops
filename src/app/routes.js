@@ -27,6 +27,10 @@ import { notificationTemplatesRouter } from '../modules/notification-templates/n
 import { storefrontRouter } from '../modules/storefront/storefront.routes.js';
 import { platformRouter } from '../modules/platform/platform.routes.js';
 import { posRouter, cashRegistersRouter } from '../modules/pos/pos.routes.js';
+import { quotesRouter } from '../modules/quotes/quotes.routes.js';
+import { orderReturnsRouter, creditNotesRouter } from '../modules/returns/returns.routes.js';
+import { customerAccountRouter, receivablesRouter, orderPaymentLinkRouter } from '../modules/receivables/receivables.routes.js';
+import { recurringInvoicesRouter } from '../modules/recurring/recurring-invoices.routes.js';
 
 export const apiRouter = Router();
 apiRouter.use('/health', healthRouter);
@@ -43,10 +47,19 @@ apiRouter.use('/products/:productId/variants', variantsRouter);
 apiRouter.use('/attributes', attributesRouter);
 apiRouter.use('/warehouses', warehousesRouter);
 apiRouter.use('/inventory', inventoryRouter);
+// Phase 40: /customers/:id/balance|statement|payments before the customers router
+apiRouter.use('/customers', customerAccountRouter);
 apiRouter.use('/customers', customersRouter);
+// Phase 40: /orders/:id/returns|credit-notes|payment-link
+apiRouter.use('/orders', orderReturnsRouter);
+apiRouter.use('/orders', orderPaymentLinkRouter);
 apiRouter.use('/orders', ordersRouter);
 apiRouter.use('/pos', posRouter);
 apiRouter.use('/cash-registers', cashRegistersRouter);
+apiRouter.use('/quotes', quotesRouter);
+apiRouter.use('/credit-notes', creditNotesRouter);
+apiRouter.use('/receivables', receivablesRouter);
+apiRouter.use('/recurring-invoices', recurringInvoicesRouter);
 apiRouter.use('/payments', paymentsRouter);
 apiRouter.use('/audit-logs', auditRouter);
 apiRouter.use('/activity-logs', activityRouter);
