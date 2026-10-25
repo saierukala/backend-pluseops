@@ -109,6 +109,9 @@ async function main() {
   // ── Platform admin ───────────────────────────────────────────────────
   group = 'platform';
   await check('platform login wrong password', 'POST', '/auth/login', 401, { body: { email: PLATFORM_EMAIL, password: 'Wrong#Pass1', scope: 'platform' } });
+  // Phase 37: the single sign-in form sends no scope; a platform account is only revealed after the password checks out
+  await check('unscoped login, platform account, wrong password', 'POST', '/auth/login', 401, { body: { email: PLATFORM_EMAIL, password: 'Wrong#Pass1' }, assert: (r) => r.json?.error?.code === 'INVALID_CREDENTIALS' });
+  await check('unscoped login, platform account, right password', 'POST', '/auth/login', 403, { body: { email: PLATFORM_EMAIL, password: PLATFORM_PASSWORD }, assert: (r) => r.json?.error?.code === 'USE_PLATFORM_LOGIN' });
   const pLogin = await check('platform login', 'POST', '/auth/login', 200, { body: { email: PLATFORM_EMAIL, password: PLATFORM_PASSWORD, scope: 'platform' }, assert: (r) => data(r)?.scope === 'platform' });
   const P = data(pLogin)?.accessToken;
   if (!P) throw new Error('Platform login failed — run `npm run db:seed` and check PLATFORM_ADMIN_* env');
@@ -459,6 +462,18 @@ async function main() {
   await check('rename workspace', 'PATCH', '/workspace', 200, { token: A, body: { name: `Audit A ${RUN} renamed` } });
   await check('update settings', 'PATCH', '/workspace/settings', 200, { token: A, body: { currency: 'inr', timezone: 'Asia/Kolkata' }, assert: (r) => data(r)?.currency === 'INR' });
   await check('invalid timezone 400', 'PATCH', '/workspace/settings', 400, { token: A, body: { timezone: 'Mars/Olympus' } });
+  // Phase 37: GST on order lines at the workspace rate, totals in INR
+  await check('set GST 18%', 'PATCH', '/workspace/settings', 200, { token: A, body: { gstRatePercent: 18 }, assert: (r) => data(r)?.gstRatePercent === 18 });
+  await check('GST rate over 100 rejected', 'PATCH', '/workspace/settings', 400, { token: A, body: { gstRatePercent: 120 } });
+  await check('order carries 18% GST in INR', 'POST', '/orders', 201, {
+    token: A,
+    body: { customerId: customer.id, items: [{ productVariantId: variantId, warehouseId: W1, quantity: 1 }] },
+    assert: (r) => {
+      const o = data(r);
+      const expected = (Math.round(Number(o?.subtotal) * 18) / 100).toFixed(2);
+      return o?.currency === 'INR' && Number(o?.taxTotal).toFixed(2) === expected && o?.metadata?.gstRatePercent === 18;
+    },
+  });
   const dom = await check('add domain', 'POST', '/workspace/domains', 201, { token: A, body: { domain: `shop-${RUN}.audit.test` }, assert: (r) => data(r)?.primary === true });
   // Phase 32: an unverified claim doesn't reserve a domain (verified ones do — covered with mocked DNS in Jest)
   await check('B may claim A unverified domain', 'POST', '/workspace/domains', 201, { token: B, body: { domain: `shop-${RUN}.audit.test` } });
@@ -553,7 +568,7 @@ async function main() {
   const shipAddr = await check('shopper adds address', 'POST', `${SF}/account/addresses`, 201, { token: C, body: { type: 'SHIPPING', line1: '1 Shop St', city: 'Pune', country: 'IN' } });
   await check('add to cart', 'PUT', `${SF}/cart/items/${variantId}`, 200, { token: C, body: { quantity: 1 }, assert: (r) => data(r)?.readyForCheckout === true });
   await check('over-stock cart rejected', 'PUT', `${SF}/cart/items/${variantId}`, 409, { token: C, body: { quantity: 100 } });
-  const placedOrder = await check('checkout', 'POST', `${SF}/checkout`, 201, { token: C, body: { shippingAddressId: data(shipAddr)?.id }, assert: (r) => data(r)?.order?.total === '24.50' && data(r)?.payment?.status === 'PENDING' });
+  const placedOrder = await check('checkout', 'POST', `${SF}/checkout`, 201, { token: C, body: { shippingAddressId: data(shipAddr)?.id }, assert: (r) => data(r)?.order?.subtotal === '24.50' && data(r)?.order?.taxTotal === '4.41' && data(r)?.order?.total === '28.91' && data(r)?.payment?.status === 'PENDING' });
   const shopOrderId = data(placedOrder)?.order?.id;
   await check('empty cart checkout 409', 'POST', `${SF}/checkout`, 409, { token: C, body: {} });
   await check('track own order', 'GET', `${SF}/account/orders/${shopOrderId}`, 200, { token: C, assert: (r) => data(r)?.timeline?.[0]?.status === 'PENDING' });

@@ -144,7 +144,7 @@ describe('Phase 10 - Payment & Transaction Processing', () => {
       expect(res.body.data.orderId).toBe(oId);
       expect(parseFloat(res.body.data.amount).toFixed(2)).toBe(parseFloat(expectedTotal).toFixed(2));
       expect(res.body.data.status).toBe('PENDING');
-      expect(res.body.data.currency).toBe('USD');
+      expect(res.body.data.currency).toBe('INR');
       // transaction created
       expect(res.body.data.transactions.length).toBeGreaterThan(0);
       expect(res.body.data.transactions[0].type).toBe('CHARGE');

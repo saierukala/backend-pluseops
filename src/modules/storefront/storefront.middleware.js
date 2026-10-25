@@ -2,6 +2,8 @@ import { getPrismaClient } from '../../config/database.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { verifyAccessToken } from '../auth/jwt.util.js';
 import { toSettings } from '../workspace/workspace.service.js';
+import { DEFAULT_CURRENCY } from '../orders/gst.js';
+import { env } from '../../config/env.js';
 
 const PLATFORM_TENANT_SLUG = '__platform';
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$/;
@@ -13,7 +15,14 @@ export async function findOpenStore(where) {
   const tenant = await getPrismaClient().tenant.findUnique({ where, include: { settings: { select: { metadata: true } } } });
   if (!tenant || tenant.slug === PLATFORM_TENANT_SLUG || !['ACTIVE', 'TRIAL'].includes(tenant.status)) return null;
   const settings = toSettings(tenant.settings?.metadata);
-  return { id: tenant.id, slug: tenant.slug, name: tenant.name, settings, currency: settings.currency ?? 'USD' };
+  return {
+    id: tenant.id,
+    slug: tenant.slug,
+    name: tenant.name,
+    settings,
+    currency: settings.currency ?? DEFAULT_CURRENCY,
+    gstRatePercent: settings.gstRatePercent ?? env.DEFAULT_GST_RATE_PERCENT,
+  };
 }
 
 /** `/storefront/:store` — the public store is addressed by tenant slug; suspended tenants have no store. */

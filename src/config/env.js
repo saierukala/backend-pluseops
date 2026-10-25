@@ -67,6 +67,8 @@ const envSchema = z.object({
   RAZORPAY_TIMEOUT_MS: z.coerce.number().int().positive().default(10000),
   // Phase 36: finished/failed reports and their files are deleted after this many days (0 = keep forever)
   REPORT_RETENTION_DAYS: z.coerce.number().int().min(0).default(30),
+  // Phase 37: GST charged on order lines (percent of the line after discount) unless a workspace sets its own rate
+  DEFAULT_GST_RATE_PERCENT: z.coerce.number().min(0).max(100).default(18),
   // Phase 36: register the recurring jobs (nightly cleanup, scheduled reports). Off in tests unless set.
   JOB_SCHEDULERS_ENABLED: booleanFromString.optional(),
   // Phase 32: optional; <slug>.<STOREFRONT_BASE_DOMAIN> resolves to that tenant's store

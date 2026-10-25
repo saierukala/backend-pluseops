@@ -54,6 +54,8 @@ export async function createPlatformAdmin(app, prisma, { suffix = Date.now().toS
   return {
     token: login.body.data.accessToken,
     userId: user.id,
+    email,
+    password: PASSWORD,
     async cleanup() {
       await prisma.user.delete({ where: { id: user.id } });
       await prisma.platformRole.delete({ where: { id: role.id } });

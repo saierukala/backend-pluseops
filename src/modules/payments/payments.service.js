@@ -8,6 +8,7 @@ import { emitPaymentCompleted } from '../../realtime/realtime.service.js';
 import { createPaymentProvider } from '../../integrations/payment/payment.provider.js';
 import { IntegrationError } from '../../integrations/errors/integration-error.js';
 import { razorpayPaymentsService, PROVIDER as RAZORPAY, RAZORPAY_TX_OPTIONS } from './razorpay-payments.service.js';
+import { DEFAULT_CURRENCY } from '../orders/gst.js';
 
 const PAYMENT_TRANSITIONS = {
   PENDING: ['PROCESSING', 'COMPLETED', 'FAILED', 'CANCELLED'],
@@ -60,7 +61,7 @@ export class PaymentService {
     }
 
     const amountStr = order.total.toString();
-    const currency = order.currency || body.currency || 'USD';
+    const currency = order.currency || body.currency || DEFAULT_CURRENCY;
 
     // Ensure amount is valid decimal
     const amountCents = toCents(amountStr);

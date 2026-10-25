@@ -5,6 +5,7 @@ import { assertWithinPlan } from '../plans/plans.service.js';
 import { auditService } from '../audit/audit.service.js';
 import { CustomerService, toAddressSnapshot } from '../customers/customers.service.js';
 import { emitOrderCreated, emitOrderUpdated } from '../../realtime/realtime.service.js';
+import { gstCents, resolveOrderDefaults } from './gst.js';
 
 const ORDER_STATUS_TRANSITIONS = {
   DRAFT: ['PENDING', 'CANCELLED'],
@@ -38,8 +39,11 @@ export class OrderService {
     const customerId = body.customerId;
     const itemsInput = body.items;
     const shippingTotalStr = body.shippingTotal || '0';
-    const currency = body.currency || 'USD';
-    const metadata = body.metadata || {};
+    const defaults = await resolveOrderDefaults(this.prisma, tenantId);
+    const currency = body.currency || defaults.currency;
+    const gstRatePercent = defaults.gstRatePercent;
+    // The applied rate travels with the order so invoices show it even if the setting changes later
+    const metadata = { ...(body.metadata || {}), gstRatePercent };
 
     // Validate customer exists tenant-scoped
     const customer = await this.prisma.customer.findFirst({ where: { id: customerId, tenantId, deletedAt: null } });
@@ -56,7 +60,8 @@ export class OrderService {
       warehouseId: it.warehouseId,
       quantity: it.quantity,
       discount: it.discount || '0',
-      tax: it.tax || '0',
+      // An explicit tax overrides GST for that line (e.g. exempt goods); otherwise GST is computed below
+      tax: it.tax,
     }));
 
     // Validate all variants and warehouses exist tenant-scoped, collect variant data
@@ -100,8 +105,9 @@ export class OrderService {
       const qty = item.quantity;
       if (qty <= 0) throw new AppError('Quantity must be positive', { statusCode: 400, code: 'INVALID_QUANTITY' });
       const discountCents = Math.round(parseFloat(item.discount) * 100);
-      const taxCents = Math.round(parseFloat(item.tax) * 100);
-      if (discountCents < 0 || taxCents < 0) throw new AppError('Discount/tax cannot be negative', { statusCode: 400, code: 'INVALID_MONEY' });
+      if (discountCents < 0) throw new AppError('Discount/tax cannot be negative', { statusCode: 400, code: 'INVALID_MONEY' });
+      const taxCents = item.tax !== undefined ? Math.round(parseFloat(item.tax) * 100) : gstCents(unitCents * qty - discountCents, gstRatePercent);
+      if (taxCents < 0) throw new AppError('Discount/tax cannot be negative', { statusCode: 400, code: 'INVALID_MONEY' });
       const lineTotalCents = unitCents * qty - discountCents + taxCents;
       if (lineTotalCents < 0) throw new AppError('Line total cannot be negative', { statusCode: 400, code: 'INVALID_LINE_TOTAL' });
       subtotalCents += unitCents * qty;
