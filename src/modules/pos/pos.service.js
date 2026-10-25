@@ -60,6 +60,8 @@ export class PosService {
       registers,
       gstRatePercent: defaults.gstRatePercent,
       pricesIncludeTax: Boolean(defaults.taxProfile.pricesIncludeTax),
+      // Composition / unregistered shops charge no GST; the counter's running total must match the invoice
+      chargesGst: !['COMPOSITION', 'UNREGISTERED'].includes(defaults.taxProfile.registrationType),
       upi: gateway ? 'razorpay' : defaults.taxProfile.upiId ? 'upi-id' : null,
       paymentMethods: PAYMENT_METHODS,
     };
