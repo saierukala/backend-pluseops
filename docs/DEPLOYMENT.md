@@ -442,6 +442,10 @@ docker compose ps
 curl -f http://localhost:3000/health
 curl -f http://localhost:3000/health/db
 curl -f http://localhost:3000/health/redis
+
+# Web app too (frontend repo checked out at ../Frontend-PluseOps, or set WEB_CONTEXT)
+docker compose --profile web up -d --build
+curl -f http://localhost:3001/login
 docker compose logs api worker migrate postgres redis
 docker compose down -v  # when safe to remove volumes
 
